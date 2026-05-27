@@ -1926,6 +1926,37 @@ pub async fn block_account(
     .execute(&state.db)
     .await?;
 
+    // Send Block activity to remote target
+    if let Some(target) = sqlx::query!(
+        "SELECT uri, inbox_url, shared_inbox_url, domain FROM accounts WHERE id = $1",
+        target_id,
+    ).fetch_optional(&state.db).await? {
+        if target.domain.is_some() {
+            if let Some(actor_row) = sqlx::query!(
+                "SELECT username, private_key FROM accounts WHERE id = $1 AND domain IS NULL",
+                auth.account_id,
+            ).fetch_optional(&state.db).await? {
+                if let Some(private_key) = actor_row.private_key.filter(|s| !s.is_empty()) {
+                    let domain = state.instance.domain.clone();
+                    let actor_url = format!("https://{}/users/{}", domain, actor_row.username);
+                    let block_id = format!("https://{}/users/{}/blocks/{}", domain, actor_row.username, target_id);
+                    let target_uri = target.uri.clone();
+                    let block_act = feder_vocab::block(&block_id, &actor_url, &target_uri);
+                    let key_id = format!("{}#main-key", actor_url);
+                    let inbox = if !target.shared_inbox_url.is_empty() { target.shared_inbox_url } else { target.inbox_url };
+                    if !inbox.is_empty() {
+                        let http = state.http.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = crate::federation::delivery::deliver(&http, &block_act, &inbox, &key_id, &private_key).await {
+                                tracing::warn!(inbox, error = %e, "failed to deliver Block");
+                            }
+                        });
+                    }
+                }
+            }
+        }
+    }
+
     build_relationship(&state, auth.account_id, target_id).await.map(Json)
 }
 
@@ -1943,6 +1974,38 @@ pub async fn unblock_account(
     )
     .execute(&state.db)
     .await?;
+
+    // Send Undo(Block) activity to remote target
+    if let Some(target) = sqlx::query!(
+        "SELECT uri, inbox_url, shared_inbox_url, domain FROM accounts WHERE id = $1",
+        target_id,
+    ).fetch_optional(&state.db).await? {
+        if target.domain.is_some() {
+            if let Some(actor_row) = sqlx::query!(
+                "SELECT username, private_key FROM accounts WHERE id = $1 AND domain IS NULL",
+                auth.account_id,
+            ).fetch_optional(&state.db).await? {
+                if let Some(private_key) = actor_row.private_key.filter(|s| !s.is_empty()) {
+                    let domain = state.instance.domain.clone();
+                    let actor_url = format!("https://{}/users/{}", domain, actor_row.username);
+                    let block_id = format!("https://{}/users/{}/blocks/{}", domain, actor_row.username, target_id);
+                    let target_uri = target.uri.clone();
+                    let undo_id = format!("{}#undo", block_id);
+                    let undo = feder_vocab::undo_block(&undo_id, &actor_url, &block_id, &target_uri);
+                    let key_id = format!("{}#main-key", actor_url);
+                    let inbox = if !target.shared_inbox_url.is_empty() { target.shared_inbox_url } else { target.inbox_url };
+                    if !inbox.is_empty() {
+                        let http = state.http.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = crate::federation::delivery::deliver(&http, &undo, &inbox, &key_id, &private_key).await {
+                                tracing::warn!(inbox, error = %e, "failed to deliver Undo(Block)");
+                            }
+                        });
+                    }
+                }
+            }
+        }
+    }
 
     build_relationship(&state, auth.account_id, target_id).await.map(Json)
 }

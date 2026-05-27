@@ -1248,20 +1248,40 @@ pub async fn favourite_status(
     let ctx = build_viewer_context(&state, auth.account_id, id).await?;
 
     // Notify status author
-    let from_display = {
-        let from = fetch_account(&state, auth.account_id).await?;
-        from.display_name.clone()
-    };
+    let from_account = fetch_account(&state, auth.account_id).await?;
     push::create_and_push(
         &state,
         status.account_id,
         auth.account_id,
         "favourite",
         Some(id),
-        format!("{} favourited your post", from_display),
+        format!("{} favourited your post", from_account.display_name),
         account_from_db(&account).acct.clone(),
         super::convert::account_avatar_url_for(&account),
     ).await;
+
+    // Send Like to remote status author
+    if account.domain.is_some() {
+        if let Some(private_key) = from_account.private_key.clone().filter(|s| !s.is_empty()) {
+            let domain = state.instance.domain.clone();
+            let actor_url = format!("https://{}/users/{}", domain, from_account.username);
+            let like_id = format!("https://{}/users/{}/likes/{}", domain, from_account.username, id);
+            let status_uri = status.uri.clone().unwrap_or_default();
+            let like = feder_vocab::like(&like_id, &actor_url, &status_uri);
+            let key_id = format!("{}#main-key", actor_url);
+            let inbox = if !account.shared_inbox_url.is_empty() {
+                account.shared_inbox_url.clone()
+            } else {
+                account.inbox_url.clone()
+            };
+            let http = state.http.clone();
+            tokio::spawn(async move {
+                if let Err(e) = crate::federation::delivery::deliver(&http, &like, &inbox, &key_id, &private_key).await {
+                    tracing::warn!(inbox, error = %e, "failed to deliver Like");
+                }
+            });
+        }
+    }
 
     Ok(Json(build_status(&state, &status, &account, media, reblog, Some(ctx)).await?))
 }
@@ -1292,6 +1312,35 @@ pub async fn unfavourite_status(
     )
     .execute(&state.db)
     .await?;
+
+    // Send Undo(Like) to remote status author
+    if account.domain.is_some() {
+        if let Some(actor_row) = sqlx::query!(
+            "SELECT username, private_key, inbox_url, shared_inbox_url FROM accounts WHERE id = $1 AND domain IS NULL",
+            auth.account_id,
+        ).fetch_optional(&state.db).await? {
+            if let Some(private_key) = actor_row.private_key.filter(|s| !s.is_empty()) {
+                let domain = state.instance.domain.clone();
+                let actor_url = format!("https://{}/users/{}", domain, actor_row.username);
+                let like_id = format!("https://{}/users/{}/likes/{}", domain, actor_row.username, id);
+                let status_uri = s.uri.clone().unwrap_or_default();
+                let undo_id = format!("{}#undo", like_id);
+                let undo = feder_vocab::undo_like(&undo_id, &actor_url, &like_id, &status_uri);
+                let key_id = format!("{}#main-key", actor_url);
+                let inbox = if !account.shared_inbox_url.is_empty() {
+                    account.shared_inbox_url.clone()
+                } else {
+                    account.inbox_url.clone()
+                };
+                let http = state.http.clone();
+                tokio::spawn(async move {
+                    if let Err(e) = crate::federation::delivery::deliver(&http, &undo, &inbox, &key_id, &private_key).await {
+                        tracing::warn!(inbox, error = %e, "failed to deliver Undo(Like)");
+                    }
+                });
+            }
+        }
+    }
 
     let (status, _) = fetch_status_with_account(&state, id).await?;
     let media = fetch_status_media(&state, id).await?;
@@ -1427,6 +1476,52 @@ pub async fn reblog_status(
             has_media: !api_boost.media_attachments.is_empty(),
             payload: std::sync::Arc::new(payload),
         });
+    }
+
+    // Send Announce activity to followers and original status author (if remote)
+    if let Some(private_key) = boost_account.private_key.clone().filter(|s| !s.is_empty()) {
+        let domain = state.instance.domain.clone();
+        let actor_url = format!("https://{}/users/{}", domain, boost_account.username);
+        let followers_url = format!("{}/followers", actor_url);
+        let announce_id = format!("https://{}/users/{}/statuses/{}/activity", domain, boost_account.username, boost_id);
+        let original_uri = original.uri.clone().unwrap_or_default();
+        let original_account = sqlx::query!(
+            "SELECT uri, inbox_url, shared_inbox_url, domain FROM accounts WHERE id = $1",
+            original.account_id,
+        ).fetch_optional(&state.db).await?;
+        let original_author_url = original_account.as_ref().map(|a| a.uri.clone()).unwrap_or_default();
+        let cc_strs: Vec<String> = std::iter::once(followers_url.clone())
+            .chain(std::iter::once(original_author_url.clone()).filter(|s| !s.is_empty()))
+            .collect();
+        let to_refs = vec![feder_vocab::AS_PUBLIC];
+        let cc_refs: Vec<&str> = cc_strs.iter().map(String::as_str).collect();
+        let published = boost.created_at.to_rfc3339();
+        let announce = feder_vocab::announce(&announce_id, &actor_url, &original_uri, &to_refs, &cc_refs, &published);
+        let key_id = format!("{}#main-key", actor_url);
+
+        // Deliver to remote original author's inbox directly
+        if let Some(ref orig_acc) = original_account {
+            if orig_acc.domain.is_some() {
+                let inbox = if !orig_acc.shared_inbox_url.is_empty() {
+                    orig_acc.shared_inbox_url.clone()
+                } else {
+                    orig_acc.inbox_url.clone()
+                };
+                if !inbox.is_empty() {
+                    let http = state.http.clone();
+                    let ann = announce.clone();
+                    let kid = key_id.clone();
+                    let pk = private_key.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = crate::federation::delivery::deliver(&http, &ann, &inbox, &kid, &pk).await {
+                            tracing::warn!(inbox, error = %e, "failed to deliver Announce to original author");
+                        }
+                    });
+                }
+            }
+        }
+
+        crate::federation::delivery::fanout_to_followers(&state, announce, boost_account.id, key_id, private_key);
     }
 
     Ok(Json(api_boost))
@@ -1721,7 +1816,7 @@ pub async fn unreblog_status(
     .fetch_optional(&state.db)
     .await?;
 
-    if deleted.is_some() {
+    if let Some(ref del) = deleted {
         sqlx::query!(
             r#"UPDATE status_stats SET reblogs_count = GREATEST(reblogs_count - 1, 0), updated_at = now()
                WHERE status_id = $1"#,
@@ -1736,6 +1831,47 @@ pub async fn unreblog_status(
         )
         .execute(&state.db)
         .await?;
+
+        // Send Undo(Announce) to followers and original status author (if remote)
+        let boost_id = del.id;
+        if let Some(actor_row) = sqlx::query!(
+            "SELECT username, private_key FROM accounts WHERE id = $1 AND domain IS NULL",
+            auth.account_id,
+        ).fetch_optional(&state.db).await? {
+            if let Some(private_key) = actor_row.private_key.filter(|s| !s.is_empty()) {
+                let domain = state.instance.domain.clone();
+                let actor_url = format!("https://{}/users/{}", domain, actor_row.username);
+                let announce_id = format!("https://{}/users/{}/statuses/{}/activity", domain, actor_row.username, boost_id);
+                let original_uri = sqlx::query_scalar!("SELECT uri FROM statuses WHERE id = $1", original_id)
+                    .fetch_optional(&state.db).await?.flatten().unwrap_or_default();
+                let undo_id = format!("{}#undo", announce_id);
+                let undo = feder_vocab::undo_announce(&undo_id, &actor_url, &announce_id, &original_uri);
+                let key_id = format!("{}#main-key", actor_url);
+
+                // Deliver to remote original author's inbox
+                if let Some(orig_acc) = sqlx::query!(
+                    "SELECT inbox_url, shared_inbox_url, domain FROM accounts WHERE id = (SELECT account_id FROM statuses WHERE id = $1)",
+                    original_id,
+                ).fetch_optional(&state.db).await? {
+                    if orig_acc.domain.is_some() {
+                        let inbox = if !orig_acc.shared_inbox_url.is_empty() { orig_acc.shared_inbox_url } else { orig_acc.inbox_url };
+                        if !inbox.is_empty() {
+                            let http = state.http.clone();
+                            let u = undo.clone();
+                            let kid = key_id.clone();
+                            let pk = private_key.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = crate::federation::delivery::deliver(&http, &u, &inbox, &kid, &pk).await {
+                                    tracing::warn!(inbox, error = %e, "failed to deliver Undo(Announce) to original author");
+                                }
+                            });
+                        }
+                    }
+                }
+
+                crate::federation::delivery::fanout_to_followers(&state, undo, auth.account_id, key_id, private_key);
+            }
+        }
     }
 
     let (original, account) = fetch_status_with_account(&state, original_id).await?;

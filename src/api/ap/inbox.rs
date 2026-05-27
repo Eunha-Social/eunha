@@ -93,6 +93,11 @@ pub async fn shared_inbox(
         "Like" => { handle_like(&state, &instance, &activity).await?; "handled" }
         "Accept" | "Reject" => { handle_accept_reject(&state, &instance, &activity).await?; "handled" }
         "Update" => { handle_update(&state, &instance, &activity).await?; "handled" }
+        "Block" => { handle_block(&state, &activity).await?; "handled" }
+        "Flag" => { handle_flag(&state, &activity).await?; "handled" }
+        "Move" => { handle_move(&state, &activity).await?; "handled" }
+        "Add" => { handle_add(&state, &activity).await?; "handled" }
+        "Remove" => { handle_remove(&state, &activity).await?; "handled" }
         "QuoteRequest" => { handle_quote_request(&state, &instance, &activity).await?; "handled" }
         _ => "ignored",
     };
@@ -273,20 +278,68 @@ async fn handle_undo(
     _instance: &crate::config::InstanceConfig,
     activity: &Value,
 ) -> AppResult<()> {
+    let actor_uri = activity.get("actor").and_then(|a| a.as_str()).unwrap_or("");
     let object = activity.get("object");
     let object_type = object.and_then(|o| o.get("type")).and_then(|t| t.as_str());
 
-    if object_type == Some("Follow") {
-        let follow_uri = object
-            .and_then(|o| o.get("id"))
-            .and_then(|i| i.as_str())
-            .unwrap_or("");
-        sqlx::query!("DELETE FROM follows WHERE uri = $1", follow_uri)
-            .execute(&state.db)
-            .await?;
-        sqlx::query!("DELETE FROM follow_requests WHERE uri = $1", follow_uri)
-            .execute(&state.db)
-            .await?;
+    match object_type {
+        Some("Follow") => {
+            let follow_uri = object.and_then(|o| o.get("id")).and_then(|i| i.as_str()).unwrap_or("");
+            sqlx::query!("DELETE FROM follows WHERE uri = $1", follow_uri).execute(&state.db).await?;
+            sqlx::query!("DELETE FROM follow_requests WHERE uri = $1", follow_uri).execute(&state.db).await?;
+        }
+        Some("Like") => {
+            // object.object is the liked status URI
+            let status_uri = object
+                .and_then(|o| o.get("object"))
+                .and_then(|v| if v.is_string() { v.as_str() } else { v.get("id").and_then(|i| i.as_str()) })
+                .unwrap_or("");
+            let status_id = sqlx::query_scalar!("SELECT id FROM statuses WHERE uri = $1", status_uri)
+                .fetch_optional(&state.db).await?;
+            let account_id = sqlx::query_scalar!("SELECT id FROM accounts WHERE uri = $1", actor_uri)
+                .fetch_optional(&state.db).await?;
+            if let (Some(sid), Some(aid)) = (status_id, account_id) {
+                sqlx::query!("DELETE FROM favourites WHERE account_id = $1 AND status_id = $2", aid, sid)
+                    .execute(&state.db).await?;
+                sqlx::query!(
+                    r#"UPDATE status_stats SET favourites_count = (SELECT COUNT(*) FROM favourites WHERE status_id = $1), updated_at = now() WHERE status_id = $1"#,
+                    sid
+                ).execute(&state.db).await?;
+            }
+        }
+        Some("Announce") => {
+            // Delete the remote boost status by its announce URI
+            let announce_uri = object.and_then(|o| o.get("id")).and_then(|i| i.as_str()).unwrap_or("");
+            if !announce_uri.is_empty() {
+                let deleted = sqlx::query!(
+                    "DELETE FROM statuses WHERE uri = $1 RETURNING reblog_of_id",
+                    announce_uri,
+                ).fetch_optional(&state.db).await?;
+                if let Some(row) = deleted {
+                    if let Some(original_id) = row.reblog_of_id {
+                        sqlx::query!(
+                            r#"UPDATE status_stats SET reblogs_count = (SELECT COUNT(*) FROM statuses WHERE reblog_of_id = $1 AND deleted_at IS NULL), updated_at = now() WHERE status_id = $1"#,
+                            original_id,
+                        ).execute(&state.db).await?;
+                    }
+                }
+            }
+        }
+        Some("Block") => {
+            let block_object_uri = object
+                .and_then(|o| o.get("object"))
+                .and_then(|v| if v.is_string() { v.as_str() } else { v.get("id").and_then(|i| i.as_str()) })
+                .unwrap_or("");
+            let blocker_id = sqlx::query_scalar!("SELECT id FROM accounts WHERE uri = $1", actor_uri)
+                .fetch_optional(&state.db).await?;
+            let blockee_id = sqlx::query_scalar!("SELECT id FROM accounts WHERE uri = $1 AND domain IS NULL", block_object_uri)
+                .fetch_optional(&state.db).await?;
+            if let (Some(bid), Some(eid)) = (blocker_id, blockee_id) {
+                sqlx::query!("DELETE FROM blocks WHERE account_id = $1 AND target_account_id = $2", bid, eid)
+                    .execute(&state.db).await?;
+            }
+        }
+        _ => {}
     }
 
     Ok(())
@@ -1165,58 +1218,304 @@ async fn handle_update(
                 return Ok(());
             }
 
-            let display_name = object
-                .get("name")
-                .and_then(|n| n.as_str())
-                .unwrap_or("")
-                .to_string();
-            let note = object
-                .get("summary")
-                .and_then(|s| s.as_str())
-                .unwrap_or("")
-                .to_string();
-            let inbox_url = object
-                .get("inbox")
-                .and_then(|i| i.as_str())
-                .unwrap_or("")
-                .to_string();
+            let display_name = object.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+            let note = object.get("summary").and_then(|s| s.as_str()).unwrap_or("").to_string();
+            let inbox_url = object.get("inbox").and_then(|i| i.as_str()).unwrap_or("").to_string();
             let shared_inbox_url = object
-                .get("endpoints")
-                .and_then(|e| e.get("sharedInbox"))
-                .and_then(|s| s.as_str())
+                .get("endpoints").and_then(|e| e.get("sharedInbox")).and_then(|s| s.as_str())
                 .map(str::to_owned);
             let public_key = object
-                .get("publicKey")
-                .and_then(|k| k.get("publicKeyPem"))
-                .and_then(|p| p.as_str())
-                .unwrap_or("")
-                .to_string();
-            let locked = object
-                .get("manuallyApprovesFollowers")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
+                .get("publicKey").and_then(|k| k.get("publicKeyPem")).and_then(|p| p.as_str())
+                .unwrap_or("").to_string();
+            let locked = object.get("manuallyApprovesFollowers").and_then(|v| v.as_bool()).unwrap_or(false);
 
+            // Don't clear inbox_url or public_key if the update omits them (sparse update guard)
             sqlx::query!(
                 r#"UPDATE accounts
-                   SET display_name = $2, note = $3, inbox_url = $4,
-                       shared_inbox_url = $5, public_key = $6, locked = $7,
+                   SET display_name = $2,
+                       note = $3,
+                       inbox_url = CASE WHEN $4 != '' THEN $4 ELSE inbox_url END,
+                       shared_inbox_url = COALESCE($5, shared_inbox_url),
+                       public_key = CASE WHEN $6 != '' THEN $6 ELSE public_key END,
+                       locked = $7,
                        updated_at = now()
                    WHERE uri = $1 AND domain IS NOT NULL"#,
-                actor_uri,
-                display_name,
-                note,
-                inbox_url,
-                shared_inbox_url,
-                public_key,
-                locked,
+                actor_uri, display_name, note, inbox_url, shared_inbox_url, public_key, locked,
             )
             .execute(&state.db)
             .await?;
         }
         "Note" => {
-            // TODO: handle remote status edits (Update(Note))
+            let note_uri = object.get("id").and_then(|i| i.as_str()).unwrap_or("");
+            if note_uri.is_empty() { return Ok(()); }
+
+            let text = object.get("content").and_then(|c| c.as_str()).unwrap_or("").to_string();
+            let spoiler_text = object.get("summary").and_then(|s| s.as_str()).unwrap_or("").to_string();
+            let sensitive = object.get("sensitive").and_then(|s| s.as_bool()).unwrap_or(false);
+            let language = object
+                .get("contentMap").and_then(|m| m.as_object()).and_then(|m| m.keys().next())
+                .map(|s| s.to_string())
+                .filter(|s| ["ko", "en"].contains(&s.as_str()));
+            let edited_at = object.get("updated").and_then(|p| p.as_str())
+                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                .map(|t| t.with_timezone(&chrono::Utc));
+
+            let updated = sqlx::query!(
+                r#"UPDATE statuses
+                   SET text = $2, spoiler_text = $3, sensitive = $4, language = $5,
+                       edited_at = COALESCE($6, edited_at), updated_at = now()
+                   WHERE uri = $1 AND deleted_at IS NULL
+                   RETURNING id, account_id"#,
+                note_uri, text, spoiler_text, sensitive, language, edited_at,
+            )
+            .fetch_optional(&state.db)
+            .await?;
+
+            let Some(row) = updated else { return Ok(()); };
+
+            // Replace media attachments
+            sqlx::query!("DELETE FROM media_attachments WHERE status_id = $1", row.id)
+                .execute(&state.db).await?;
+            let attachments: Vec<Value> = object.get("attachment")
+                .and_then(|a| a.as_array()).cloned().unwrap_or_default();
+            let mut media_ids: Vec<i64> = Vec::new();
+            for att in &attachments {
+                let att_type_str = att.get("type").and_then(|v| v.as_str()).unwrap_or("");
+                let media_type_str = att.get("mediaType").and_then(|v| v.as_str()).unwrap_or("");
+                let att_type: i32 = match att_type_str {
+                    "Image" => 0,
+                    "Video" => if media_type_str.contains("gif") { 1 } else { 2 },
+                    "Audio" => 3,
+                    _ => 4,
+                };
+                let remote_url = match att.get("url").and_then(|v| v.as_str()) {
+                    Some(u) if !u.is_empty() => u,
+                    _ => continue,
+                };
+                let description = att.get("name").and_then(|v| v.as_str()).map(str::to_owned);
+                let blurhash = att.get("blurhash").and_then(|v| v.as_str()).map(str::to_owned);
+                let thumbnail_remote_url = att.get("icon")
+                    .and_then(|i| if i.is_object() { i.get("url") } else { None })
+                    .and_then(|v| v.as_str()).map(str::to_owned);
+                let file_content_type = if media_type_str.is_empty() { None } else { Some(media_type_str.to_owned()) };
+                let media_id = crate::snowflake::next_id();
+                if let Ok(id) = sqlx::query_scalar!(
+                    r#"INSERT INTO media_attachments (id, account_id, status_id, remote_url, description, blurhash, type, thumbnail_remote_url, file_content_type) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id"#,
+                    media_id, row.account_id, row.id, remote_url, description, blurhash, att_type, thumbnail_remote_url, file_content_type,
+                ).fetch_one(&state.db).await { media_ids.push(id); }
+            }
+            if !media_ids.is_empty() {
+                let _ = sqlx::query!("UPDATE statuses SET ordered_media_attachment_ids = $1 WHERE id = $2", &media_ids, row.id)
+                    .execute(&state.db).await;
+            }
+
+            // Replace hashtags
+            sqlx::query!("DELETE FROM statuses_tags WHERE status_id = $1", row.id)
+                .execute(&state.db).await?;
+            let tags_arr: Vec<Value> = match object.get("tag") {
+                Some(Value::Array(arr)) => arr.clone(),
+                Some(obj @ Value::Object(_)) => vec![obj.clone()],
+                _ => vec![],
+            };
+            for tag in tags_arr.iter().filter(|t| tag_type_is(t, "Hashtag")) {
+                let name = match tag.get("name").and_then(|v| v.as_str())
+                    .map(|n| n.trim_start_matches('#').to_lowercase())
+                    .filter(|n| !n.is_empty())
+                { Some(n) => n, None => continue };
+                let tag_id = crate::snowflake::next_id();
+                if let Ok(Some(tid)) = sqlx::query_scalar!(
+                    r#"INSERT INTO tags (id, name, last_status_at, created_at, updated_at) VALUES ($1,$2,now(),now(),now()) ON CONFLICT (lower(name)) DO UPDATE SET last_status_at = now(), updated_at = now() RETURNING id"#,
+                    tag_id, name,
+                ).fetch_optional(&state.db).await {
+                    let _ = sqlx::query!("INSERT INTO statuses_tags (status_id, tag_id) VALUES ($1,$2) ON CONFLICT DO NOTHING", row.id, tid)
+                        .execute(&state.db).await;
+                }
+            }
         }
         _ => {}
+    }
+
+    Ok(())
+}
+
+async fn handle_block(
+    state: &AppState,
+    activity: &Value,
+) -> AppResult<()> {
+    let actor_uri = activity.get("actor").and_then(|a| a.as_str()).unwrap_or("");
+    let object_uri = activity.get("object").and_then(|o| {
+        if o.is_string() { o.as_str() } else { o.get("id").and_then(|i| i.as_str()) }
+    }).unwrap_or("");
+
+    // Only process if the blocked account is local
+    let Some(target_id) = sqlx::query_scalar!(
+        "SELECT id FROM accounts WHERE uri = $1 AND domain IS NULL", object_uri
+    ).fetch_optional(&state.db).await? else { return Ok(()); };
+
+    let blocker_id = resolve_or_fetch_remote_account(state, actor_uri).await?;
+
+    sqlx::query!(
+        "INSERT INTO blocks (account_id, target_account_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+        blocker_id, target_id,
+    ).execute(&state.db).await?;
+
+    // Remove mutual follows
+    let deleted = sqlx::query!(
+        "DELETE FROM follows WHERE (account_id=$1 AND target_account_id=$2) OR (account_id=$2 AND target_account_id=$1) RETURNING account_id, target_account_id",
+        blocker_id, target_id,
+    ).fetch_all(&state.db).await?;
+    for row in &deleted {
+        let _ = sqlx::query!("UPDATE account_stats SET following_count = GREATEST(following_count-1,0), updated_at=now() WHERE account_id=$1", row.account_id).execute(&state.db).await;
+        let _ = sqlx::query!("UPDATE account_stats SET followers_count = GREATEST(followers_count-1,0), updated_at=now() WHERE account_id=$1", row.target_account_id).execute(&state.db).await;
+    }
+    sqlx::query!(
+        "DELETE FROM follow_requests WHERE (account_id=$1 AND target_account_id=$2) OR (account_id=$2 AND target_account_id=$1)",
+        blocker_id, target_id,
+    ).execute(&state.db).await?;
+
+    Ok(())
+}
+
+async fn handle_flag(
+    state: &AppState,
+    activity: &Value,
+) -> AppResult<()> {
+    let actor_uri = activity.get("actor").and_then(|a| a.as_str()).unwrap_or("");
+    let comment = activity.get("content").and_then(|c| c.as_str()).unwrap_or("").to_string();
+    let activity_uri = activity.get("id").and_then(|i| i.as_str()).map(str::to_owned);
+
+    // object can be a mixed array of account URIs and status URIs, or a single string
+    let objects = as_string_vec(activity.get("object"));
+
+    // Resolve the reporter (remote account)
+    let reporter_id = match resolve_or_fetch_remote_account(state, actor_uri).await {
+        Ok(id) => id,
+        Err(_) => return Ok(()),
+    };
+
+    // Find local accounts among the objects
+    let local_account_ids: Vec<i64> = sqlx::query_scalar!(
+        "SELECT id FROM accounts WHERE uri = ANY($1) AND domain IS NULL",
+        &objects as &[String],
+    ).fetch_all(&state.db).await.unwrap_or_default();
+
+    let Some(&target_account_id) = local_account_ids.first() else { return Ok(()); };
+
+    // Find local statuses among the objects
+    let status_ids: Vec<i64> = sqlx::query_scalar!(
+        "SELECT id FROM statuses WHERE uri = ANY($1) AND deleted_at IS NULL",
+        &objects as &[String],
+    ).fetch_all(&state.db).await.unwrap_or_default();
+
+    let report_id = crate::snowflake::next_id();
+    sqlx::query!(
+        r#"INSERT INTO reports (id, account_id, target_account_id, status_ids, comment, uri, forwarded, created_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,false,now(),now())
+           ON CONFLICT DO NOTHING"#,
+        report_id, reporter_id, target_account_id, &status_ids as &[i64], comment, activity_uri,
+    ).execute(&state.db).await?;
+
+    Ok(())
+}
+
+async fn handle_move(
+    state: &AppState,
+    activity: &Value,
+) -> AppResult<()> {
+    let actor_uri = activity.get("actor").and_then(|a| a.as_str()).unwrap_or("");
+    let target_uri = activity.get("object").and_then(|o| {
+        if o.is_string() { o.as_str() } else { o.get("id").and_then(|i| i.as_str()) }
+    }).unwrap_or("");
+
+    if actor_uri.is_empty() || target_uri.is_empty() { return Ok(()); }
+
+    // Fetch the new account to verify also_known_as contains the old actor URI
+    let new_account_id = match resolve_or_fetch_remote_account(state, target_uri).await {
+        Ok(id) => id,
+        Err(_) => return Ok(()),
+    };
+
+    // Fetch the target actor to verify also_known_as
+    let also_known_as: Vec<String> = sqlx::query_scalar!(
+        "SELECT also_known_as FROM accounts WHERE id = $1",
+        new_account_id,
+    ).fetch_optional(&state.db).await?
+        .flatten().unwrap_or_default();
+
+    if !also_known_as.iter().any(|u| u == actor_uri) {
+        tracing::warn!(actor_uri, target_uri, "Move rejected: target alsoKnownAs does not include actor");
+        return Ok(());
+    }
+
+    // Set moved_to_account_id on the old account
+    sqlx::query!(
+        "UPDATE accounts SET moved_to_account_id = $1 WHERE uri = $2 AND domain IS NOT NULL",
+        new_account_id, actor_uri,
+    ).execute(&state.db).await?;
+
+    tracing::debug!(actor_uri, target_uri, "processed Move: updated moved_to_account_id");
+    Ok(())
+}
+
+async fn handle_add(
+    state: &AppState,
+    activity: &Value,
+) -> AppResult<()> {
+    let actor_uri = activity.get("actor").and_then(|a| a.as_str()).unwrap_or("");
+    let object_uri = activity.get("object").and_then(|o| {
+        if o.is_string() { o.as_str() } else { o.get("id").and_then(|i| i.as_str()) }
+    }).unwrap_or("");
+    let target_uri = activity.get("target").and_then(|t| {
+        if t.is_string() { t.as_str() } else { t.get("id").and_then(|i| i.as_str()) }
+    }).unwrap_or("");
+
+    if actor_uri.is_empty() || object_uri.is_empty() { return Ok(()); }
+
+    // Check that the target is the actor's featured collection (pinned posts)
+    let featured_url = sqlx::query_scalar!(
+        "SELECT featured_collection_url FROM accounts WHERE uri = $1",
+        actor_uri,
+    ).fetch_optional(&state.db).await?.flatten().unwrap_or_default();
+
+    if target_uri != featured_url { return Ok(()); }
+
+    let account_id = sqlx::query_scalar!(
+        "SELECT id FROM accounts WHERE uri = $1",
+        actor_uri,
+    ).fetch_optional(&state.db).await?;
+    let status_id = sqlx::query_scalar!(
+        "SELECT id FROM statuses WHERE uri = $1 AND deleted_at IS NULL",
+        object_uri,
+    ).fetch_optional(&state.db).await?;
+
+    if let (Some(aid), Some(sid)) = (account_id, status_id) {
+        let pin_id = crate::snowflake::next_id();
+        sqlx::query!(
+            "INSERT INTO status_pins (id, account_id, status_id, created_at, updated_at) VALUES ($1,$2,$3,now(),now()) ON CONFLICT DO NOTHING",
+            pin_id, aid, sid,
+        ).execute(&state.db).await?;
+    }
+
+    Ok(())
+}
+
+async fn handle_remove(
+    state: &AppState,
+    activity: &Value,
+) -> AppResult<()> {
+    let actor_uri = activity.get("actor").and_then(|a| a.as_str()).unwrap_or("");
+    let object_uri = activity.get("object").and_then(|o| {
+        if o.is_string() { o.as_str() } else { o.get("id").and_then(|i| i.as_str()) }
+    }).unwrap_or("");
+
+    let account_id = sqlx::query_scalar!("SELECT id FROM accounts WHERE uri = $1", actor_uri)
+        .fetch_optional(&state.db).await?;
+    let status_id = sqlx::query_scalar!("SELECT id FROM statuses WHERE uri = $1", object_uri)
+        .fetch_optional(&state.db).await?;
+
+    if let (Some(aid), Some(sid)) = (account_id, status_id) {
+        sqlx::query!("DELETE FROM status_pins WHERE account_id = $1 AND status_id = $2", aid, sid)
+            .execute(&state.db).await?;
     }
 
     Ok(())
