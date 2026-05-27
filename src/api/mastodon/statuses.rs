@@ -579,16 +579,31 @@ pub async fn post_status(
         }
     }
 
-    // Federate to remote followers for public, unlisted, and private statuses
-    if matches!(visibility.as_str(), "public" | "unlisted" | "private") {
+    // Federate outgoing statuses to remote inboxes
+    if matches!(visibility.as_str(), "public" | "unlisted" | "private" | "direct") {
         if let Some(private_key) = account.private_key.clone().filter(|s| !s.is_empty()) {
             let domain = &instance.domain;
             let actor_url = format!("https://{}/users/{}", domain, account.username);
             let followers_url = format!("{}/followers", actor_url);
 
-            let (to_strs, cc_strs): (Vec<&str>, Vec<&str>) = match visibility.as_str() {
-                "public" | "unlisted" => (vec![feder_vocab::AS_PUBLIC], vec![followers_url.as_str()]),
-                _ /* private */ => (vec![followers_url.as_str()], vec![]),
+            let mentioned_urls: Vec<String> = resolved.iter()
+                .filter_map(|(_, a)| a.url.clone())
+                .collect();
+
+            let (to_strs, cc_strs): (Vec<String>, Vec<String>) = match visibility.as_str() {
+                "public" | "unlisted" => (
+                    vec![feder_vocab::AS_PUBLIC.to_string()],
+                    std::iter::once(followers_url.clone())
+                        .chain(mentioned_urls.iter().cloned())
+                        .collect(),
+                ),
+                "private" => (
+                    std::iter::once(followers_url.clone())
+                        .chain(mentioned_urls.iter().cloned())
+                        .collect(),
+                    vec![],
+                ),
+                _ /* direct */ => (mentioned_urls.clone(), vec![]),
             };
 
             let published = status.created_at.to_rfc3339();
@@ -603,6 +618,8 @@ pub async fn post_status(
                 None
             };
 
+            let to_refs: Vec<&str> = to_strs.iter().map(String::as_str).collect();
+            let cc_refs: Vec<&str> = cc_strs.iter().map(String::as_str).collect();
             let note = feder_vocab::NoteParams {
                 id: &uri,
                 attributed_to: &actor_url,
@@ -610,8 +627,8 @@ pub async fn post_status(
                 summary: if status.spoiler_text.is_empty() { None } else { Some(status.spoiler_text.as_str()) },
                 sensitive: form.sensitive.unwrap_or(false),
                 in_reply_to: in_reply_to_uri.as_deref(),
-                to: &to_strs,
-                cc: &cc_strs,
+                to: &to_refs,
+                cc: &cc_refs,
                 published: &published,
                 url: &uri,
                 quote_url: None,
@@ -619,13 +636,38 @@ pub async fn post_status(
             let activity_id = format!("{}/activity", uri);
             let activity = feder_vocab::create_note(&activity_id, &actor_url, note);
             let key_id = format!("{}#main-key", actor_url);
-            crate::federation::delivery::fanout_to_followers(
-                &state,
-                activity,
-                account.id,
-                key_id,
-                private_key,
-            );
+
+            if visibility == "direct" {
+                // Deliver only to the mentioned remote accounts' inboxes
+                let inboxes: Vec<String> = resolved.iter()
+                    .filter(|(_, a)| a.domain.is_some())
+                    .map(|(_, a)| {
+                        if !a.shared_inbox_url.is_empty() {
+                            a.shared_inbox_url.clone()
+                        } else {
+                            a.inbox_url.clone()
+                        }
+                    })
+                    .filter(|s| !s.is_empty())
+                    .collect::<std::collections::HashSet<_>>()
+                    .into_iter()
+                    .collect();
+                crate::federation::delivery::deliver_to_inboxes(
+                    state.http.clone(),
+                    activity,
+                    inboxes,
+                    key_id,
+                    private_key,
+                );
+            } else {
+                crate::federation::delivery::fanout_to_followers(
+                    &state,
+                    activity,
+                    account.id,
+                    key_id,
+                    private_key,
+                );
+            }
         }
     }
 
