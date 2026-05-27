@@ -590,18 +590,23 @@ pub async fn post_status(
                 .filter_map(|(_, a)| a.url.clone())
                 .collect();
 
+            // to/cc per Mastodon's TagManager#to / #cc
             let (to_strs, cc_strs): (Vec<String>, Vec<String>) = match visibility.as_str() {
-                "public" | "unlisted" => (
+                "public" => (
                     vec![feder_vocab::AS_PUBLIC.to_string()],
                     std::iter::once(followers_url.clone())
                         .chain(mentioned_urls.iter().cloned())
                         .collect(),
                 ),
-                "private" => (
-                    std::iter::once(followers_url.clone())
+                "unlisted" => (
+                    vec![followers_url.clone()],
+                    std::iter::once(feder_vocab::AS_PUBLIC.to_string())
                         .chain(mentioned_urls.iter().cloned())
                         .collect(),
-                    vec![],
+                ),
+                "private" => (
+                    vec![followers_url.clone()],
+                    mentioned_urls.clone(),
                 ),
                 _ /* direct */ => (mentioned_urls.clone(), vec![]),
             };
@@ -637,29 +642,60 @@ pub async fn post_status(
             let activity = feder_vocab::create_note(&activity_id, &actor_url, note);
             let key_id = format!("{}#main-key", actor_url);
 
+            // Collect remote inboxes for mentioned accounts (used by both direct and non-direct)
+            let mention_inboxes: Vec<String> = resolved.iter()
+                .filter(|(_, a)| a.domain.is_some())
+                .map(|(_, a)| {
+                    if !a.shared_inbox_url.is_empty() {
+                        a.shared_inbox_url.clone()
+                    } else {
+                        a.inbox_url.clone()
+                    }
+                })
+                .filter(|s| !s.is_empty())
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .collect();
+
             if visibility == "direct" {
-                // Deliver only to the mentioned remote accounts' inboxes
-                let inboxes: Vec<String> = resolved.iter()
-                    .filter(|(_, a)| a.domain.is_some())
-                    .map(|(_, a)| {
-                        if !a.shared_inbox_url.is_empty() {
-                            a.shared_inbox_url.clone()
-                        } else {
-                            a.inbox_url.clone()
-                        }
-                    })
-                    .filter(|s| !s.is_empty())
-                    .collect::<std::collections::HashSet<_>>()
-                    .into_iter()
-                    .collect();
                 crate::federation::delivery::deliver_to_inboxes(
                     state.http.clone(),
                     activity,
-                    inboxes,
+                    mention_inboxes,
                     key_id,
                     private_key,
                 );
             } else {
+                // For public/unlisted replies, also deliver to the replied-to account's inbox
+                let mut extra_inboxes = mention_inboxes;
+                if matches!(visibility.as_str(), "public" | "unlisted") {
+                    if let Some(parent_id) = in_reply_to_id {
+                        let replied_to_inbox = sqlx::query!(
+                            r#"SELECT a.inbox_url, a.shared_inbox_url
+                               FROM statuses s
+                               JOIN accounts a ON a.id = s.account_id
+                               WHERE s.id = $1 AND a.domain IS NOT NULL"#,
+                            parent_id,
+                        )
+                        .fetch_optional(&state.db)
+                        .await
+                        .ok()
+                        .flatten()
+                        .map(|r| if !r.shared_inbox_url.is_empty() { r.shared_inbox_url } else { r.inbox_url });
+                        if let Some(inbox) = replied_to_inbox.filter(|s| !s.is_empty()) {
+                            extra_inboxes.push(inbox);
+                        }
+                    }
+                }
+                if !extra_inboxes.is_empty() {
+                    crate::federation::delivery::deliver_to_inboxes(
+                        state.http.clone(),
+                        activity.clone(),
+                        extra_inboxes,
+                        key_id.clone(),
+                        private_key.clone(),
+                    );
+                }
                 crate::federation::delivery::fanout_to_followers(
                     &state,
                     activity,
