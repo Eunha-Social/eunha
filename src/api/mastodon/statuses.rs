@@ -623,6 +623,17 @@ pub async fn post_status(
                 None
             };
 
+            let quoted_uri: Option<String> = if let Some(qid) = quote_of_id {
+                sqlx::query_scalar!("SELECT uri FROM statuses WHERE id = $1", qid)
+                    .fetch_optional(&state.db)
+                    .await
+                    .ok()
+                    .flatten()
+                    .flatten()
+            } else {
+                None
+            };
+
             let to_refs: Vec<&str> = to_strs.iter().map(String::as_str).collect();
             let cc_refs: Vec<&str> = cc_strs.iter().map(String::as_str).collect();
             let note = feder_vocab::NoteParams {
@@ -636,7 +647,7 @@ pub async fn post_status(
                 cc: &cc_refs,
                 published: &published,
                 url: &uri,
-                quote_url: None,
+                quote_url: quoted_uri.as_deref(),
             };
             let activity_id = format!("{}/activity", uri);
             let activity = feder_vocab::create_note(&activity_id, &actor_url, note);

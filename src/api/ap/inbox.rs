@@ -1228,6 +1228,16 @@ async fn handle_update(
                 .get("publicKey").and_then(|k| k.get("publicKeyPem")).and_then(|p| p.as_str())
                 .unwrap_or("").to_string();
             let locked = object.get("manuallyApprovesFollowers").and_then(|v| v.as_bool()).unwrap_or(false);
+            let avatar_remote_url = object
+                .get("icon")
+                .and_then(|i| if i.is_object() { i.get("url") } else { None })
+                .and_then(|v| v.as_str())
+                .map(str::to_owned);
+            let header_remote_url = object
+                .get("image")
+                .and_then(|i| if i.is_object() { i.get("url") } else { None })
+                .and_then(|v| v.as_str())
+                .map(str::to_owned);
 
             // Don't clear inbox_url or public_key if the update omits them (sparse update guard)
             sqlx::query!(
@@ -1238,9 +1248,12 @@ async fn handle_update(
                        shared_inbox_url = COALESCE($5, shared_inbox_url),
                        public_key = CASE WHEN $6 != '' THEN $6 ELSE public_key END,
                        locked = $7,
+                       avatar_remote_url = COALESCE($8, avatar_remote_url),
+                       header_remote_url = COALESCE($9, header_remote_url),
                        updated_at = now()
                    WHERE uri = $1 AND domain IS NOT NULL"#,
                 actor_uri, display_name, note, inbox_url, shared_inbox_url, public_key, locked,
+                avatar_remote_url, header_remote_url,
             )
             .execute(&state.db)
             .await?;
@@ -1634,19 +1647,33 @@ pub async fn resolve_or_fetch_remote_account(
         .and_then(|p| p.as_str())
         .unwrap_or("")
         .to_string();
+    let avatar_remote_url = actor
+        .get("icon")
+        .and_then(|i| if i.is_object() { i.get("url") } else { None })
+        .and_then(|v| v.as_str())
+        .map(str::to_owned);
+    let header_remote_url = actor
+        .get("image")
+        .and_then(|i| if i.is_object() { i.get("url") } else { None })
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
 
     let new_id = crate::snowflake::next_id();
     let id = sqlx::query_scalar!(
         r#"INSERT INTO accounts
              (id, username, domain, display_name, note, url, uri,
-              inbox_url, outbox_url, shared_inbox_url, public_key)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+              inbox_url, outbox_url, shared_inbox_url, public_key,
+              avatar_remote_url, header_remote_url)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
            ON CONFLICT (uri) WHERE uri != '' DO UPDATE
              SET display_name = EXCLUDED.display_name,
                  note = EXCLUDED.note,
                  inbox_url = EXCLUDED.inbox_url,
                  shared_inbox_url = EXCLUDED.shared_inbox_url,
                  public_key = EXCLUDED.public_key,
+                 avatar_remote_url = COALESCE(EXCLUDED.avatar_remote_url, accounts.avatar_remote_url),
+                 header_remote_url = CASE WHEN EXCLUDED.header_remote_url != '' THEN EXCLUDED.header_remote_url ELSE accounts.header_remote_url END,
                  updated_at = now()
            RETURNING id"#,
         new_id,
@@ -1660,6 +1687,8 @@ pub async fn resolve_or_fetch_remote_account(
         outbox_url,
         shared_inbox_url,
         public_key,
+        avatar_remote_url,
+        header_remote_url,
     )
     .fetch_one(&state.db)
     .await?;
