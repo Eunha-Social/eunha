@@ -126,35 +126,83 @@ pub async fn search(
             };
             if !exact.is_empty() {
                 exact
-            } else if following_filter {
-                let vid = viewer_id.ok_or(crate::error::AppError::Unauthorized)?;
-                sqlx::query_as!(
-                    crate::db::models::Account,
-                    r#"SELECT a.* FROM accounts a
-                       JOIN follows f ON f.target_account_id = a.id
-                       LEFT JOIN account_stats ast ON ast.account_id = a.id
-                       WHERE a.suspended_at IS NULL
-                         AND a.moved_to_account_id IS NULL
-                         AND f.account_id = $3
-                         AND (lower(a.username) LIKE $1 OR lower(a.display_name) LIKE $1)
-                       ORDER BY COALESCE(ast.followers_count, 0) DESC LIMIT $2 OFFSET $4"#,
-                    account_pattern, limit, vid, offset
-                )
-                .fetch_all(&state.db)
-                .await?
             } else {
-                sqlx::query_as!(
-                    crate::db::models::Account,
-                    r#"SELECT a.* FROM accounts a
-                       LEFT JOIN account_stats ast ON ast.account_id = a.id
-                       WHERE a.suspended_at IS NULL
-                         AND a.moved_to_account_id IS NULL
-                         AND (lower(a.username) LIKE $1 OR lower(a.display_name) LIKE $1)
-                       ORDER BY COALESCE(ast.followers_count, 0) DESC LIMIT $2 OFFSET $3"#,
-                    account_pattern, limit, offset
-                )
-                .fetch_all(&state.db)
-                .await?
+                // resolve=true with a full user@domain: fetch via WebFinger
+                if q.resolve.unwrap_or(false) {
+                    if let Some(dom) = domain {
+                        let webfinger_url = format!(
+                            "https://{}/.well-known/webfinger?resource=acct:{}@{}",
+                            dom, uname, dom
+                        );
+                        if let Ok(resp) = state.http
+                            .get(&webfinger_url)
+                            .header("Accept", "application/jrd+json, application/json")
+                            .send()
+                            .await
+                        {
+                            if let Ok(jrd) = resp.json::<serde_json::Value>().await {
+                                let actor_url = jrd
+                                    .get("links")
+                                    .and_then(|l| l.as_array())
+                                    .and_then(|arr| arr.iter().find(|link| {
+                                        link.get("rel").and_then(|r| r.as_str()) == Some("self")
+                                            && link.get("type").and_then(|t| t.as_str())
+                                                .map_or(false, |t| t.contains("activity+json") || t.contains("ld+json"))
+                                    }))
+                                    .and_then(|link| link.get("href"))
+                                    .and_then(|h| h.as_str())
+                                    .map(str::to_owned);
+                                if let Some(actor_url) = actor_url {
+                                    if let Ok(account_id) = crate::api::ap::inbox::resolve_or_fetch_remote_account(&state, &actor_url).await {
+                                        if let Ok(Some(account)) = sqlx::query_as!(
+                                            crate::db::models::Account,
+                                            "SELECT * FROM accounts WHERE id = $1",
+                                            account_id,
+                                        ).fetch_optional(&state.db).await {
+                                            let api_accounts = batch_accounts_to_api(&state, &[account]).await;
+                                            return Ok(Json(SearchResults {
+                                                accounts: api_accounts,
+                                                statuses: vec![],
+                                                hashtags: vec![],
+                                                collections: vec![],
+                                            }));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if following_filter {
+                    let vid = viewer_id.ok_or(crate::error::AppError::Unauthorized)?;
+                    sqlx::query_as!(
+                        crate::db::models::Account,
+                        r#"SELECT a.* FROM accounts a
+                           JOIN follows f ON f.target_account_id = a.id
+                           LEFT JOIN account_stats ast ON ast.account_id = a.id
+                           WHERE a.suspended_at IS NULL
+                             AND a.moved_to_account_id IS NULL
+                             AND f.account_id = $3
+                             AND (lower(a.username) LIKE $1 OR lower(a.display_name) LIKE $1)
+                           ORDER BY COALESCE(ast.followers_count, 0) DESC LIMIT $2 OFFSET $4"#,
+                        account_pattern, limit, vid, offset
+                    )
+                    .fetch_all(&state.db)
+                    .await?
+                } else {
+                    sqlx::query_as!(
+                        crate::db::models::Account,
+                        r#"SELECT a.* FROM accounts a
+                           LEFT JOIN account_stats ast ON ast.account_id = a.id
+                           WHERE a.suspended_at IS NULL
+                             AND a.moved_to_account_id IS NULL
+                             AND (lower(a.username) LIKE $1 OR lower(a.display_name) LIKE $1)
+                           ORDER BY COALESCE(ast.followers_count, 0) DESC LIMIT $2 OFFSET $3"#,
+                        account_pattern, limit, offset
+                    )
+                    .fetch_all(&state.db)
+                    .await?
+                }
             }
         } else if following_filter {
             let vid = viewer_id.ok_or(crate::error::AppError::Unauthorized)?;
