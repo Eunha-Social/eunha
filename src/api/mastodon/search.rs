@@ -130,44 +130,20 @@ pub async fn search(
                 // resolve=true with a full user@domain: fetch via WebFinger
                 if q.resolve.unwrap_or(false) {
                     if let Some(dom) = domain {
-                        let webfinger_url = format!(
-                            "https://{}/.well-known/webfinger?resource=acct:{}@{}",
-                            dom, uname, dom
-                        );
-                        if let Ok(resp) = state.http
-                            .get(&webfinger_url)
-                            .header("Accept", "application/jrd+json, application/json")
-                            .send()
-                            .await
-                        {
-                            if let Ok(jrd) = resp.json::<serde_json::Value>().await {
-                                let actor_url = jrd
-                                    .get("links")
-                                    .and_then(|l| l.as_array())
-                                    .and_then(|arr| arr.iter().find(|link| {
-                                        link.get("rel").and_then(|r| r.as_str()) == Some("self")
-                                            && link.get("type").and_then(|t| t.as_str())
-                                                .map_or(false, |t| t.contains("activity+json") || t.contains("ld+json"))
-                                    }))
-                                    .and_then(|link| link.get("href"))
-                                    .and_then(|h| h.as_str())
-                                    .map(str::to_owned);
-                                if let Some(actor_url) = actor_url {
-                                    if let Ok(account_id) = crate::api::ap::inbox::resolve_or_fetch_remote_account(&state, &actor_url).await {
-                                        if let Ok(Some(account)) = sqlx::query_as!(
-                                            crate::db::models::Account,
-                                            "SELECT * FROM accounts WHERE id = $1",
-                                            account_id,
-                                        ).fetch_optional(&state.db).await {
-                                            let api_accounts = batch_accounts_to_api(&state, &[account]).await;
-                                            return Ok(Json(SearchResults {
-                                                accounts: api_accounts,
-                                                statuses: vec![],
-                                                hashtags: vec![],
-                                                collections: vec![],
-                                            }));
-                                        }
-                                    }
+                        if let Ok(actor_url) = feder_core::webfinger::resolve(&state.http, uname, dom).await {
+                            if let Ok(account_id) = crate::api::ap::inbox::resolve_or_fetch_remote_account(&state, &actor_url).await {
+                                if let Ok(Some(account)) = sqlx::query_as!(
+                                    crate::db::models::Account,
+                                    "SELECT * FROM accounts WHERE id = $1",
+                                    account_id,
+                                ).fetch_optional(&state.db).await {
+                                    let api_accounts = batch_accounts_to_api(&state, &[account]).await;
+                                    return Ok(Json(SearchResults {
+                                        accounts: api_accounts,
+                                        statuses: vec![],
+                                        hashtags: vec![],
+                                        collections: vec![],
+                                    }));
                                 }
                             }
                         }

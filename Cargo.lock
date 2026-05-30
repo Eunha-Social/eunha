@@ -1859,12 +1859,14 @@ dependencies = [
 [[package]]
 name = "feder-core"
 version = "0.1.0"
-source = "git+https://github.com/limeburst/feder.git#b0c538e93a56038720aad66407622e6b2c7efa9f"
+source = "git+https://github.com/limeburst/feder.git#f8a5c5dbb374c866e1825431b413df4f81f0772e"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
  "chrono",
+ "reqwest",
  "rsa 0.9.10",
+ "serde_json",
  "sha2 0.10.9",
  "url",
 ]
@@ -1872,7 +1874,7 @@ dependencies = [
 [[package]]
 name = "feder-vocab"
 version = "0.1.0"
-source = "git+https://github.com/limeburst/feder.git#b0c538e93a56038720aad66407622e6b2c7efa9f"
+source = "git+https://github.com/limeburst/feder.git#f8a5c5dbb374c866e1825431b413df4f81f0772e"
 dependencies = [
  "serde",
  "serde_json",
