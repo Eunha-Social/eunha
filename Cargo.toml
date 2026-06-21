@@ -72,6 +72,8 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 # ActivityPub vocabulary (typed activity construction) + portable protocol logic
 feder-vocab = { git = "https://github.com/limeburst/feder.git" }
 feder-core = { git = "https://github.com/limeburst/feder.git" }
+# Std runtime building blocks (HTTP signatures, WebFinger)
+feder-runtime = { git = "https://github.com/limeburst/feder.git" }
 
 # Config / environment
 config = "0.15"

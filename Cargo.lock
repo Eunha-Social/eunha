@@ -1779,6 +1779,7 @@ dependencies = [
  "config",
  "dotenvy",
  "feder-core",
+ "feder-runtime",
  "feder-vocab",
  "futures",
  "hex",
@@ -1859,15 +1860,30 @@ dependencies = [
 [[package]]
 name = "feder-core"
 version = "0.1.0"
-source = "git+https://github.com/limeburst/feder.git#4e0b5c6747a7f7686bf218502df19024df9b8d6f"
+source = "git+https://github.com/limeburst/feder.git#53b2a42b0f5ed1e4dc2032ab17d88d26564aec83"
 dependencies = [
  "feder-vocab",
 ]
 
 [[package]]
+name = "feder-runtime"
+version = "0.1.0"
+source = "git+https://github.com/limeburst/feder.git#53b2a42b0f5ed1e4dc2032ab17d88d26564aec83"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "chrono",
+ "reqwest",
+ "rsa 0.9.10",
+ "serde_json",
+ "sha2 0.10.9",
+ "url",
+]
+
+[[package]]
 name = "feder-vocab"
 version = "0.1.0"
-source = "git+https://github.com/limeburst/feder.git#4e0b5c6747a7f7686bf218502df19024df9b8d6f"
+source = "git+https://github.com/limeburst/feder.git#53b2a42b0f5ed1e4dc2032ab17d88d26564aec83"
 dependencies = [
  "iri-string",
  "serde",
