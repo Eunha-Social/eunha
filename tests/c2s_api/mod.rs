@@ -23,6 +23,7 @@ mod annual_reports;
 mod apps;
 mod blocks;
 mod bookmarks;
+mod collections;
 mod conversations;
 mod domain_blocks;
 mod favourites;

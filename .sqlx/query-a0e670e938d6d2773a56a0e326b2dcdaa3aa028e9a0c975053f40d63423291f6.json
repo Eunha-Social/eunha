@@ -1,0 +1,100 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT c.id, c.account_id, c.name, c.description, c.description_html,\n                  c.language, c.sensitive, c.discoverable, c.local, c.uri, c.url,\n                  c.created_at, c.updated_at, t.name AS \"tag_name?\"\n           FROM collections c\n           LEFT JOIN tags t ON t.id = c.tag_id\n           WHERE c.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "account_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "description_html",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "language",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "sensitive",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "discoverable",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 8,
+        "name": "local",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "uri",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 12,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 13,
+        "name": "tag_name?",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "a0e670e938d6d2773a56a0e326b2dcdaa3aa028e9a0c975053f40d63423291f6"
+}

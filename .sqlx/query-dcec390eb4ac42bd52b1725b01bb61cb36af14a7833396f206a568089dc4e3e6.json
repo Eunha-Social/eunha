@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT c.id\n           FROM collections c\n           JOIN collection_items ci ON ci.collection_id = c.id\n           WHERE ci.account_id = $1 AND ci.state IN (0, 1)\n           ORDER BY c.id DESC\n           OFFSET $2 LIMIT $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "dcec390eb4ac42bd52b1725b01bb61cb36af14a7833396f206a568089dc4e3e6"
+}

@@ -4,6 +4,7 @@ pub mod extractors;
 pub mod announcements;
 pub mod annual_reports;
 pub mod bookmarks;
+pub mod collections;
 pub mod conversations;
 pub mod trends;
 pub mod convert;
@@ -102,6 +103,25 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/v1/accounts/{id}/endorse", post(accounts::endorse_account))
         .route("/api/v1/accounts/{id}/unendorse", post(accounts::unendorse_account))
         .route("/api/v1/accounts/{id}/lists", get(accounts::get_account_lists))
+        .route("/api/v1/accounts/{id}/collections", get(collections::account_collections))
+        .route("/api/v1/accounts/{id}/in_collections", get(collections::account_in_collections))
+        // Collections
+        .route("/api/v1/collections", post(collections::create_collection))
+        .route(
+            "/api/v1/collections/{id}",
+            get(collections::show_collection)
+                .put(collections::update_collection)
+                .delete(collections::delete_collection),
+        )
+        .route("/api/v1/collections/{id}/items", post(collections::add_collection_item))
+        .route(
+            "/api/v1/collections/{collection_id}/items/{item_id}",
+            delete(collections::delete_collection_item),
+        )
+        .route(
+            "/api/v1/collections/{collection_id}/items/{item_id}/revoke",
+            post(collections::revoke_collection_item),
+        )
         // Preferences
         .route("/api/v1/preferences", get(accounts::get_preferences))
         // Follow requests

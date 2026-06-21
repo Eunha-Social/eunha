@@ -1,0 +1,681 @@
+//! Collections API (Mastodon 4.6.0).
+//!
+//! Collections are curated, account-featuring lists with an approval workflow
+//! (`pending` / `accepted` / `rejected` / `revoked`). Local accounts added to a
+//! local collection are auto-accepted; remote accounts start `pending`.
+//!
+//! This implements the local REST surface. ActivityPub federation of
+//! collections (Add/Remove/feature-request distribution) is not yet wired up.
+
+use axum::{
+    extract::{Path, Query, State},
+    response::IntoResponse,
+    Extension, Json,
+};
+use serde::Deserialize;
+use serde_json::{json, Value};
+
+use crate::{
+    db::models::Account,
+    error::{AppError, AppResult},
+    middleware::{AuthenticatedUser, ResolvedInstance},
+    state::AppState,
+};
+
+const DEFAULT_LIMIT: i64 = 40;
+const MAX_LIMIT: i64 = 100;
+const MAX_ITEMS: i64 = 25;
+const NAME_MAX: usize = 40;
+const DESCRIPTION_MAX: usize = 100;
+const DEFAULT_COLLECTION_LIMIT: i64 = 10;
+
+// State enum: pending=0, accepted=1, rejected=2, revoked=3
+fn state_str(state: i32) -> &'static str {
+    match state {
+        1 => "accepted",
+        2 => "rejected",
+        3 => "revoked",
+        _ => "pending",
+    }
+}
+
+fn collection_uri(domain: &str, id: i64) -> String {
+    format!("https://{domain}/collections/{id}")
+}
+
+fn tag_url(domain: &str, name: &str) -> String {
+    format!("https://{domain}/tags/{name}")
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct OffsetParams {
+    pub offset: Option<i64>,
+    pub limit: Option<i64>,
+}
+
+impl OffsetParams {
+    fn offset(&self) -> i64 {
+        self.offset.unwrap_or(0).max(0)
+    }
+    fn limit(&self) -> i64 {
+        self.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT)
+    }
+}
+
+/// A loaded collection row plus its (optional) tag name.
+struct CollectionRow {
+    id: i64,
+    account_id: i64,
+    name: String,
+    description: Option<String>,
+    description_html: Option<String>,
+    language: Option<String>,
+    sensitive: bool,
+    discoverable: bool,
+    local: bool,
+    uri: Option<String>,
+    url: Option<String>,
+    tag_name: Option<String>,
+    created_at: chrono::DateTime<chrono::Utc>,
+    updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+async fn load_collection(state: &AppState, id: i64) -> AppResult<Option<CollectionRow>> {
+    let row = sqlx::query!(
+        r#"SELECT c.id, c.account_id, c.name, c.description, c.description_html,
+                  c.language, c.sensitive, c.discoverable, c.local, c.uri, c.url,
+                  c.created_at, c.updated_at, t.name AS "tag_name?"
+           FROM collections c
+           LEFT JOIN tags t ON t.id = c.tag_id
+           WHERE c.id = $1"#,
+        id,
+    )
+    .fetch_optional(&state.db)
+    .await?;
+
+    Ok(row.map(|r| CollectionRow {
+        id: r.id,
+        account_id: r.account_id,
+        name: r.name,
+        description: r.description,
+        description_html: r.description_html,
+        language: r.language,
+        sensitive: r.sensitive,
+        discoverable: r.discoverable,
+        local: r.local,
+        uri: r.uri,
+        url: r.url,
+        tag_name: r.tag_name,
+        created_at: r.created_at,
+        updated_at: r.updated_at,
+    }))
+}
+
+/// Items visible to `viewer`: the owner sees pending+accepted, others only
+/// accepted; items whose account is blocked by the viewer are excluded.
+async fn visible_items(
+    state: &AppState,
+    c: &CollectionRow,
+    viewer_id: Option<i64>,
+) -> AppResult<Vec<(i64, i32, chrono::DateTime<chrono::Utc>, Option<i64>)>> {
+    let is_owner = viewer_id == Some(c.account_id);
+    let rows = sqlx::query!(
+        r#"SELECT ci.id, ci.state, ci.created_at, ci.account_id
+           FROM collection_items ci
+           WHERE ci.collection_id = $1
+             AND ( ($2 AND ci.state IN (0, 1)) OR (NOT $2 AND ci.state = 1) )
+             AND ( $3::bigint IS NULL OR ci.account_id IS NULL OR NOT EXISTS (
+                   SELECT 1 FROM blocks b
+                   WHERE b.account_id = $3 AND b.target_account_id = ci.account_id) )
+           ORDER BY ci.position ASC, ci.id ASC"#,
+        c.id,
+        is_owner,
+        viewer_id,
+    )
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|r| (r.id, r.state, r.created_at, r.account_id))
+        .collect())
+}
+
+fn item_entity(id: i64, state: i32, created_at: chrono::DateTime<chrono::Utc>, account_id: Option<i64>) -> Value {
+    let mut v = json!({
+        "id": id.to_string(),
+        "state": state_str(state),
+        "created_at": created_at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+    });
+    // account_id only included for pending/accepted items.
+    if matches!(state, 0 | 1) {
+        if let Some(aid) = account_id {
+            v["account_id"] = Value::String(aid.to_string());
+        }
+    }
+    v
+}
+
+/// Build the `REST::CollectionSerializer` JSON for a collection.
+async fn collection_entity(
+    state: &AppState,
+    domain: &str,
+    c: &CollectionRow,
+    viewer_id: Option<i64>,
+) -> AppResult<Value> {
+    let items = visible_items(state, c, viewer_id).await?;
+    let items_json: Vec<Value> = items
+        .iter()
+        .map(|(id, st, created, aid)| item_entity(*id, *st, *created, *aid))
+        .collect();
+
+    let uri = c
+        .uri
+        .clone()
+        .unwrap_or_else(|| collection_uri(domain, c.id));
+    let url = c.url.clone().unwrap_or_else(|| uri.clone());
+
+    // For remote collections the description is sanitized HTML; locally it is plain.
+    let description = if c.local {
+        c.description.clone()
+    } else {
+        c.description_html.clone()
+    };
+
+    let tag = c
+        .tag_name
+        .as_ref()
+        .map(|name| json!({ "name": name, "url": tag_url(domain, name) }));
+
+    Ok(json!({
+        "id": c.id.to_string(),
+        "uri": uri,
+        "name": c.name,
+        "description": description,
+        "language": c.language,
+        "account_id": c.account_id.to_string(),
+        "local": c.local,
+        "sensitive": c.sensitive,
+        "discoverable": c.discoverable,
+        "url": url,
+        "item_count": items_json.len(),
+        "created_at": c.created_at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        "updated_at": c.updated_at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        "tag": tag,
+        "items": items_json,
+    }))
+}
+
+// ── GET /api/v1/accounts/{id}/collections ─────────────────────────────────
+
+pub async fn account_collections(
+    State(state): State<AppState>,
+    Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
+    Path(account_id): Path<i64>,
+    Query(params): Query<OffsetParams>,
+    auth: Option<Extension<AuthenticatedUser>>,
+) -> AppResult<Json<Value>> {
+    if let Some(Extension(a)) = &auth {
+        a.require_scope("read:collections")?;
+    }
+    let viewer_id = auth.as_ref().map(|Extension(a)| a.account_id);
+    let only_discoverable = viewer_id != Some(account_id);
+
+    let ids = sqlx::query_scalar!(
+        r#"SELECT id FROM collections
+           WHERE account_id = $1 AND ($2 = false OR discoverable = true)
+           ORDER BY created_at DESC
+           OFFSET $3 LIMIT $4"#,
+        account_id,
+        only_discoverable,
+        params.offset(),
+        params.limit(),
+    )
+    .fetch_all(&state.db)
+    .await?;
+
+    let mut out = Vec::with_capacity(ids.len());
+    for id in ids {
+        if let Some(c) = load_collection(&state, id).await? {
+            out.push(collection_entity(&state, &instance.domain, &c, viewer_id).await?);
+        }
+    }
+
+    Ok(Json(json!({ "collections": out })))
+}
+
+// ── GET /api/v1/accounts/{id}/in_collections ──────────────────────────────
+
+pub async fn account_in_collections(
+    State(state): State<AppState>,
+    Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
+    Extension(auth): Extension<AuthenticatedUser>,
+    Path(account_id): Path<i64>,
+    Query(params): Query<OffsetParams>,
+) -> AppResult<Json<Value>> {
+    auth.require_scope("read:collections")?;
+
+    let ids = sqlx::query_scalar!(
+        r#"SELECT DISTINCT c.id
+           FROM collections c
+           JOIN collection_items ci ON ci.collection_id = c.id
+           WHERE ci.account_id = $1 AND ci.state IN (0, 1)
+           ORDER BY c.id DESC
+           OFFSET $2 LIMIT $3"#,
+        account_id,
+        params.offset(),
+        params.limit(),
+    )
+    .fetch_all(&state.db)
+    .await?;
+
+    let viewer_id = Some(auth.account_id);
+    let mut out = Vec::with_capacity(ids.len());
+    for id in ids {
+        if let Some(c) = load_collection(&state, id).await? {
+            out.push(collection_entity(&state, &instance.domain, &c, viewer_id).await?);
+        }
+    }
+
+    Ok(Json(json!({ "collections": out })))
+}
+
+// ── GET /api/v1/collections/{id} ──────────────────────────────────────────
+
+pub async fn show_collection(
+    State(state): State<AppState>,
+    Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
+    Path(id): Path<i64>,
+    auth: Option<Extension<AuthenticatedUser>>,
+) -> AppResult<Json<Value>> {
+    if let Some(Extension(a)) = &auth {
+        a.require_scope("read:collections")?;
+    }
+    let viewer_id = auth.as_ref().map(|Extension(a)| a.account_id);
+
+    let c = load_collection(&state, id).await?.ok_or(AppError::NotFound)?;
+    let collection = collection_entity(&state, &instance.domain, &c, viewer_id).await?;
+
+    // accounts = [owner] + accounts of visible (pending/accepted) items.
+    let items = visible_items(&state, &c, viewer_id).await?;
+    let mut account_ids: Vec<i64> = vec![c.account_id];
+    for (_, st, _, aid) in &items {
+        if matches!(st, 0 | 1) {
+            if let Some(aid) = aid {
+                if !account_ids.contains(aid) {
+                    account_ids.push(*aid);
+                }
+            }
+        }
+    }
+
+    let db_accounts = sqlx::query_as!(
+        Account,
+        "SELECT * FROM accounts WHERE id = ANY($1::bigint[])",
+        &account_ids,
+    )
+    .fetch_all(&state.db)
+    .await?;
+    // Preserve order: owner first, then items in order.
+    let by_id: std::collections::HashMap<i64, Account> =
+        db_accounts.into_iter().map(|a| (a.id, a)).collect();
+    let ordered: Vec<Account> = account_ids
+        .iter()
+        .filter_map(|id| by_id.get(id).cloned())
+        .collect();
+    let accounts = super::accounts::batch_accounts_to_api(&state, &ordered).await;
+
+    Ok(Json(json!({ "collection": collection, "accounts": accounts })))
+}
+
+// ── POST /api/v1/collections ──────────────────────────────────────────────
+
+#[derive(Debug, Deserialize, Default)]
+pub struct CreateCollectionForm {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub language: Option<String>,
+    pub sensitive: Option<bool>,
+    pub discoverable: Option<bool>,
+    pub tag_name: Option<String>,
+    #[serde(default)]
+    pub account_ids: Vec<String>,
+}
+
+async fn resolve_tag(state: &AppState, tag_name: &str) -> AppResult<i64> {
+    let name = tag_name.trim().trim_start_matches('#').to_lowercase();
+    if name.is_empty() {
+        return Err(AppError::Unprocessable("tag_name is invalid".into()));
+    }
+    let id = sqlx::query_scalar!(
+        r#"INSERT INTO tags (name) VALUES ($1)
+           ON CONFLICT ((lower(name))) DO UPDATE SET name = EXCLUDED.name
+           RETURNING id"#,
+        name,
+    )
+    .fetch_one(&state.db)
+    .await?;
+    Ok(id)
+}
+
+pub async fn create_collection(
+    State(state): State<AppState>,
+    Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
+    Extension(auth): Extension<AuthenticatedUser>,
+    Json(form): Json<CreateCollectionForm>,
+) -> AppResult<Json<Value>> {
+    auth.require_scope("write:collections")?;
+
+    let name = form.name.unwrap_or_default();
+    let name = name.trim();
+    if name.is_empty() {
+        return Err(AppError::Unprocessable("name can't be blank".into()));
+    }
+    if name.chars().count() > NAME_MAX {
+        return Err(AppError::Unprocessable(format!(
+            "name is too long (maximum is {NAME_MAX} characters)"
+        )));
+    }
+    if let Some(desc) = &form.description {
+        if desc.chars().count() > DESCRIPTION_MAX {
+            return Err(AppError::Unprocessable(format!(
+                "description is too long (maximum is {DESCRIPTION_MAX} characters)"
+            )));
+        }
+    }
+
+    // Per-user collection limit (role.collection_limit, default 10).
+    let existing = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM collections WHERE account_id = $1",
+        auth.account_id,
+    )
+    .fetch_one(&state.db)
+    .await?
+    .unwrap_or(0);
+    if existing >= DEFAULT_COLLECTION_LIMIT {
+        return Err(AppError::Unprocessable(format!(
+            "You cannot create more than {DEFAULT_COLLECTION_LIMIT} collections"
+        )));
+    }
+
+    let tag_id = match &form.tag_name {
+        Some(t) if !t.trim().is_empty() => Some(resolve_tag(&state, t).await?),
+        _ => None,
+    };
+
+    let new_id = sqlx::query_scalar!(
+        r#"INSERT INTO collections
+             (account_id, name, description, language, sensitive, discoverable, local, tag_id, item_count, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, true, $7, 0, now(), now())
+           RETURNING id"#,
+        auth.account_id,
+        name,
+        form.description.as_deref(),
+        form.language.as_deref(),
+        form.sensitive.unwrap_or(false),
+        form.discoverable.unwrap_or(false),
+        tag_id,
+    )
+    .fetch_one(&state.db)
+    .await?;
+
+    // Add initial accounts, if any.
+    for raw in &form.account_ids {
+        if let Ok(aid) = raw.parse::<i64>() {
+            let _ = add_item(&state, new_id, aid).await;
+        }
+    }
+
+    let c = load_collection(&state, new_id).await?.ok_or(AppError::NotFound)?;
+    let entity = collection_entity(&state, &instance.domain, &c, Some(auth.account_id)).await?;
+    Ok(Json(json!({ "collection": entity })))
+}
+
+// ── PUT /api/v1/collections/{id} ──────────────────────────────────────────
+
+#[derive(Debug, Deserialize, Default)]
+pub struct UpdateCollectionForm {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub language: Option<String>,
+    pub sensitive: Option<bool>,
+    pub discoverable: Option<bool>,
+    pub tag_name: Option<String>,
+}
+
+pub async fn update_collection(
+    State(state): State<AppState>,
+    Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
+    Extension(auth): Extension<AuthenticatedUser>,
+    Path(id): Path<i64>,
+    Json(form): Json<UpdateCollectionForm>,
+) -> AppResult<Json<Value>> {
+    auth.require_scope("write:collections")?;
+    let c = load_collection(&state, id).await?.ok_or(AppError::NotFound)?;
+    if c.account_id != auth.account_id {
+        return Err(AppError::Forbidden);
+    }
+
+    if let Some(name) = &form.name {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err(AppError::Unprocessable("name can't be blank".into()));
+        }
+        if trimmed.chars().count() > NAME_MAX {
+            return Err(AppError::Unprocessable(format!(
+                "name is too long (maximum is {NAME_MAX} characters)"
+            )));
+        }
+    }
+    if let Some(desc) = &form.description {
+        if desc.chars().count() > DESCRIPTION_MAX {
+            return Err(AppError::Unprocessable(format!(
+                "description is too long (maximum is {DESCRIPTION_MAX} characters)"
+            )));
+        }
+    }
+
+    let tag_id = match &form.tag_name {
+        Some(t) if !t.trim().is_empty() => Some(resolve_tag(&state, t).await?),
+        Some(_) => None, // explicit blank clears the tag
+        None => None,    // handled by COALESCE below (leave unchanged)
+    };
+    let clear_tag = matches!(&form.tag_name, Some(t) if t.trim().is_empty());
+
+    sqlx::query!(
+        r#"UPDATE collections SET
+             name = COALESCE($2, name),
+             description = COALESCE($3, description),
+             language = COALESCE($4, language),
+             sensitive = COALESCE($5, sensitive),
+             discoverable = COALESCE($6, discoverable),
+             tag_id = CASE WHEN $7 THEN NULL WHEN $8::bigint IS NOT NULL THEN $8 ELSE tag_id END,
+             updated_at = now()
+           WHERE id = $1"#,
+        id,
+        form.name.as_deref().map(str::trim),
+        form.description.as_deref(),
+        form.language.as_deref(),
+        form.sensitive,
+        form.discoverable,
+        clear_tag,
+        tag_id,
+    )
+    .execute(&state.db)
+    .await?;
+
+    let c = load_collection(&state, id).await?.ok_or(AppError::NotFound)?;
+    let entity = collection_entity(&state, &instance.domain, &c, Some(auth.account_id)).await?;
+    Ok(Json(json!({ "collection": entity })))
+}
+
+// ── DELETE /api/v1/collections/{id} ───────────────────────────────────────
+
+pub async fn delete_collection(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedUser>,
+    Path(id): Path<i64>,
+) -> AppResult<impl IntoResponse> {
+    auth.require_scope("write:collections")?;
+    let c = load_collection(&state, id).await?.ok_or(AppError::NotFound)?;
+    if c.account_id != auth.account_id {
+        return Err(AppError::Forbidden);
+    }
+    sqlx::query!("DELETE FROM collections WHERE id = $1", id)
+        .execute(&state.db)
+        .await?;
+    Ok(Json(json!({})))
+}
+
+// ── Collection items ──────────────────────────────────────────────────────
+
+/// Insert (or no-op on conflict) an item adding `account_id` to `collection_id`.
+/// Local accounts are auto-accepted; remote accounts start pending.
+async fn add_item(state: &AppState, collection_id: i64, account_id: i64) -> AppResult<Value> {
+    let target = sqlx::query!(
+        "SELECT domain, suspended_at FROM accounts WHERE id = $1",
+        account_id,
+    )
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
+
+    if target.suspended_at.is_some() {
+        return Err(AppError::Unprocessable(
+            "This account cannot be added to collections".into(),
+        ));
+    }
+
+    // Enforce MAX_ITEMS pending+accepted.
+    let current = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM collection_items WHERE collection_id = $1 AND state IN (0, 1)",
+        collection_id,
+    )
+    .fetch_one(&state.db)
+    .await?
+    .unwrap_or(0);
+    if current >= MAX_ITEMS {
+        return Err(AppError::Unprocessable(format!(
+            "Collections cannot have more than {MAX_ITEMS} items"
+        )));
+    }
+
+    let item_state: i32 = if target.domain.is_none() { 1 } else { 0 };
+
+    let row = sqlx::query!(
+        r#"INSERT INTO collection_items
+             (collection_id, account_id, state, position, created_at, updated_at)
+           VALUES ($1, $2, $3,
+                   (SELECT COALESCE(MAX(position), 0) + 1 FROM collection_items WHERE collection_id = $1),
+                   now(), now())
+           ON CONFLICT (account_id, collection_id) DO NOTHING
+           RETURNING id, state, created_at"#,
+        collection_id,
+        account_id,
+        item_state,
+    )
+    .fetch_optional(&state.db)
+    .await?;
+
+    let row = match row {
+        Some(r) => r,
+        None => {
+            return Err(AppError::Unprocessable(
+                "This account is already in the collection".into(),
+            ))
+        }
+    };
+
+    refresh_item_count(state, collection_id).await?;
+    Ok(item_entity(row.id, row.state, row.created_at, Some(account_id)))
+}
+
+async fn refresh_item_count(state: &AppState, collection_id: i64) -> AppResult<()> {
+    sqlx::query!(
+        r#"UPDATE collections SET item_count =
+             (SELECT COUNT(*) FROM collection_items WHERE collection_id = $1 AND state IN (0, 1))
+           WHERE id = $1"#,
+        collection_id,
+    )
+    .execute(&state.db)
+    .await?;
+    Ok(())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AddItemForm {
+    pub account_id: Option<String>,
+}
+
+/// POST /api/v1/collections/{id}/items
+pub async fn add_collection_item(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedUser>,
+    Path(collection_id): Path<i64>,
+    Json(form): Json<AddItemForm>,
+) -> AppResult<Json<Value>> {
+    auth.require_scope("write:collections")?;
+    let c = load_collection(&state, collection_id).await?.ok_or(AppError::NotFound)?;
+    if c.account_id != auth.account_id {
+        return Err(AppError::Forbidden);
+    }
+
+    let account_id = form
+        .account_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok())
+        .ok_or_else(|| AppError::Unprocessable("`account_id` parameter is missing".into()))?;
+
+    let item = add_item(&state, collection_id, account_id).await?;
+    Ok(Json(json!({ "collection_item": item })))
+}
+
+/// DELETE /api/v1/collections/{id}/items/{item_id}
+pub async fn delete_collection_item(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedUser>,
+    Path((collection_id, item_id)): Path<(i64, i64)>,
+) -> AppResult<impl IntoResponse> {
+    auth.require_scope("write:collections")?;
+    let c = load_collection(&state, collection_id).await?.ok_or(AppError::NotFound)?;
+    if c.account_id != auth.account_id {
+        return Err(AppError::Forbidden);
+    }
+    let deleted = sqlx::query!(
+        "DELETE FROM collection_items WHERE id = $1 AND collection_id = $2",
+        item_id,
+        collection_id,
+    )
+    .execute(&state.db)
+    .await?;
+    if deleted.rows_affected() == 0 {
+        return Err(AppError::NotFound);
+    }
+    refresh_item_count(&state, collection_id).await?;
+    Ok(Json(json!({})))
+}
+
+/// POST /api/v1/collections/{id}/items/{item_id}/revoke
+pub async fn revoke_collection_item(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedUser>,
+    Path((collection_id, item_id)): Path<(i64, i64)>,
+) -> AppResult<impl IntoResponse> {
+    auth.require_scope("write:collections")?;
+    let c = load_collection(&state, collection_id).await?.ok_or(AppError::NotFound)?;
+    if c.account_id != auth.account_id {
+        return Err(AppError::Forbidden);
+    }
+    let updated = sqlx::query!(
+        "UPDATE collection_items SET state = 3, updated_at = now() WHERE id = $1 AND collection_id = $2",
+        item_id,
+        collection_id,
+    )
+    .execute(&state.db)
+    .await?;
+    if updated.rows_affected() == 0 {
+        return Err(AppError::NotFound);
+    }
+    refresh_item_count(&state, collection_id).await?;
+    Ok(Json(json!({})))
+}

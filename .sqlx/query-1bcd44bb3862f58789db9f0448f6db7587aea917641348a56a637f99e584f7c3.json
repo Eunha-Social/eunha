@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE collections SET\n             name = COALESCE($2, name),\n             description = COALESCE($3, description),\n             language = COALESCE($4, language),\n             sensitive = COALESCE($5, sensitive),\n             discoverable = COALESCE($6, discoverable),\n             tag_id = CASE WHEN $7 THEN NULL WHEN $8::bigint IS NOT NULL THEN $8 ELSE tag_id END,\n             updated_at = now()\n           WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Bool",
+        "Bool",
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1bcd44bb3862f58789db9f0448f6db7587aea917641348a56a637f99e584f7c3"
+}

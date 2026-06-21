@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT domain, suspended_at FROM accounts WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "domain",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "suspended_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "c83fc095b95f28930345ea64db8b6616f4ed2bb25d89100ec274114bb29ea3aa"
+}

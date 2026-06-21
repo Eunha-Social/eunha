@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id FROM collections\n           WHERE account_id = $1 AND ($2 = false OR discoverable = true)\n           ORDER BY created_at DESC\n           OFFSET $3 LIMIT $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Bool",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "abd9b0c322faa8454a5a647b5e6acd2a590a155ffde126fc772ace3c2ae2ec03"
+}

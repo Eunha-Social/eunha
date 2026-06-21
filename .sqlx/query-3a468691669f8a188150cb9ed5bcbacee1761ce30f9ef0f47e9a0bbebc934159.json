@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO collections\n             (account_id, name, description, language, sensitive, discoverable, local, tag_id, item_count, created_at, updated_at)\n           VALUES ($1, $2, $3, $4, $5, $6, true, $7, 0, now(), now())\n           RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Bool",
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "3a468691669f8a188150cb9ed5bcbacee1761ce30f9ef0f47e9a0bbebc934159"
+}
