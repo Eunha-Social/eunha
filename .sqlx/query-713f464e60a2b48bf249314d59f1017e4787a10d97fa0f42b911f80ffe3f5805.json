@@ -240,48 +240,48 @@
       },
       {
         "ordinal": 47,
-        "name": "avatar_description",
-        "type_info": "Text"
-      },
-      {
-        "ordinal": 48,
-        "name": "header_description",
-        "type_info": "Text"
-      },
-      {
-        "ordinal": 49,
-        "name": "show_featured",
-        "type_info": "Bool"
-      },
-      {
-        "ordinal": 50,
-        "name": "show_media",
-        "type_info": "Bool"
-      },
-      {
-        "ordinal": 51,
-        "name": "show_media_replies",
-        "type_info": "Bool"
-      },
-      {
-        "ordinal": 52,
-        "name": "feature_approval_policy",
-        "type_info": "Int4"
-      },
-      {
-        "ordinal": 53,
-        "name": "collections_url",
-        "type_info": "Text"
-      },
-      {
-        "ordinal": 54,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 55,
+        "ordinal": 48,
         "name": "updated_at",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 49,
+        "name": "avatar_description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 50,
+        "name": "header_description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 51,
+        "name": "show_featured",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 52,
+        "name": "show_media",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 53,
+        "name": "show_media_replies",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 54,
+        "name": "feature_approval_policy",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 55,
+        "name": "collections_url",
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -346,9 +346,9 @@
       false,
       false,
       false,
-      true,
       false,
-      false
+      false,
+      true
     ]
   },
   "hash": "713f464e60a2b48bf249314d59f1017e4787a10d97fa0f42b911f80ffe3f5805"

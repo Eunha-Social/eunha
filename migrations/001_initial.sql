@@ -131,6 +131,11 @@ CREATE TABLE accounts (
     header_remote_url               TEXT NOT NULL DEFAULT '',
     avatar_storage_schema_version   INTEGER,
     header_storage_schema_version   INTEGER,
+    created_at                      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at                      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- v4.6.0 columns. Kept at the end of the table to match the physical
+    -- column order produced by ALTER ADD COLUMN on already-deployed databases,
+    -- so `SELECT *` positional decoding stays consistent everywhere.
     avatar_description              TEXT NOT NULL DEFAULT '',
     header_description              TEXT NOT NULL DEFAULT '',
     show_featured                   BOOLEAN NOT NULL DEFAULT true,
@@ -138,8 +143,6 @@ CREATE TABLE accounts (
     show_media_replies              BOOLEAN NOT NULL DEFAULT true,
     feature_approval_policy         INTEGER NOT NULL DEFAULT 0,
     collections_url                 TEXT,
-    created_at                      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at                      TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT accounts_local_unique UNIQUE NULLS NOT DISTINCT (username, domain)
 );
 
@@ -399,9 +402,10 @@ CREATE TABLE media_attachments (
     thumbnail_file_size         INTEGER,
     thumbnail_updated_at        TIMESTAMPTZ,
     thumbnail_remote_url        TEXT,
-    thumbnail_storage_schema_version INTEGER,
     created_at                  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at                  TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at                  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    -- v4.6.0 column, kept at the end to match ALTER-applied prod column order.
+    thumbnail_storage_schema_version INTEGER
 );
 
 CREATE INDEX media_by_account ON media_attachments(account_id);

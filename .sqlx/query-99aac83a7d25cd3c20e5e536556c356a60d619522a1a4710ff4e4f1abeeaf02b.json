@@ -110,18 +110,18 @@
       },
       {
         "ordinal": 21,
-        "name": "thumbnail_storage_schema_version",
-        "type_info": "Int4"
-      },
-      {
-        "ordinal": 22,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 23,
+        "ordinal": 22,
         "name": "updated_at",
         "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 23,
+        "name": "thumbnail_storage_schema_version",
+        "type_info": "Int4"
       }
     ],
     "parameters": {
@@ -151,9 +151,9 @@
       true,
       true,
       true,
-      true,
       false,
-      false
+      false,
+      true
     ]
   },
   "hash": "99aac83a7d25cd3c20e5e536556c356a60d619522a1a4710ff4e4f1abeeaf02b"
