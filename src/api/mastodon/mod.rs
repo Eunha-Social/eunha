@@ -103,15 +103,12 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/v1/accounts/{id}/endorse", post(accounts::endorse_account))
         .route("/api/v1/accounts/{id}/unendorse", post(accounts::unendorse_account))
         .route("/api/v1/accounts/{id}/lists", get(accounts::get_account_lists))
-        .route("/api/v1/accounts/{id}/collections", get(collections::account_collections))
         .route("/api/v1/accounts/{id}/in_collections", get(collections::account_in_collections))
-        // Collections
+        // Collections (authenticated writes)
         .route("/api/v1/collections", post(collections::create_collection))
         .route(
             "/api/v1/collections/{id}",
-            get(collections::show_collection)
-                .put(collections::update_collection)
-                .delete(collections::delete_collection),
+            put(collections::update_collection).delete(collections::delete_collection),
         )
         .route("/api/v1/collections/{id}/items", post(collections::add_collection_item))
         .route(
@@ -334,6 +331,9 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/v1/accounts/{id}/following", get(accounts::get_account_following))
         .route("/api/v1/accounts/{id}/endorsements", get(accounts::get_endorsements))
         .route("/api/v1/endorsements", get(accounts::get_my_endorsements))
+        // Collections (public read)
+        .route("/api/v1/accounts/{id}/collections", get(collections::account_collections))
+        .route("/api/v1/collections/{id}", get(collections::show_collection))
         // Statuses (public read)
         .route("/api/v1/statuses/{id}", get(statuses::get_status))
         .route("/api/v1/statuses/{id}/context", get(statuses::get_status_context))
