@@ -77,6 +77,14 @@ pub struct Account {
     pub header_remote_url: String,
     pub avatar_storage_schema_version: Option<i32>,
     pub header_storage_schema_version: Option<i32>,
+    // Added in Mastodon v4.6.0
+    pub avatar_description: String,
+    pub header_description: String,
+    pub show_featured: bool,
+    pub show_media: bool,
+    pub show_media_replies: bool,
+    pub feature_approval_policy: i32,
+    pub collections_url: Option<String>,
 }
 
 impl Account {
@@ -160,6 +168,8 @@ pub struct MediaAttachment {
     pub thumbnail_file_size: Option<i32>,
     pub thumbnail_updated_at: Option<DateTime<Utc>>,
     pub thumbnail_remote_url: Option<String>,
+    // Added in Mastodon v4.6.0
+    pub thumbnail_storage_schema_version: Option<i32>,
 }
 
 #[derive(Debug, Clone, FromRow)]
