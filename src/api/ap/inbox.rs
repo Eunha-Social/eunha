@@ -1828,17 +1828,23 @@ async fn handle_quote_request(
         return Ok(());
     }
 
-    // Auto-accept: we can only stamp a QuoteAuthorization once the quoting
-    // status is known locally (eunha has no on-demand remote status fetch).
-    let Some(quoting_status_id) = sqlx::query_scalar!(
+    // Auto-accept: stamp a QuoteAuthorization. Fetch the quoting status on
+    // demand if we don't already have it.
+    let quoting_status_id = match sqlx::query_scalar!(
         "SELECT id FROM statuses WHERE uri = $1 AND deleted_at IS NULL",
         instrument_uri,
     )
     .fetch_optional(&state.db)
     .await?
-    else {
-        tracing::debug!(actor_uri, instrument_uri, "QuoteRequest accepted but quoting status not yet known; skipping stamp");
-        return Ok(());
+    {
+        Some(id) => id,
+        None => match fetch_remote_status(state, instrument_uri).await? {
+            Some(id) => id,
+            None => {
+                tracing::debug!(actor_uri, instrument_uri, "QuoteRequest accepted but quoting status could not be fetched; skipping stamp");
+                return Ok(());
+            }
+        },
     };
 
     // Upsert the quote and mark it accepted (one quote per quoting status).
@@ -2049,6 +2055,208 @@ async fn handle_feature_request(
     }
 
     Ok(())
+}
+
+/// Resolve a status by URI, fetching and storing it from its origin server if
+/// not already known locally. Returns the local status id.
+///
+/// This stores the core of the Note (text, audience/visibility, in-reply-to and
+/// quote linkage when the referenced posts are already local, and media); it
+/// does not recurse into referenced posts. Returns `Ok(None)` if the object
+/// can't be fetched or isn't a storable Note.
+pub async fn fetch_remote_status(state: &AppState, uri: &str) -> AppResult<Option<i64>> {
+    if uri.is_empty() {
+        return Ok(None);
+    }
+    if let Some(id) = sqlx::query_scalar!(
+        "SELECT id FROM statuses WHERE uri = $1 AND deleted_at IS NULL",
+        uri,
+    )
+    .fetch_optional(&state.db)
+    .await?
+    {
+        return Ok(Some(id));
+    }
+
+    let object: Value = match state
+        .http
+        .get(uri)
+        .header("Accept", "application/activity+json, application/ld+json")
+        .send()
+        .await
+        .and_then(|r| r.error_for_status())
+    {
+        Ok(r) => match r.json().await {
+            Ok(v) => v,
+            Err(_) => return Ok(None),
+        },
+        Err(_) => return Ok(None),
+    };
+
+    // Only store Note-like objects.
+    let obj_type = object.get("type").and_then(|t| t.as_str()).unwrap_or("");
+    if !matches!(obj_type, "Note" | "Article" | "Question") {
+        return Ok(None);
+    }
+    let note_uri = object.get("id").and_then(|v| v.as_str()).unwrap_or(uri);
+
+    let attributed_to = json_uri(object.get("attributedTo"));
+    if attributed_to.is_empty() {
+        return Ok(None);
+    }
+    let Ok(account_id) = resolve_or_fetch_remote_account(state, attributed_to).await else {
+        return Ok(None);
+    };
+
+    let text = object.get("content").and_then(|c| c.as_str()).unwrap_or("").to_string();
+    let spoiler_text = object.get("summary").and_then(|s| s.as_str()).unwrap_or("").to_string();
+    let sensitive = object.get("sensitive").and_then(|s| s.as_bool()).unwrap_or(false);
+    let url = object.get("url").and_then(|u| u.as_str()).map(str::to_owned);
+    let created_at = object
+        .get("published")
+        .and_then(|p| p.as_str())
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|t| t.with_timezone(&chrono::Utc))
+        .unwrap_or_else(chrono::Utc::now);
+
+    let note_to = as_string_vec(object.get("to"));
+    let note_cc = as_string_vec(object.get("cc"));
+    const PUBLIC: &str = "https://www.w3.org/ns/activitystreams#Public";
+    let visibility = if note_to.iter().any(|u| u == PUBLIC) {
+        crate::db::models::vis::PUBLIC
+    } else if note_cc.iter().any(|u| u == PUBLIC) {
+        crate::db::models::vis::UNLISTED
+    } else if note_to.iter().any(|u| u.ends_with("/followers"))
+        || note_cc.iter().any(|u| u.ends_with("/followers"))
+    {
+        crate::db::models::vis::PRIVATE
+    } else {
+        crate::db::models::vis::DIRECT
+    };
+    let language = object
+        .get("contentMap")
+        .and_then(|m| m.as_object())
+        .and_then(|m| m.keys().next())
+        .map(|s| s.to_string())
+        .filter(|s| ["ko", "en"].contains(&s.as_str()));
+
+    // Link in-reply-to / quote only when the referenced post is already local.
+    let in_reply_to_uri = object.get("inReplyTo").and_then(|v| v.as_str());
+    let (in_reply_to_id, in_reply_to_account_id): (Option<i64>, Option<i64>) =
+        if let Some(irt) = in_reply_to_uri {
+            sqlx::query!(
+                "SELECT id, account_id FROM statuses WHERE uri = $1 AND deleted_at IS NULL",
+                irt,
+            )
+            .fetch_optional(&state.db)
+            .await?
+            .map(|r| (Some(r.id), Some(r.account_id)))
+            .unwrap_or((None, None))
+        } else {
+            (None, None)
+        };
+
+    let status_id = crate::snowflake::next_id();
+    let inserted = sqlx::query_scalar!(
+        r#"INSERT INTO statuses
+             (id, account_id, text, spoiler_text, visibility, sensitive,
+              uri, url, in_reply_to_id, in_reply_to_account_id, reply,
+              language, created_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+           ON CONFLICT (uri) WHERE uri IS NOT NULL AND uri != '' DO NOTHING
+           RETURNING id"#,
+        status_id,
+        account_id,
+        text,
+        spoiler_text,
+        visibility,
+        sensitive,
+        note_uri,
+        url,
+        in_reply_to_id,
+        in_reply_to_account_id,
+        in_reply_to_id.is_some(),
+        language,
+        created_at,
+    )
+    .fetch_optional(&state.db)
+    .await?;
+
+    // Lost an insert race — return the existing row.
+    let Some(new_id) = inserted else {
+        return Ok(sqlx::query_scalar!(
+            "SELECT id FROM statuses WHERE uri = $1 AND deleted_at IS NULL",
+            note_uri,
+        )
+        .fetch_optional(&state.db)
+        .await?);
+    };
+
+    // Quote linkage (only if the quoted post is already local).
+    let quote_uri = object
+        .get("quote")
+        .and_then(|v| v.as_str())
+        .or_else(|| object.get("quoteUrl").and_then(|v| v.as_str()))
+        .or_else(|| object.get("quoteUri").and_then(|v| v.as_str()))
+        .or_else(|| object.get("_misskey_quote").and_then(|v| v.as_str()));
+    if let Some(q) = quote_uri {
+        if let Some(quoted) = sqlx::query!(
+            "SELECT id, account_id FROM statuses WHERE uri = $1 AND deleted_at IS NULL",
+            q,
+        )
+        .fetch_optional(&state.db)
+        .await?
+        {
+            let _ = sqlx::query!(
+                r#"INSERT INTO quotes
+                     (id, status_id, quoted_status_id, account_id, quoted_account_id, state, created_at, updated_at)
+                   VALUES ($1, $2, $3, $4, $5, 1, now(), now())
+                   ON CONFLICT (status_id) DO NOTHING"#,
+                crate::snowflake::next_id(),
+                new_id,
+                quoted.id,
+                account_id,
+                quoted.account_id,
+            )
+            .execute(&state.db)
+            .await;
+        }
+    }
+
+    // Media attachments.
+    for att in object.get("attachment").and_then(|a| a.as_array()).into_iter().flatten() {
+        let media_type_str = att.get("mediaType").and_then(|v| v.as_str()).unwrap_or("");
+        let att_type: i32 = match att.get("type").and_then(|v| v.as_str()).unwrap_or("") {
+            "Image" => 0,
+            "Video" => if media_type_str.contains("gif") { 1 } else { 2 },
+            "Audio" => 3,
+            _ => 4,
+        };
+        let Some(remote_url) = att.get("url").and_then(|v| v.as_str()).filter(|u| !u.is_empty())
+        else {
+            continue;
+        };
+        let description = att.get("name").and_then(|v| v.as_str()).map(str::to_owned);
+        let blurhash = att.get("blurhash").and_then(|v| v.as_str()).map(str::to_owned);
+        let file_content_type = (!media_type_str.is_empty()).then(|| media_type_str.to_owned());
+        let _ = sqlx::query!(
+            r#"INSERT INTO media_attachments
+                 (id, account_id, status_id, remote_url, description, blurhash, type, file_content_type)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8)"#,
+            crate::snowflake::next_id(),
+            account_id,
+            new_id,
+            remote_url,
+            description,
+            blurhash,
+            att_type,
+            file_content_type,
+        )
+        .execute(&state.db)
+        .await;
+    }
+
+    Ok(Some(new_id))
 }
 
 /// Looks up a remote account by URI, fetching it from the remote server if unknown.
