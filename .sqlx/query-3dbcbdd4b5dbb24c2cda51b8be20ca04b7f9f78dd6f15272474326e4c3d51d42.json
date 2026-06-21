@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT show_reblogs, notify, languages FROM follows WHERE account_id = $1 AND target_account_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "show_reblogs",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "notify",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "languages",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "3dbcbdd4b5dbb24c2cda51b8be20ca04b7f9f78dd6f15272474326e4c3d51d42"
+}

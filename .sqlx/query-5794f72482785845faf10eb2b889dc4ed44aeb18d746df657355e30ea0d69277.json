@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM oauth_access_grants\n           WHERE token = $1 AND application_id = $2\n             AND created_at + expires_in * interval '1 second' > now()\n           RETURNING resource_owner_id, scopes",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "resource_owner_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "scopes",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "5794f72482785845faf10eb2b889dc4ed44aeb18d746df657355e30ea0d69277"
+}

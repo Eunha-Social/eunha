@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO featured_tags (account_id, tag_id, name)\n           VALUES ($1, $2, $3)\n           ON CONFLICT (account_id, tag_id) DO UPDATE SET name = EXCLUDED.name",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c5f7e8df1954bbf748296f5fff4f79a0902917a6ef06485adc683a2b18e01df0"
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM users WHERE account_id = $1 AND approved = false",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b4bd5728dc60702fb7c8e489be5b1093bb80a2a2b872ed8cd5d0fea1515d771c"
+}

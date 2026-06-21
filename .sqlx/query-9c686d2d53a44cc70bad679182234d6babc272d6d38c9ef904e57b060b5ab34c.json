@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT u.account_id, COALESCE(ur.position, 0) AS \"role_position!: i64\"\n           FROM users u\n           LEFT JOIN user_roles ur ON ur.id = u.role_id\n           WHERE u.account_id = ANY($1::bigint[])",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "account_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "role_position!: i64",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "9c686d2d53a44cc70bad679182234d6babc272d6d38c9ef904e57b060b5ab34c"
+}

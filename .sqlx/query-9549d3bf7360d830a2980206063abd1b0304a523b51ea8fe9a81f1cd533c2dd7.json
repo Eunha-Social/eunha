@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT NULLIF(last_read_id, 0) FROM markers WHERE user_id = $1 AND timeline = 'notifications'",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "nullif",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "9549d3bf7360d830a2980206063abd1b0304a523b51ea8fe9a81f1cd533c2dd7"
+}

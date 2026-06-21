@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT u.id as user_id, a.username\n           FROM oauth_access_tokens t\n           JOIN accounts a ON a.id = t.account_id\n           JOIN users u ON u.account_id = a.id\n           WHERE t.token = $1\n             AND t.revoked_at IS NULL\n             AND (t.expires_at IS NULL OR t.expires_at > now())\n             AND a.domain IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "username",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "be18dbc9fefec73172aa3dd870e7136721a434058198d903eb6173c36544c455"
+}

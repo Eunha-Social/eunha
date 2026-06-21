@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT last_read_id, lock_version, updated_at FROM markers WHERE user_id = $1 AND timeline = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "last_read_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "lock_version",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "f107d1703f5e52d62719ecb341c9ba0ee28ae2abbfead94f2d480b050d6b41a9"
+}

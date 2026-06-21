@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT fk.id, fk.keyword, fk.whole_word,\n                  cf.context, cf.expires_at,\n                  CASE cf.action WHEN 0 THEN 'warn' WHEN 1 THEN 'hide' ELSE 'warn' END AS \"action!\"\n           FROM custom_filter_keywords fk\n           JOIN custom_filters cf ON cf.id = fk.custom_filter_id\n           WHERE fk.id = $1 AND cf.account_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "keyword",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "whole_word",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "context",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 4,
+        "name": "expires_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "action!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "03e3b4e216937b2a972ed968a675238dd6fe0f5b0d9e0d1f145170796ebfead9"
+}

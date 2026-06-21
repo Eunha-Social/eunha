@@ -1,0 +1,88 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT * FROM status_edits WHERE status_id = $1 ORDER BY created_at ASC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "status_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "text",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "spoiler_text",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "sensitive",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "account_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "media_descriptions",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 8,
+        "name": "ordered_media_attachment_ids",
+        "type_info": "Int8Array"
+      },
+      {
+        "ordinal": 9,
+        "name": "poll_options",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 10,
+        "name": "quote_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "6281ed36b5463f601a47c2d42f47018bec96451a342b790da485d499ca05a9ac"
+}

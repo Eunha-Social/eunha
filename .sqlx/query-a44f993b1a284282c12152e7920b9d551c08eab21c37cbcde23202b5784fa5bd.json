@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE account_stats SET following_count = GREATEST(following_count-1,0), updated_at=now() WHERE account_id=$1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a44f993b1a284282c12152e7920b9d551c08eab21c37cbcde23202b5784fa5bd"
+}

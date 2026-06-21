@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT 1 as \"exists!\"\n           FROM oauth_access_tokens t\n           JOIN accounts a ON a.id = t.account_id\n           JOIN users u ON u.account_id = a.id\n           WHERE t.token = $1\n             AND t.revoked_at IS NULL\n             AND (t.expires_at IS NULL OR t.expires_at > now())\n             AND a.domain IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists!",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "f3c91261fdb731fd6db22475538ebd81e55975bb89de926622e6a5b6553168b2"
+}

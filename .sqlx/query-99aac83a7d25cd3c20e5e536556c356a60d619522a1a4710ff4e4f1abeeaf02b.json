@@ -1,0 +1,160 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT * FROM media_attachments WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "account_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "status_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "remote_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "blurhash",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "type",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "shortcode",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "file_meta",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 9,
+        "name": "scheduled_status_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 10,
+        "name": "processing",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 11,
+        "name": "file_storage_schema_version",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 12,
+        "name": "file_file_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 13,
+        "name": "file_content_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "file_file_size",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 15,
+        "name": "file_updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 16,
+        "name": "thumbnail_file_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 17,
+        "name": "thumbnail_content_type",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 18,
+        "name": "thumbnail_file_size",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 19,
+        "name": "thumbnail_updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 20,
+        "name": "thumbnail_remote_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 21,
+        "name": "thumbnail_storage_schema_version",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 22,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 23,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      false,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "99aac83a7d25cd3c20e5e536556c356a60d619522a1a4710ff4e4f1abeeaf02b"
+}

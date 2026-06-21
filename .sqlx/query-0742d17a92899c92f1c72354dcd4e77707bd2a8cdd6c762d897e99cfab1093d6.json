@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO generated_annual_reports (account_id, year, data, schema_version)\n         VALUES ($1, $2, $3, $4)\n         ON CONFLICT (account_id, year) DO UPDATE\n         SET data = $3, schema_version = $4, updated_at = NOW()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4",
+        "Jsonb",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0742d17a92899c92f1c72354dcd4e77707bd2a8cdd6c762d897e99cfab1093d6"
+}

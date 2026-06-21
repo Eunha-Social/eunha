@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT domain, severity, public_comment, obfuscate FROM domain_blocks ORDER BY id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "domain",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "severity",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "public_comment",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "obfuscate",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "a794b79506787889fdf5b88b38a27684e451ebc81cc6f722aed407251d636452"
+}

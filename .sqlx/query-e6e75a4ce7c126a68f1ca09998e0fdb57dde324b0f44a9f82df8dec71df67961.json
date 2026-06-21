@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE custom_filters\n           SET phrase = $3,\n               context = $4,\n               action = $5,\n               expires_at = CASE WHEN $6::bigint IS NULL THEN NULL\n                                 ELSE now() + ($6 * interval '1 second')\n                            END,\n               updated_at = now()\n           WHERE id = $1 AND account_id = $2\n           RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text",
+        "TextArray",
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e6e75a4ce7c126a68f1ca09998e0fdb57dde324b0f44a9f82df8dec71df67961"
+}

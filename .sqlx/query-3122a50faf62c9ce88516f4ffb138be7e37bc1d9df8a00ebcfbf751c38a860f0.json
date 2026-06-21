@@ -1,0 +1,70 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT r.id, r.comment, r.forwarded, r.action_taken_at, r.created_at,\n                      r.status_ids, a.id AS ta_id, a.username AS ta_username,\n                      CASE r.category WHEN 0 THEN 'other' WHEN 1 THEN 'spam' WHEN 2 THEN 'violation' ELSE 'other' END AS \"category!\"\n               FROM reports r\n               JOIN accounts a ON a.id = r.target_account_id\n               WHERE r.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "comment",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "forwarded",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "action_taken_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "status_ids",
+        "type_info": "Int8Array"
+      },
+      {
+        "ordinal": 6,
+        "name": "ta_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "ta_username",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "category!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "3122a50faf62c9ce88516f4ffb138be7e37bc1d9df8a00ebcfbf751c38a860f0"
+}

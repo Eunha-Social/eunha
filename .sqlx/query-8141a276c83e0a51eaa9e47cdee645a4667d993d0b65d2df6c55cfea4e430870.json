@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.id, s.account_id,\n                  a.username, a.display_name\n           FROM statuses s\n           JOIN accounts a ON a.id = s.account_id\n           WHERE s.id = $1\n             AND s.deleted_at IS NULL\n             AND s.visibility IN (0, 1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "account_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "username",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "display_name",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "8141a276c83e0a51eaa9e47cdee645a4667d993d0b65d2df6c55cfea4e430870"
+}

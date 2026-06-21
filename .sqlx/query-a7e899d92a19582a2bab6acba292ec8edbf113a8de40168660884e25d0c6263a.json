@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT ft.id, t.name, ft.statuses_count, ft.last_status_at\n           FROM featured_tags ft\n           JOIN tags t ON t.id = ft.tag_id\n           WHERE ft.account_id = $1\n           ORDER BY ft.statuses_count DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "statuses_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "last_status_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "a7e899d92a19582a2bab6acba292ec8edbf113a8de40168660884e25d0c6263a"
+}

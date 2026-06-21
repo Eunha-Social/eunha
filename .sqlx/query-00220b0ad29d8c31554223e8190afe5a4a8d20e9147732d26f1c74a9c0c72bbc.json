@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT for_not_following, for_not_followers, for_new_accounts,\n                  for_private_mentions, for_limited_accounts\n           FROM notification_policies WHERE account_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "for_not_following",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "for_not_followers",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "for_new_accounts",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "for_private_mentions",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "for_limited_accounts",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "00220b0ad29d8c31554223e8190afe5a4a8d20e9147732d26f1c74a9c0c72bbc"
+}

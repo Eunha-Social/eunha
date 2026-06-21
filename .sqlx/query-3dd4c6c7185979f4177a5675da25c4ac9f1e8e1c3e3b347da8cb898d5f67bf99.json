@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT f.id AS sort_id, f.status_id FROM favourites f\n               JOIN statuses s ON s.id = f.status_id\n               WHERE f.account_id = $1\n                 AND s.deleted_at IS NULL\n                 AND ($2::bigint IS NULL OR f.id < $2)\n                 AND ($3::bigint IS NULL OR f.id > $3)\n               ORDER BY f.id DESC LIMIT $4",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "sort_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "status_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "3dd4c6c7185979f4177a5675da25c4ac9f1e8e1c3e3b347da8cb898d5f67bf99"
+}

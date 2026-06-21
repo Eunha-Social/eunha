@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS(SELECT 1 FROM custom_filter_keywords WHERE custom_filter_id = $1\n                       UNION ALL\n                       SELECT 1 FROM custom_filter_statuses WHERE custom_filter_id = $1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "5ec5a882a6da216abe667d3ae6a9f9134be6d3be45a8a67aee126ed06fe4a9c7"
+}

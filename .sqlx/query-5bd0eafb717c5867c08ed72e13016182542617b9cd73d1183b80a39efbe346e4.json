@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO tombstones (id, account_id, uri, created_at, updated_at)\n                       SELECT $1, $2, $3, now(), now()\n                       WHERE NOT EXISTS (SELECT 1 FROM tombstones WHERE uri = $3)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5bd0eafb717c5867c08ed72e13016182542617b9cd73d1183b80a39efbe346e4"
+}

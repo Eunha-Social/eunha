@@ -1,0 +1,168 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.* FROM statuses s\n           JOIN status_pins sp ON sp.status_id = s.id\n           WHERE sp.account_id = $1 AND s.deleted_at IS NULL\n             AND (\n               s.visibility IN (0, 1)\n               OR ($2::boolean = true)\n               OR ($3::boolean = true AND s.visibility = 2)\n             )\n           ORDER BY sp.id DESC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "account_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "text",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "spoiler_text",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "in_reply_to_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "in_reply_to_account_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "reblog_of_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "visibility",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "language",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "sensitive",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "uri",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "deleted_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 13,
+        "name": "edited_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 14,
+        "name": "application_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 15,
+        "name": "reply",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 16,
+        "name": "conversation_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 17,
+        "name": "fetched_replies_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 18,
+        "name": "local",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 19,
+        "name": "ordered_media_attachment_ids",
+        "type_info": "Int8Array"
+      },
+      {
+        "ordinal": 20,
+        "name": "poll_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 21,
+        "name": "quote_approval_policy",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 22,
+        "name": "trendable",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 23,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 24,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Bool",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "922ec4435d5437ff21d58db813975fb0afffa38eeecb2b0a0246b34e12fb6e4f"
+}

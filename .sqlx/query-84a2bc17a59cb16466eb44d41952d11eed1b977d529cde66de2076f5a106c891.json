@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT st.status_id, t.name\n           FROM tags t\n           JOIN statuses_tags st ON st.tag_id = t.id\n           WHERE st.status_id = ANY($1::bigint[])\n           ORDER BY t.name ASC",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "84a2bc17a59cb16466eb44d41952d11eed1b977d529cde66de2076f5a106c891"
+}

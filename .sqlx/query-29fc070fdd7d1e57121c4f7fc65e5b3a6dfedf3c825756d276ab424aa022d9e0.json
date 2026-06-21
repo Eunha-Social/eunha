@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COUNT(*) FROM follows f\n           JOIN accounts a ON a.id = f.target_account_id\n           WHERE f.account_id = $1 AND a.domain = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "29fc070fdd7d1e57121c4f7fc65e5b3a6dfedf3c825756d276ab424aa022d9e0"
+}

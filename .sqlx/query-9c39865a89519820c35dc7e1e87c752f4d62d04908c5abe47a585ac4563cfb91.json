@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT 1 FROM notifications\n           WHERE account_id = $1 AND from_account_id = $2\n             AND \"type\" = $3\n             AND (activity_id = $4 OR ($4::bigint IS NULL AND activity_id IS NULL))\n           LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "9c39865a89519820c35dc7e1e87c752f4d62d04908c5abe47a585ac4563cfb91"
+}

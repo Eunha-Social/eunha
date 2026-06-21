@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT fk.id AS keyword_id, cf.id AS filter_id\n           FROM custom_filter_keywords fk\n           JOIN custom_filters cf ON cf.id = fk.custom_filter_id\n           WHERE fk.id = $1 AND cf.account_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "keyword_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "filter_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "61de5919454b47bc7b30473205f9246cf076a15cd4d6c9318f24f1bcf3a967d3"
+}

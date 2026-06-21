@@ -1,0 +1,176 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO statuses\n             (id, account_id, text, spoiler_text, visibility,\n              language, sensitive, in_reply_to_id, in_reply_to_account_id, reply, uri, url)\n           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11)\n           RETURNING *",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "account_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "text",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "spoiler_text",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "in_reply_to_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "in_reply_to_account_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "reblog_of_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "visibility",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "language",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "sensitive",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "uri",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "deleted_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 13,
+        "name": "edited_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 14,
+        "name": "application_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 15,
+        "name": "reply",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 16,
+        "name": "conversation_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 17,
+        "name": "fetched_replies_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 18,
+        "name": "local",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 19,
+        "name": "ordered_media_attachment_ids",
+        "type_info": "Int8Array"
+      },
+      {
+        "ordinal": 20,
+        "name": "poll_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 21,
+        "name": "quote_approval_policy",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 22,
+        "name": "trendable",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 23,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 24,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text",
+        "Text",
+        "Int4",
+        "Text",
+        "Bool",
+        "Int8",
+        "Int8",
+        "Bool",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "a365cef838c9c71909c55f1500604f98c48026051e8aa4bb95fb61cc5593bc3d"
+}

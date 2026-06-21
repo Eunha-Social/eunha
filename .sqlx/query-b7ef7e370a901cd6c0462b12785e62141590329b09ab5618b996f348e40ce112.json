@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO account_notes (account_id, target_account_id, comment)\n               VALUES ($1, $2, $3)\n               ON CONFLICT (account_id, target_account_id)\n               DO UPDATE SET comment = EXCLUDED.comment, updated_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b7ef7e370a901cd6c0462b12785e62141590329b09ab5618b996f348e40ce112"
+}

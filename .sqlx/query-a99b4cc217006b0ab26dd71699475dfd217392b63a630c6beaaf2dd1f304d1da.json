@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO featured_tags (account_id, tag_id, name)\n           VALUES ($1, $2, $3)\n           ON CONFLICT (account_id, tag_id) DO UPDATE SET name = EXCLUDED.name\n           RETURNING id, statuses_count, last_status_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "statuses_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "last_status_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "a99b4cc217006b0ab26dd71699475dfd217392b63a630c6beaaf2dd1f304d1da"
+}

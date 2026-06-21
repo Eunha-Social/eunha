@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT fk.id, fk.keyword, fk.whole_word\n           FROM custom_filter_keywords fk\n           JOIN custom_filters f ON f.id = fk.custom_filter_id\n           WHERE fk.id = $1 AND f.account_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "keyword",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "whole_word",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "f2066993c77531f9bb665e30a36f0f4ac06f5e807419740a79bd3880eb03ab82"
+}

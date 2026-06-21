@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE statuses SET deleted_at = now() WHERE reblog_of_id = $1 AND deleted_at IS NULL RETURNING account_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "account_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9bffeb694a77c57aae37bdf957e706cc5690c733fa633b5f0d7906379606501a"
+}

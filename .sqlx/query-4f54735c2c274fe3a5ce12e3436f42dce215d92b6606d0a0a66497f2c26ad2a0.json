@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT fs.id, fs.status_id\n           FROM custom_filter_statuses fs\n           JOIN custom_filters f ON f.id = fs.custom_filter_id\n           WHERE fs.id = $1 AND f.account_id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "status_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "4f54735c2c274fe3a5ce12e3436f42dce215d92b6606d0a0a66497f2c26ad2a0"
+}

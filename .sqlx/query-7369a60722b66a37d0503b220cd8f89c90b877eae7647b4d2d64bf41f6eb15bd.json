@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT target_account_id, show_reblogs, notify, languages FROM follows WHERE account_id = $1 AND target_account_id = ANY($2::bigint[])",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "target_account_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "show_reblogs",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "notify",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 3,
+        "name": "languages",
+        "type_info": "TextArray"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "7369a60722b66a37d0503b220cd8f89c90b877eae7647b4d2d64bf41f6eb15bd"
+}

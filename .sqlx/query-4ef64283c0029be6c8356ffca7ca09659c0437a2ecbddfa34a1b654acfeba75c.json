@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM custom_filter_keywords WHERE id = $1 AND custom_filter_id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4ef64283c0029be6c8356ffca7ca09659c0437a2ecbddfa34a1b654acfeba75c"
+}

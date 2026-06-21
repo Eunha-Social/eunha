@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT inbox_url, shared_inbox_url, domain FROM accounts WHERE id = (SELECT account_id FROM statuses WHERE id = $1)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "inbox_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "shared_inbox_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "domain",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "5c076167f4c3f49149c0d33be003d484feb78ef621934499b2cafb5e47ac475d"
+}

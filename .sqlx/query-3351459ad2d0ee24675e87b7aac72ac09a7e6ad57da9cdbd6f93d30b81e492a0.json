@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE accounts SET suspended_at = now() WHERE uri = $1 AND domain IS NOT NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3351459ad2d0ee24675e87b7aac72ac09a7e6ad57da9cdbd6f93d30b81e492a0"
+}

@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO custom_emojis\n                 (id, shortcode, domain, image_remote_url, uri, created_at, updated_at)\n               VALUES ($1,$2,$3,$4,$5,now(),now())\n               ON CONFLICT (shortcode, domain)\n               DO UPDATE SET image_remote_url = EXCLUDED.image_remote_url, updated_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5573220d1d94acea0f47f6c8d2e51897a17ba50edd4c1ded33a94a1245a597e2"
+}

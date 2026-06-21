@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT b.id AS sort_id, b.status_id FROM bookmarks b\n               JOIN statuses s ON s.id = b.status_id\n               WHERE b.account_id = $1\n                 AND s.deleted_at IS NULL\n                 AND ($2::bigint IS NULL OR b.id > $2)\n               ORDER BY b.id ASC LIMIT $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "sort_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "status_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "b37982cdbab730db1825370f68c5d9346e7194af1d69781093e70a3edf287f0b"
+}

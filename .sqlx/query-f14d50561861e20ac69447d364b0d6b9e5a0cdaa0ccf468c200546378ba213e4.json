@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO account_stats (account_id, following_count) VALUES ($1, 1) ON CONFLICT (account_id) DO UPDATE SET following_count = account_stats.following_count + 1, updated_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f14d50561861e20ac69447d364b0d6b9e5a0cdaa0ccf468c200546378ba213e4"
+}

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE account_conversations SET unread = true WHERE conversation_id = $1 AND account_id = $2 RETURNING participant_account_ids, last_status_id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "participant_account_ids",
+        "type_info": "Int8Array"
+      },
+      {
+        "ordinal": 1,
+        "name": "last_status_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "751a562c8bbe42f19583193d0e52ca2bab23d43d11e43e6b147aa83e0423e336"
+}

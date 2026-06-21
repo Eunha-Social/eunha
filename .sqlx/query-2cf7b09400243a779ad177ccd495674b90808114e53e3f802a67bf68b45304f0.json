@@ -1,0 +1,100 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT * FROM polls WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "status_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "account_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "options",
+        "type_info": "TextArray"
+      },
+      {
+        "ordinal": 4,
+        "name": "votes_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "voters_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "multiple",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 7,
+        "name": "expires_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "cached_tallies",
+        "type_info": "Int8Array"
+      },
+      {
+        "ordinal": 9,
+        "name": "hide_totals",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "last_fetched_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 11,
+        "name": "lock_version",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 12,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 13,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "2cf7b09400243a779ad177ccd495674b90808114e53e3f802a67bf68b45304f0"
+}

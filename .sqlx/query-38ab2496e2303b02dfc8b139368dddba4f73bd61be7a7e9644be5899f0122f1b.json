@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO polls\n                 (id, status_id, account_id, options, cached_tallies, votes_count,\n                  multiple, expires_at, created_at, updated_at)\n               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now(),now())\n               ON CONFLICT (status_id) DO NOTHING\n               RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8",
+        "TextArray",
+        "Int8Array",
+        "Int8",
+        "Bool",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "38ab2496e2303b02dfc8b139368dddba4f73bd61be7a7e9644be5899f0122f1b"
+}

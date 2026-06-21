@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT a.id, COALESCE(st.statuses_count, 0) AS statuses_count FROM accounts a LEFT JOIN account_stats st ON st.account_id = a.id WHERE a.username = $1 AND a.domain IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "statuses_count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "f485962a990137e832a62ece8ef792b7bda282a87deeae65384f8f44f51c5ac5"
+}

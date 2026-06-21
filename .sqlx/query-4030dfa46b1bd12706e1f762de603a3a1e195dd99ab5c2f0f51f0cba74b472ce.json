@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT u.confirmed_at IS NOT NULL\n                 AND (u.approved OR NOT $2) AS \"ok!\"\n               FROM users u\n               WHERE u.account_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ok!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "4030dfa46b1bd12706e1f762de603a3a1e195dd99ab5c2f0f51f0cba74b472ce"
+}
