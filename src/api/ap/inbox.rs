@@ -1290,6 +1290,22 @@ async fn handle_update(
 
     let obj_type = object.get("type").and_then(|t| t.as_str()).unwrap_or("");
     match obj_type {
+        "FeaturedCollection" => {
+            // Mirror an updated remote collection.
+            let actor_uri = activity.get("actor").and_then(|a| a.as_str()).unwrap_or("");
+            if actor_uri.is_empty() {
+                return Ok(());
+            }
+            if let Ok(owner_id) = resolve_or_fetch_remote_account(state, actor_uri).await {
+                if let Some(cid) = upsert_remote_collection(state, owner_id, object).await? {
+                    if let Some(items) = object.get("orderedItems").and_then(|v| v.as_array()) {
+                        for it in items {
+                            let _ = mirror_item_into(state, cid, it).await;
+                        }
+                    }
+                }
+            }
+        }
         "Person" | "Service" | "Application" | "Group" | "Organization" => {
             let actor_uri = object.get("id").and_then(|i| i.as_str()).unwrap_or("");
             if actor_uri.is_empty() {
@@ -1548,19 +1564,117 @@ async fn handle_move(
     Ok(())
 }
 
+/// Read a JSON value that may be a string IRI or an object with an `id`.
+fn json_uri(v: Option<&Value>) -> &str {
+    v.and_then(|x| {
+        if x.is_string() {
+            x.as_str()
+        } else {
+            x.get("id").and_then(|i| i.as_str())
+        }
+    })
+    .unwrap_or("")
+}
+
+/// Insert or update a mirrored remote collection (`local = false`).
+async fn upsert_remote_collection(
+    state: &AppState,
+    owner_id: i64,
+    coll: &Value,
+) -> AppResult<Option<i64>> {
+    let uri = coll.get("id").and_then(|v| v.as_str()).unwrap_or("");
+    if uri.is_empty() {
+        return Ok(None);
+    }
+    let name = coll.get("name").and_then(|v| v.as_str()).unwrap_or("Featured collection");
+    let sensitive = coll.get("sensitive").and_then(|v| v.as_bool()).unwrap_or(false);
+    let discoverable = coll.get("discoverable").and_then(|v| v.as_bool()).unwrap_or(true);
+    let id = sqlx::query_scalar!(
+        r#"INSERT INTO collections
+             (account_id, name, discoverable, local, sensitive, item_count, uri, created_at, updated_at)
+           VALUES ($1, $2, $3, false, $4, 0, $5, now(), now())
+           ON CONFLICT (uri) WHERE uri IS NOT NULL
+             DO UPDATE SET name = EXCLUDED.name, discoverable = EXCLUDED.discoverable,
+                           sensitive = EXCLUDED.sensitive, updated_at = now()
+           RETURNING id"#,
+        owner_id,
+        name,
+        discoverable,
+        sensitive,
+        uri,
+    )
+    .fetch_optional(&state.db)
+    .await?;
+    Ok(id)
+}
+
+/// Mirror one `FeaturedItem` into a (remote) collection.
+async fn mirror_item_into(state: &AppState, collection_id: i64, item: &Value) -> AppResult<()> {
+    let item_uri = item.get("id").and_then(|v| v.as_str());
+    let account_uri = json_uri(item.get("featuredObject"));
+    if account_uri.is_empty() {
+        return Ok(());
+    }
+    let Ok(account_id) = resolve_or_fetch_remote_account(state, account_uri).await else {
+        return Ok(());
+    };
+    sqlx::query!(
+        r#"INSERT INTO collection_items
+             (collection_id, account_id, state, uri, position, created_at, updated_at)
+           VALUES ($1, $2, 1, $3,
+                   (SELECT COALESCE(MAX(position), 0) + 1 FROM collection_items WHERE collection_id = $1),
+                   now(), now())
+           ON CONFLICT (account_id, collection_id)
+             DO UPDATE SET state = 1, uri = EXCLUDED.uri, updated_at = now()"#,
+        collection_id,
+        account_id,
+        item_uri,
+    )
+    .execute(&state.db)
+    .await?;
+    refresh_collection_item_count(state, collection_id).await
+}
+
 async fn handle_add(
     state: &AppState,
     activity: &Value,
 ) -> AppResult<()> {
     let actor_uri = activity.get("actor").and_then(|a| a.as_str()).unwrap_or("");
-    let object_uri = activity.get("object").and_then(|o| {
-        if o.is_string() { o.as_str() } else { o.get("id").and_then(|i| i.as_str()) }
-    }).unwrap_or("");
-    let target_uri = activity.get("target").and_then(|t| {
-        if t.is_string() { t.as_str() } else { t.get("id").and_then(|i| i.as_str()) }
-    }).unwrap_or("");
+    let object_uri = json_uri(activity.get("object"));
+    let target_uri = json_uri(activity.get("target"));
 
     if actor_uri.is_empty() || object_uri.is_empty() { return Ok(()); }
+
+    // Collection mirroring: Add(FeaturedCollection) / Add(FeaturedItem).
+    if let Some(obj) = activity.get("object").filter(|o| o.is_object()) {
+        match obj.get("type").and_then(|t| t.as_str()) {
+            Some("FeaturedCollection") => {
+                if let Ok(owner_id) = resolve_or_fetch_remote_account(state, actor_uri).await {
+                    if let Some(cid) = upsert_remote_collection(state, owner_id, obj).await? {
+                        if let Some(items) = obj.get("orderedItems").and_then(|v| v.as_array()) {
+                            for it in items {
+                                let _ = mirror_item_into(state, cid, it).await;
+                            }
+                        }
+                    }
+                }
+                return Ok(());
+            }
+            Some("FeaturedItem") => {
+                if let Some(cid) = sqlx::query_scalar!(
+                    "SELECT id FROM collections WHERE uri = $1 AND local = false",
+                    target_uri,
+                )
+                .fetch_optional(&state.db)
+                .await?
+                {
+                    mirror_item_into(state, cid, obj).await?;
+                }
+                return Ok(());
+            }
+            _ => {}
+        }
+    }
 
     // Check that the target is the actor's featured collection (pinned posts)
     let featured_url = sqlx::query_scalar!(
@@ -1599,6 +1713,39 @@ async fn handle_remove(
         if o.is_string() { o.as_str() } else { o.get("id").and_then(|i| i.as_str()) }
     }).unwrap_or("");
 
+    // Collection mirroring: Remove(FeaturedCollection) deletes the mirrored
+    // collection; Remove(FeaturedItem) deletes the mirrored item. Only the
+    // collection owner (the activity actor) may do so.
+    let removed_collection = sqlx::query!(
+        r#"DELETE FROM collections
+           WHERE uri = $1 AND local = false
+             AND account_id = (SELECT id FROM accounts WHERE uri = $2)
+           RETURNING id"#,
+        object_uri,
+        actor_uri,
+    )
+    .fetch_optional(&state.db)
+    .await?;
+    if removed_collection.is_some() {
+        return Ok(());
+    }
+    let removed_item = sqlx::query!(
+        r#"DELETE FROM collection_items
+           WHERE uri = $1 AND collection_id IN (
+               SELECT id FROM collections
+               WHERE account_id = (SELECT id FROM accounts WHERE uri = $2)
+           )
+           RETURNING collection_id"#,
+        object_uri,
+        actor_uri,
+    )
+    .fetch_optional(&state.db)
+    .await?;
+    if let Some(r) = removed_item {
+        refresh_collection_item_count(state, r.collection_id).await?;
+        return Ok(());
+    }
+
     let account_id = sqlx::query_scalar!("SELECT id FROM accounts WHERE uri = $1", actor_uri)
         .fetch_optional(&state.db).await?;
     let status_id = sqlx::query_scalar!("SELECT id FROM statuses WHERE uri = $1", object_uri)
@@ -1614,18 +1761,24 @@ async fn handle_remove(
 
 async fn handle_quote_request(
     state: &AppState,
-    _instance: &crate::config::InstanceConfig,
+    instance: &crate::config::InstanceConfig,
     activity: &Value,
 ) -> AppResult<()> {
+    let req_id = activity.get("id").and_then(|v| v.as_str()).unwrap_or("");
     let actor_uri = activity.get("actor").and_then(|a| a.as_str()).unwrap_or("");
     let object_uri = activity.get("object").and_then(|o| o.as_str()).unwrap_or("");
+    let instrument_uri = json_uri(activity.get("instrument"));
 
-    if object_uri.is_empty() || actor_uri.is_empty() {
+    if req_id.is_empty() || object_uri.is_empty() || actor_uri.is_empty() {
         return Ok(());
     }
 
+    // The quoted status must be one of ours.
     let Some(status) = sqlx::query!(
-        "SELECT id, account_id, quote_approval_policy FROM statuses WHERE uri = $1 AND deleted_at IS NULL",
+        r#"SELECT s.id, s.account_id, s.quote_approval_policy,
+                  a.username, a.uri AS account_uri, a.private_key
+           FROM statuses s JOIN accounts a ON a.id = s.account_id
+           WHERE s.uri = $1 AND s.deleted_at IS NULL AND a.domain IS NULL"#,
         object_uri,
     )
     .fetch_optional(&state.db)
@@ -1634,20 +1787,105 @@ async fn handle_quote_request(
         return Ok(());
     };
 
-    if resolve_or_fetch_remote_account(state, actor_uri)
-        .await
-        .is_err()
-    {
+    let Ok(quoter_id) = resolve_or_fetch_remote_account(state, actor_uri).await else {
+        return Ok(());
+    };
+    let quoter = sqlx::query!(
+        "SELECT uri, inbox_url, shared_inbox_url FROM accounts WHERE id = $1",
+        quoter_id,
+    )
+    .fetch_one(&state.db)
+    .await?;
+    let inbox = if !quoter.shared_inbox_url.is_empty() {
+        quoter.shared_inbox_url
+    } else {
+        quoter.inbox_url
+    };
+    let Some(private_key) = status.private_key.filter(|s| !s.is_empty()) else {
+        return Ok(());
+    };
+    if inbox.is_empty() {
         return Ok(());
     }
 
-    let always_public = status.quote_approval_policy == 0;
-    if always_public {
-        tracing::debug!(actor_uri, object_uri, "auto-accepting QuoteRequest");
-        // TODO: send Accept(QuoteRequest) via federation worker
-    } else {
-        tracing::debug!(actor_uri, object_uri, "queuing QuoteRequest for manual approval");
-        // TODO: queue pending quote approval notification for the local account owner
+    let domain = &instance.domain;
+    let actor_url = status.account_uri.clone();
+    let key_id = format!("{actor_url}#main-key");
+
+    // quote_approval_policy 0 = public (auto-accept); anything else requires the
+    // owner's manual approval, which we do not auto-grant -> reject.
+    if status.quote_approval_policy != 0 {
+        let reject_id = format!("{actor_url}#rejects/quote_requests/{}", crate::snowflake::next_id());
+        if let Ok(r) = crate::federation::consent::reject(&reject_id, &actor_url, &quoter.uri, req_id) {
+            crate::federation::delivery::deliver_to_inboxes(
+                state.http.clone(),
+                r,
+                vec![inbox],
+                key_id,
+                private_key,
+            );
+        }
+        return Ok(());
+    }
+
+    // Auto-accept: we can only stamp a QuoteAuthorization once the quoting
+    // status is known locally (eunha has no on-demand remote status fetch).
+    let Some(quoting_status_id) = sqlx::query_scalar!(
+        "SELECT id FROM statuses WHERE uri = $1 AND deleted_at IS NULL",
+        instrument_uri,
+    )
+    .fetch_optional(&state.db)
+    .await?
+    else {
+        tracing::debug!(actor_uri, instrument_uri, "QuoteRequest accepted but quoting status not yet known; skipping stamp");
+        return Ok(());
+    };
+
+    // Upsert the quote and mark it accepted (one quote per quoting status).
+    let quote_id = sqlx::query_scalar!(
+        r#"INSERT INTO quotes
+             (id, status_id, quoted_status_id, account_id, quoted_account_id, activity_uri, state, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, 1, now(), now())
+           ON CONFLICT (status_id) DO UPDATE
+             SET state = 1, activity_uri = EXCLUDED.activity_uri, updated_at = now()
+           RETURNING id"#,
+        crate::snowflake::next_id(),
+        quoting_status_id,
+        status.id,
+        quoter_id,
+        status.account_id,
+        req_id,
+    )
+    .fetch_one(&state.db)
+    .await?;
+
+    let authorization_uri = format!(
+        "https://{domain}/users/{}/quote_authorizations/{quote_id}",
+        status.username
+    );
+    sqlx::query!(
+        "UPDATE quotes SET approval_uri = $2 WHERE id = $1",
+        quote_id,
+        authorization_uri,
+    )
+    .execute(&state.db)
+    .await?;
+
+    let accept_id = format!("{actor_url}#accepts/quote_requests/{quote_id}");
+    if let Ok(accept) = crate::federation::consent::accept(
+        &accept_id,
+        &actor_url,
+        &quoter.uri,
+        req_id,
+        &authorization_uri,
+    ) {
+        crate::federation::delivery::deliver_to_inboxes(
+            state.http.clone(),
+            accept,
+            vec![inbox],
+            key_id,
+            private_key,
+        );
     }
 
     Ok(())

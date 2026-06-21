@@ -298,6 +298,62 @@ pub async fn get_feature_authorization(
         .into_response())
 }
 
+/// GET /users/{username}/quote_authorizations/{id} — the QuoteAuthorization
+/// stamp proving a local account authorized a quote of one of its posts.
+pub async fn get_quote_authorization(
+    State(state): State<AppState>,
+    Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
+    Path((username, id)): Path<(String, i64)>,
+) -> AppResult<Response> {
+    let row = sqlx::query!(
+        r#"SELECT qs.uri AS "quoted_status_uri?", ss.uri AS "quoting_status_uri?",
+                  qa.uri AS quoted_account_uri
+           FROM quotes q
+           JOIN statuses qs ON qs.id = q.quoted_status_id
+           JOIN statuses ss ON ss.id = q.status_id
+           JOIN accounts qa ON qa.id = q.quoted_account_id
+           WHERE q.id = $1 AND q.state = 1
+             AND qa.username = $2 AND qa.domain IS NULL"#,
+        id,
+        username,
+    )
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
+
+    let (Some(quoted_status_uri), Some(quoting_status_uri)) =
+        (row.quoted_status_uri, row.quoting_status_uri)
+    else {
+        return Err(AppError::NotFound);
+    };
+
+    let domain = &instance.domain;
+    let auth_id = format!("https://{domain}/users/{username}/quote_authorizations/{id}");
+    let mut body = crate::federation::consent::quote_authorization(
+        &auth_id,
+        &row.quoted_account_uri,
+        &quoting_status_uri,
+        &quoted_status_uri,
+    )
+    .map_err(AppError::Internal)?;
+    body["@context"] = json!([
+        "https://www.w3.org/ns/activitystreams",
+        {
+            "toot": "http://joinmastodon.org/ns#",
+            "QuoteAuthorization": "toot:QuoteAuthorization",
+            "interactingObject": { "@id": "toot:interactingObject", "@type": "@id" },
+            "interactionTarget": { "@id": "toot:interactionTarget", "@type": "@id" },
+        }
+    ]);
+
+    Ok((
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, CONTENT_TYPE)],
+        Json(body),
+    )
+        .into_response())
+}
+
 // ── Activity builders (for outbound distribution to followers) ─────────────────
 
 /// `Add(FeaturedCollection)` — a new collection was created.

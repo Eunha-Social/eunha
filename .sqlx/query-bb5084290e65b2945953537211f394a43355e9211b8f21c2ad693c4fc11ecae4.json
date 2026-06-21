@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.id, s.account_id, s.quote_approval_policy,\n                  a.username, a.uri AS account_uri, a.private_key\n           FROM statuses s JOIN accounts a ON a.id = s.account_id\n           WHERE s.uri = $1 AND s.deleted_at IS NULL AND a.domain IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "account_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "quote_approval_policy",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "username",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "account_uri",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "private_key",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "bb5084290e65b2945953537211f394a43355e9211b8f21c2ad693c4fc11ecae4"
+}
