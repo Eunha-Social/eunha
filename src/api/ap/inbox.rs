@@ -99,6 +99,7 @@ pub async fn shared_inbox(
         "Add" => { handle_add(&state, &activity).await?; "handled" }
         "Remove" => { handle_remove(&state, &activity).await?; "handled" }
         "QuoteRequest" => { handle_quote_request(&state, &instance, &activity).await?; "handled" }
+        "FeatureRequest" => { handle_feature_request(&state, &instance, &activity).await?; "handled" }
         _ => "ignored",
     };
     tracing::debug!(activity_type, outcome, "ActivityPub activity processed");
@@ -967,6 +968,21 @@ async fn handle_delete(
             .await?;
             tracing::debug!(actor_uri, "suspended remote account on Delete(actor)");
         } else {
+            // Delete(FeatureAuthorization) — a featured account revoked consent;
+            // revoke the matching item (matched by the authorization URI we stored).
+            let revoked = sqlx::query!(
+                r#"UPDATE collection_items SET state = 3, updated_at = now()
+                   WHERE approval_uri = $1 AND state = 1
+                   RETURNING collection_id"#,
+                uri,
+            )
+            .fetch_optional(&state.db)
+            .await?;
+            if let Some(r) = revoked {
+                refresh_collection_item_count(state, r.collection_id).await?;
+                return Ok(());
+            }
+
             // Reject if the actor's domain doesn't match the object's domain —
             // prevents one server from deleting another server's content.
             if !same_host(actor_uri, uri) {
@@ -1195,8 +1211,70 @@ async fn handle_accept_reject(
                 .execute(&state.db)
                 .await?;
         }
+
+        // Feature-request consent: the object may be one of our outstanding
+        // FeatureRequests (matched by collection_items.activity_uri).
+        let actor_uri = activity.get("actor").and_then(|a| a.as_str()).unwrap_or("");
+        let item = sqlx::query!(
+            r#"SELECT ci.id, ci.collection_id, a.uri AS "account_uri?"
+               FROM collection_items ci
+               JOIN accounts a ON a.id = ci.account_id
+               WHERE ci.activity_uri = $1 AND ci.state = 0"#,
+            uri,
+        )
+        .fetch_optional(&state.db)
+        .await?;
+        if let Some(item) = item {
+            // Only the featured account itself may answer the request.
+            if item.account_uri.as_deref() == Some(actor_uri) {
+                if activity_type == "Accept" {
+                    let approval_uri = activity
+                        .get("result")
+                        .and_then(|r| {
+                            if r.is_string() {
+                                r.as_str()
+                            } else {
+                                r.get("id").and_then(|i| i.as_str())
+                            }
+                        })
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.to_string());
+                    sqlx::query!(
+                        r#"UPDATE collection_items
+                           SET state = 1, approval_uri = $2,
+                               approval_last_verified_at = now(), updated_at = now()
+                           WHERE id = $1"#,
+                        item.id,
+                        approval_uri.as_deref(),
+                    )
+                    .execute(&state.db)
+                    .await?;
+                } else {
+                    sqlx::query!(
+                        "UPDATE collection_items SET state = 2, updated_at = now() WHERE id = $1",
+                        item.id,
+                    )
+                    .execute(&state.db)
+                    .await?;
+                }
+                refresh_collection_item_count(state, item.collection_id).await?;
+            }
+        }
     }
 
+    Ok(())
+}
+
+/// Recompute a collection's `item_count` (pending + accepted items).
+async fn refresh_collection_item_count(state: &AppState, collection_id: i64) -> AppResult<()> {
+    sqlx::query!(
+        r#"UPDATE collections SET item_count =
+             (SELECT COUNT(*) FROM collection_items WHERE collection_id = $1 AND state IN (0, 1))
+           WHERE id = $1"#,
+        collection_id,
+    )
+    .execute(&state.db)
+    .await?;
     Ok(())
 }
 
@@ -1570,6 +1648,166 @@ async fn handle_quote_request(
     } else {
         tracing::debug!(actor_uri, object_uri, "queuing QuoteRequest for manual approval");
         // TODO: queue pending quote approval notification for the local account owner
+    }
+
+    Ok(())
+}
+
+/// Handle an incoming `FeatureRequest`: a remote collection wants to feature one
+/// of our local accounts. We fetch/store the remote collection, record an
+/// accepted item, and reply with an `Accept` whose `result` points at a
+/// `FeatureAuthorization` we serve. (Rejection policy is intentionally simple:
+/// suspended local accounts are skipped.)
+async fn handle_feature_request(
+    state: &AppState,
+    instance: &crate::config::InstanceConfig,
+    activity: &Value,
+) -> AppResult<()> {
+    let req_id = activity.get("id").and_then(|v| v.as_str()).unwrap_or("");
+    let account_uri = activity.get("object").and_then(|v| v.as_str()).unwrap_or("");
+    let collection_uri = activity
+        .get("instrument")
+        .and_then(|v| if v.is_string() { v.as_str() } else { v.get("id").and_then(|i| i.as_str()) })
+        .unwrap_or("");
+    if req_id.is_empty() || account_uri.is_empty() || collection_uri.is_empty() {
+        return Ok(());
+    }
+
+    // The featured account must be local and active.
+    let Some(local) = sqlx::query!(
+        "SELECT id, username, suspended_at FROM accounts WHERE uri = $1 AND domain IS NULL",
+        account_uri,
+    )
+    .fetch_optional(&state.db)
+    .await?
+    else {
+        return Ok(());
+    };
+    if local.suspended_at.is_some() {
+        return Ok(());
+    }
+
+    // Fetch the remote FeaturedCollection to learn its owner and name.
+    let coll: Value = match state
+        .http
+        .get(collection_uri)
+        .header("Accept", "application/activity+json")
+        .send()
+        .await
+        .and_then(|r| r.error_for_status())
+    {
+        Ok(r) => match r.json().await {
+            Ok(v) => v,
+            Err(_) => return Ok(()),
+        },
+        Err(_) => return Ok(()),
+    };
+    let owner_uri = coll
+        .get("attributedTo")
+        .and_then(|v| if v.is_string() { v.as_str() } else { v.get("id").and_then(|i| i.as_str()) })
+        .unwrap_or("");
+    if owner_uri.is_empty() {
+        return Ok(());
+    }
+    let Ok(owner_id) = resolve_or_fetch_remote_account(state, owner_uri).await else {
+        return Ok(());
+    };
+    let name = coll.get("name").and_then(|v| v.as_str()).unwrap_or("Featured collection");
+    let sensitive = coll.get("sensitive").and_then(|v| v.as_bool()).unwrap_or(false);
+    let discoverable = coll.get("discoverable").and_then(|v| v.as_bool()).unwrap_or(true);
+
+    // Upsert the remote collection (local = false).
+    let collection_id = sqlx::query_scalar!(
+        r#"INSERT INTO collections
+             (account_id, name, discoverable, local, sensitive, item_count, uri, created_at, updated_at)
+           VALUES ($1, $2, $3, false, $4, 0, $5, now(), now())
+           ON CONFLICT (uri) WHERE uri IS NOT NULL
+             DO UPDATE SET name = EXCLUDED.name, updated_at = now()
+           RETURNING id"#,
+        owner_id,
+        name,
+        discoverable,
+        sensitive,
+        collection_uri,
+    )
+    .fetch_optional(&state.db)
+    .await?;
+    let Some(collection_id) = collection_id else {
+        return Ok(());
+    };
+
+    // Record the accepted item with our authorization URI.
+    let item_id = sqlx::query_scalar!(
+        r#"INSERT INTO collection_items
+             (collection_id, account_id, state, activity_uri, position, created_at, updated_at)
+           VALUES ($1, $2, 1, $3,
+                   (SELECT COALESCE(MAX(position), 0) + 1 FROM collection_items WHERE collection_id = $1),
+                   now(), now())
+           ON CONFLICT (account_id, collection_id)
+             DO UPDATE SET state = 1, activity_uri = EXCLUDED.activity_uri, updated_at = now()
+           RETURNING id"#,
+        collection_id,
+        local.id,
+        req_id,
+    )
+    .fetch_one(&state.db)
+    .await?;
+
+    let domain = &instance.domain;
+    let authorization_uri = format!(
+        "https://{domain}/users/{}/feature_authorizations/{item_id}",
+        local.username
+    );
+    sqlx::query!(
+        "UPDATE collection_items SET approval_uri = $2 WHERE id = $1",
+        item_id,
+        authorization_uri,
+    )
+    .execute(&state.db)
+    .await?;
+
+    // Reply with Accept(result = our FeatureAuthorization) to the collection owner.
+    let owner = sqlx::query!(
+        "SELECT uri, inbox_url, shared_inbox_url FROM accounts WHERE id = $1",
+        owner_id,
+    )
+    .fetch_one(&state.db)
+    .await?;
+    let Some(private_key) = sqlx::query_scalar!(
+        "SELECT private_key FROM accounts WHERE id = $1",
+        local.id,
+    )
+    .fetch_one(&state.db)
+    .await?
+    .filter(|s| !s.is_empty()) else {
+        return Ok(());
+    };
+
+    let inbox = if !owner.shared_inbox_url.is_empty() {
+        owner.shared_inbox_url
+    } else {
+        owner.inbox_url
+    };
+    if !inbox.is_empty() {
+        let actor_url = format!("https://{domain}/users/{}", local.username);
+        let accept_id = format!("{actor_url}#accepts/feature_requests/{item_id}");
+        let owner_uri = owner.uri;
+        if let Ok(accept) = crate::federation::consent::accept(
+            &accept_id,
+            &actor_url,
+            &owner_uri,
+            req_id,
+            &authorization_uri,
+        ) {
+            let key_id = format!("{actor_url}#main-key");
+            crate::federation::delivery::deliver_to_inboxes(
+                state.http.clone(),
+                accept,
+                vec![inbox],
+                key_id,
+                private_key,
+            );
+        }
     }
 
     Ok(())

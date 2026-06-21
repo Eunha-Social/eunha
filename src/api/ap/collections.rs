@@ -241,6 +241,63 @@ pub async fn get_account_collections(
         .into_response())
 }
 
+/// GET /users/{username}/feature_authorizations/{id} — the FeatureAuthorization
+/// stamp proving a local account consented to being featured in a collection.
+pub async fn get_feature_authorization(
+    State(state): State<AppState>,
+    Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
+    Path((username, id)): Path<(String, i64)>,
+) -> AppResult<Response> {
+    let row = sqlx::query!(
+        r#"SELECT c.local AS collection_local, c.id AS collection_id,
+                  c.uri AS "collection_uri?", a.uri AS "account_uri?"
+           FROM collection_items ci
+           JOIN collections c ON c.id = ci.collection_id
+           JOIN accounts a ON a.id = ci.account_id
+           WHERE ci.id = $1 AND ci.state = 1
+             AND a.username = $2 AND a.domain IS NULL"#,
+        id,
+        username,
+    )
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
+
+    let domain = &instance.domain;
+    let auth_id = format!("https://{domain}/users/{username}/feature_authorizations/{id}");
+    let collection_uri = match row.collection_uri {
+        Some(uri) if !uri.is_empty() => uri,
+        _ => collection_uri(domain, row.collection_id),
+    };
+    let account_uri = match row.account_uri {
+        Some(uri) if !uri.is_empty() => uri,
+        _ => actor_uri(domain, &username),
+    };
+
+    let mut body = crate::federation::consent::feature_authorization(
+        &auth_id,
+        &collection_uri,
+        &account_uri,
+    )
+    .map_err(AppError::Internal)?;
+    body["@context"] = json!([
+        "https://www.w3.org/ns/activitystreams",
+        {
+            "toot": "http://joinmastodon.org/ns#",
+            "FeatureAuthorization": "toot:FeatureAuthorization",
+            "interactingObject": { "@id": "toot:interactingObject", "@type": "@id" },
+            "interactionTarget": { "@id": "toot:interactionTarget", "@type": "@id" },
+        }
+    ]);
+
+    Ok((
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, CONTENT_TYPE)],
+        Json(body),
+    )
+        .into_response())
+}
+
 // ── Activity builders (for outbound distribution to followers) ─────────────────
 
 /// `Add(FeaturedCollection)` — a new collection was created.

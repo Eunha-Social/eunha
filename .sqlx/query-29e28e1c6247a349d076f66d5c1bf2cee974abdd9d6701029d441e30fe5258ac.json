@@ -1,0 +1,37 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO collection_items\n             (collection_id, account_id, state, activity_uri, position, created_at, updated_at)\n           VALUES ($1, $2, $3, $4,\n                   (SELECT COALESCE(MAX(position), 0) + 1 FROM collection_items WHERE collection_id = $1),\n                   now(), now())\n           ON CONFLICT (account_id, collection_id) DO NOTHING\n           RETURNING id, state, created_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "state",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int4",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "29e28e1c6247a349d076f66d5c1bf2cee974abdd9d6701029d441e30fe5258ac"
+}

@@ -1858,7 +1858,7 @@ dependencies = [
 [[package]]
 name = "feder-vocab"
 version = "0.1.0"
-source = "git+https://github.com/limeburst/feder.git#c50a84f7e899c415a1378d0a15d3eafa1caa798f"
+source = "git+https://github.com/limeburst/feder.git#0d129ab6bab056ba32d6da77e55079d75842b097"
 dependencies = [
  "iri-string",
  "serde",

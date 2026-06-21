@@ -539,7 +539,7 @@ pub async fn delete_collection(
 /// Local accounts are auto-accepted; remote accounts start pending.
 async fn add_item(state: &AppState, collection_id: i64, account_id: i64) -> AppResult<Value> {
     let target = sqlx::query!(
-        "SELECT domain, suspended_at FROM accounts WHERE id = $1",
+        "SELECT domain, suspended_at, uri, inbox_url, shared_inbox_url FROM accounts WHERE id = $1",
         account_id,
     )
     .fetch_optional(&state.db)
@@ -566,12 +566,37 @@ async fn add_item(state: &AppState, collection_id: i64, account_id: i64) -> AppR
         )));
     }
 
-    let item_state: i32 = if target.domain.is_none() { 1 } else { 0 };
+    // Local accounts auto-accept; remote accounts start pending and must consent
+    // via a FeatureRequest -> Accept/Reject handshake.
+    let is_remote = target.domain.is_some();
+    let item_state: i32 = if is_remote { 0 } else { 1 };
+    let domain = &state.instance.domain;
+
+    let owner = sqlx::query!(
+        "SELECT a.username, a.private_key
+         FROM collections c JOIN accounts a ON a.id = c.account_id
+         WHERE c.id = $1 AND a.domain IS NULL",
+        collection_id,
+    )
+    .fetch_optional(&state.db)
+    .await?;
+
+    let activity_uri: Option<String> = if is_remote {
+        owner.as_ref().map(|o| {
+            format!(
+                "https://{domain}/users/{}/feature_requests/{}",
+                o.username,
+                crate::snowflake::next_id()
+            )
+        })
+    } else {
+        None
+    };
 
     let row = sqlx::query!(
         r#"INSERT INTO collection_items
-             (collection_id, account_id, state, position, created_at, updated_at)
-           VALUES ($1, $2, $3,
+             (collection_id, account_id, state, activity_uri, position, created_at, updated_at)
+           VALUES ($1, $2, $3, $4,
                    (SELECT COALESCE(MAX(position), 0) + 1 FROM collection_items WHERE collection_id = $1),
                    now(), now())
            ON CONFLICT (account_id, collection_id) DO NOTHING
@@ -579,6 +604,7 @@ async fn add_item(state: &AppState, collection_id: i64, account_id: i64) -> AppR
         collection_id,
         account_id,
         item_state,
+        activity_uri.as_deref(),
     )
     .fetch_optional(&state.db)
     .await?;
@@ -593,6 +619,40 @@ async fn add_item(state: &AppState, collection_id: i64, account_id: i64) -> AppR
     };
 
     refresh_item_count(state, collection_id).await?;
+
+    // Send the FeatureRequest asking the remote account for consent.
+    if is_remote {
+        if let (Some(owner), Some(activity_uri)) = (owner, activity_uri) {
+            if let Some(pk) = owner.private_key.filter(|s| !s.is_empty()) {
+                let inbox = if !target.shared_inbox_url.is_empty() {
+                    target.shared_inbox_url.clone()
+                } else {
+                    target.inbox_url.clone()
+                };
+                let account_uri = target.uri.clone();
+                if !inbox.is_empty() && !account_uri.is_empty() {
+                    let actor_url = format!("https://{domain}/users/{}", owner.username);
+                    let collection_uri = format!("https://{domain}/collections/{collection_id}");
+                    if let Ok(req) = crate::federation::consent::feature_request(
+                        &activity_uri,
+                        &actor_url,
+                        &account_uri,
+                        &collection_uri,
+                    ) {
+                        let key_id = format!("{actor_url}#main-key");
+                        crate::federation::delivery::deliver_to_inboxes(
+                            state.http.clone(),
+                            req,
+                            vec![inbox],
+                            key_id,
+                            pk,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     Ok(item_entity(row.id, row.state, row.created_at, Some(account_id)))
 }
 

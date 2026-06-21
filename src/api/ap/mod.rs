@@ -15,6 +15,10 @@ pub fn router() -> Router<AppState> {
         .route("/users/{username}/inbox", post(inbox::shared_inbox))
         .route("/users/{username}/outbox", get(outbox::get_outbox))
         .route("/users/{username}/collections", get(collections::get_account_collections))
+        .route(
+            "/users/{username}/feature_authorizations/{id}",
+            get(collections::get_feature_authorization),
+        )
         .route("/collections/{id}", get(collections::get_collection))
         .route("/inbox", post(inbox::shared_inbox))
 }
