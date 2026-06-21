@@ -40,6 +40,7 @@ mod notifications;
 mod oembed;
 mod polls;
 mod push;
+mod quote_federation;
 mod reports;
 mod scope;
 mod search;
