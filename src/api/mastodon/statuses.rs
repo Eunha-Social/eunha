@@ -593,14 +593,14 @@ pub async fn post_status(
             // to/cc per Mastodon's TagManager#to / #cc
             let (to_strs, cc_strs): (Vec<String>, Vec<String>) = match visibility.as_str() {
                 "public" => (
-                    vec![feder_vocab::AS_PUBLIC.to_string()],
+                    vec![crate::federation::activity::AS_PUBLIC.to_string()],
                     std::iter::once(followers_url.clone())
                         .chain(mentioned_urls.iter().cloned())
                         .collect(),
                 ),
                 "unlisted" => (
                     vec![followers_url.clone()],
-                    std::iter::once(feder_vocab::AS_PUBLIC.to_string())
+                    std::iter::once(crate::federation::activity::AS_PUBLIC.to_string())
                         .chain(mentioned_urls.iter().cloned())
                         .collect(),
                 ),
@@ -636,7 +636,7 @@ pub async fn post_status(
 
             let to_refs: Vec<&str> = to_strs.iter().map(String::as_str).collect();
             let cc_refs: Vec<&str> = cc_strs.iter().map(String::as_str).collect();
-            let note = feder_vocab::NoteParams {
+            let note = crate::federation::activity::NoteParams {
                 id: &uri,
                 attributed_to: &actor_url,
                 content: &content,
@@ -650,7 +650,7 @@ pub async fn post_status(
                 quote_url: quoted_uri.as_deref(),
             };
             let activity_id = format!("{}/activity", uri);
-            let activity = feder_vocab::create_note(&activity_id, &actor_url, note);
+            let activity = crate::federation::activity::create_note(&activity_id, &actor_url, note)?;
             let key_id = format!("{}#main-key", actor_url);
 
             // Collect remote inboxes for mentioned accounts (used by both direct and non-direct)
@@ -1205,7 +1205,7 @@ pub async fn delete_status(
             let domain = &state.instance.domain;
             let actor_url = format!("https://{}/users/{}", domain, account.username);
             let delete_id = format!("https://{}/activities/{}", domain, crate::snowflake::next_id());
-            let activity = feder_vocab::delete(&delete_id, &actor_url, status_uri);
+            let activity = crate::federation::activity::delete(&delete_id, &actor_url, status_uri)?;
             let key_id = format!("{}#main-key", actor_url);
             crate::federation::delivery::fanout_to_followers(
                 &state,
@@ -1278,7 +1278,7 @@ pub async fn favourite_status(
             let actor_url = format!("https://{}/users/{}", domain, from_account.username);
             let like_id = format!("https://{}/users/{}/likes/{}", domain, from_account.username, id);
             let status_uri = status.uri.clone().unwrap_or_default();
-            let like = feder_vocab::like(&like_id, &actor_url, &status_uri);
+            let like = crate::federation::activity::like(&like_id, &actor_url, &status_uri)?;
             let key_id = format!("{}#main-key", actor_url);
             let inbox = if !account.shared_inbox_url.is_empty() {
                 account.shared_inbox_url.clone()
@@ -1336,7 +1336,7 @@ pub async fn unfavourite_status(
                 let like_id = format!("https://{}/users/{}/likes/{}", domain, actor_row.username, id);
                 let status_uri = s.uri.clone().unwrap_or_default();
                 let undo_id = format!("{}#undo", like_id);
-                let undo = feder_vocab::undo_like(&undo_id, &actor_url, &like_id, &status_uri);
+                let undo = crate::federation::activity::undo_like(&undo_id, &actor_url, &like_id, &status_uri)?;
                 let key_id = format!("{}#main-key", actor_url);
                 let inbox = if !account.shared_inbox_url.is_empty() {
                     account.shared_inbox_url.clone()
@@ -1504,10 +1504,10 @@ pub async fn reblog_status(
         let cc_strs: Vec<String> = std::iter::once(followers_url.clone())
             .chain(std::iter::once(original_author_url.clone()).filter(|s| !s.is_empty()))
             .collect();
-        let to_refs = vec![feder_vocab::AS_PUBLIC];
+        let to_refs = vec![crate::federation::activity::AS_PUBLIC];
         let cc_refs: Vec<&str> = cc_strs.iter().map(String::as_str).collect();
         let published = boost.created_at.to_rfc3339();
-        let announce = feder_vocab::announce(&announce_id, &actor_url, &original_uri, &to_refs, &cc_refs, &published);
+        let announce = crate::federation::activity::announce(&announce_id, &actor_url, &original_uri, &to_refs, &cc_refs, &published)?;
         let key_id = format!("{}#main-key", actor_url);
 
         // Deliver to remote original author's inbox directly
@@ -1856,7 +1856,7 @@ pub async fn unreblog_status(
                 let original_uri = sqlx::query_scalar!("SELECT uri FROM statuses WHERE id = $1", original_id)
                     .fetch_optional(&state.db).await?.flatten().unwrap_or_default();
                 let undo_id = format!("{}#undo", announce_id);
-                let undo = feder_vocab::undo_announce(&undo_id, &actor_url, &announce_id, &original_uri);
+                let undo = crate::federation::activity::undo_announce(&undo_id, &actor_url, &announce_id, &original_uri)?;
                 let key_id = format!("{}#main-key", actor_url);
 
                 // Deliver to remote original author's inbox

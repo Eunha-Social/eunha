@@ -63,14 +63,14 @@ pub async fn shared_inbox(
     // Verify HTTP Signature; log failures but don't reject yet.
     if let Some(sig_header) = headers.get("signature") {
         if let Ok(sig_val) = sig_header.to_str() {
-            if let Some(kid) = feder_core::signature::key_id_from_header(sig_val) {
+            if let Some(kid) = crate::federation::signature::key_id_from_header(sig_val) {
                 let actor_url = kid.split('#').next().unwrap_or(kid);
                 match fetch_public_key(&state, actor_url).await {
                     Ok(pem) => {
                         let hdr_vec = crate::federation::signature::headers_to_vec(&headers);
                         let hdr_refs: Vec<(&str, &str)> =
                             hdr_vec.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-                        if let Err(e) = feder_core::signature::verify_request(
+                        if let Err(e) = crate::federation::signature::verify_request(
                             "post", uri.path(), &hdr_refs, &body, &pem,
                         ) {
                             tracing::warn!(key_id = kid, error = %e, "HTTP Signature verification failed");
@@ -246,13 +246,13 @@ async fn handle_follow(
                         instance.domain,
                         crate::snowflake::next_id()
                     );
-                    let accept = feder_vocab::accept_follow(
+                    let accept = crate::federation::activity::accept_follow(
                         &accept_id,
                         &actor_url,
                         activity_uri,
                         actor_uri,
                         &actor_url,
-                    );
+                    )?;
                     let key_id = format!("{}#main-key", actor_url);
                     let http = state.http.clone();
                     tracing::debug!(inbox, actor_uri, "delivering Accept");

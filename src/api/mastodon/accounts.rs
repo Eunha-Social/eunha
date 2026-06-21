@@ -844,7 +844,8 @@ pub async fn follow_account(
                 state.instance.domain, requester.username
             );
             let key_id = format!("{}#main-key", actor_url);
-            let follow_activity = feder_vocab::follow(&follow_uri, &actor_url, &target.uri);
+            let follow_activity =
+                crate::federation::activity::follow(&follow_uri, &actor_url, &target.uri)?;
             let inbox = target.inbox_url.clone();
             let target_uri = target.uri.clone();
             // Re-fetch actor if inbox URL is missing (stale cache), then deliver.
@@ -1015,9 +1016,9 @@ pub async fn unfollow_account(
                 state.instance.domain,
                 crate::snowflake::next_id()
             );
-            let undo = feder_vocab::undo_follow(
+            let undo = crate::federation::activity::undo_follow(
                 &undo_id, &actor_url, &follow_uri, &actor_url, &target.uri,
-            );
+            )?;
             let inbox = target.inbox_url.clone();
             if !inbox.is_empty() {
                 let http = state.http.clone();
@@ -1941,7 +1942,8 @@ pub async fn block_account(
                     let actor_url = format!("https://{}/users/{}", domain, actor_row.username);
                     let block_id = format!("https://{}/users/{}/blocks/{}", domain, actor_row.username, target_id);
                     let target_uri = target.uri.clone();
-                    let block_act = feder_vocab::block(&block_id, &actor_url, &target_uri);
+                    let block_act =
+                        crate::federation::activity::block(&block_id, &actor_url, &target_uri)?;
                     let key_id = format!("{}#main-key", actor_url);
                     let inbox = if !target.shared_inbox_url.is_empty() { target.shared_inbox_url } else { target.inbox_url };
                     if !inbox.is_empty() {
@@ -1991,7 +1993,9 @@ pub async fn unblock_account(
                     let block_id = format!("https://{}/users/{}/blocks/{}", domain, actor_row.username, target_id);
                     let target_uri = target.uri.clone();
                     let undo_id = format!("{}#undo", block_id);
-                    let undo = feder_vocab::undo_block(&undo_id, &actor_url, &block_id, &target_uri);
+                    let undo = crate::federation::activity::undo_block(
+                        &undo_id, &actor_url, &block_id, &target_uri,
+                    )?;
                     let key_id = format!("{}#main-key", actor_url);
                     let inbox = if !target.shared_inbox_url.is_empty() { target.shared_inbox_url } else { target.inbox_url };
                     if !inbox.is_empty() {
@@ -2286,13 +2290,13 @@ pub async fn authorize_follow_request(
                         state.instance.domain,
                         crate::snowflake::next_id()
                     );
-                    let activity = feder_vocab::accept_follow(
+                    let activity = crate::federation::activity::accept_follow(
                         &accept_id,
                         &accepter_actor_url,
                         &follow_uri,
                         &requester.uri,
                         &accepter_actor_url,
-                    );
+                    )?;
                     let inbox = requester.inbox_url.clone();
                     if inbox.is_empty() {
                         tracing::warn!(requester_uri = %requester.uri, "cannot deliver Accept: remote actor has no inbox URL");
@@ -2359,13 +2363,13 @@ pub async fn reject_follow_request(
                         state.instance.domain,
                         crate::snowflake::next_id()
                     );
-                    let activity = feder_vocab::reject_follow(
+                    let activity = crate::federation::activity::reject_follow(
                         &reject_id,
                         &rejecter_actor_url,
                         &follow_uri,
                         &requester.uri,
                         &rejecter_actor_url,
-                    );
+                    )?;
                     let inbox = requester.inbox_url.clone();
                     if !inbox.is_empty() {
                         let http = state.http.clone();

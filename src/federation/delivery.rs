@@ -2,8 +2,8 @@
 
 use serde_json::Value;
 
+use crate::federation::signature;
 use crate::state::AppState;
-use feder_core::signature;
 
 /// Deliver an activity to a single remote inbox, signed with the given key.
 pub async fn deliver(

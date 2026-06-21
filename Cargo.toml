@@ -69,9 +69,8 @@ pkcs8 = { version = "0.10", features = ["pem"] }
 # HTTP client (federation)
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 
-# ActivityPub federation library
+# ActivityPub vocabulary (typed activity construction)
 feder-vocab = { git = "https://github.com/limeburst/feder.git" }
-feder-core = { git = "https://github.com/limeburst/feder.git" }
 
 # Config / environment
 config = "0.15"
