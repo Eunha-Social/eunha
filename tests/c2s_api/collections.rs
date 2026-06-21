@@ -240,6 +240,81 @@ async fn test_update_and_ownership() {
     assert_eq!(show.status(), StatusCode::NOT_FOUND);
 }
 
+/// Collections are exposed over ActivityPub: the actor links to its
+/// collections, and each collection is fetchable as a FeaturedCollection.
+#[tokio::test]
+async fn test_collection_activitypub_representation() {
+    let ctx = TestContext::new("coll-ap").await;
+
+    let c: Value = ctx
+        .api
+        .post_json(
+            "/api/v1/collections",
+            Some(&ctx.alice_token),
+            &json!({"name": "AP collection", "discoverable": true}),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    let cid = c["collection"]["id"].as_str().unwrap().to_string();
+
+    // Add bob (local) so the collection has an accepted item.
+    ctx.api
+        .post_json(
+            &format!("/api/v1/collections/{cid}/items"),
+            Some(&ctx.alice_token),
+            &json!({"account_id": ctx.bob_id}),
+        )
+        .await;
+
+    // Actor advertises its collections endpoint.
+    let actor: Value = ctx
+        .api
+        .get("/users/alice", None)
+        .await
+        .json()
+        .await
+        .unwrap();
+    let featured = actor["featuredCollections"].as_str().expect("featuredCollections link");
+    assert!(featured.ends_with("/users/alice/collections"), "got {featured}");
+
+    // The account collections OrderedCollection lists the collection URI.
+    let oc: Value = ctx
+        .api
+        .get("/users/alice/collections", None)
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(oc["type"].as_str(), Some("OrderedCollection"));
+    let uris = oc["orderedItems"].as_array().unwrap();
+    assert!(
+        uris.iter().any(|u| u.as_str().is_some_and(|s| s.ends_with(&format!("/collections/{cid}")))),
+        "collection URI missing from account collections: {oc:?}",
+    );
+
+    // The FeaturedCollection object itself.
+    let obj: Value = ctx
+        .api
+        .get(&format!("/collections/{cid}"), None)
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(obj["type"].as_str(), Some("FeaturedCollection"));
+    assert_eq!(obj["name"].as_str(), Some("AP collection"));
+    assert_eq!(obj["totalItems"].as_i64(), Some(1));
+    let items = obj["orderedItems"].as_array().unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0]["type"].as_str(), Some("FeaturedItem"));
+    assert!(
+        items[0]["featuredObject"].as_str().is_some_and(|s| s.ends_with("/users/bob")),
+        "featuredObject should point at bob's actor: {:?}",
+        items[0],
+    );
+}
+
 /// Non-discoverable collections are hidden from other users' account index.
 #[tokio::test]
 async fn test_discoverable_visibility() {

@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT c.id, c.name, c.description, c.language, c.sensitive,\n                  c.discoverable, c.url, c.created_at, c.updated_at, a.username\n           FROM collections c\n           JOIN accounts a ON a.id = c.account_id\n           WHERE c.id = $1 AND c.local = true AND a.domain IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "language",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "sensitive",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 5,
+        "name": "discoverable",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 9,
+        "name": "username",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "4b0ff5d8a172f711e01d08c2813ed9a10eff357f7291e74e44c3ad2fe426a741"
+}

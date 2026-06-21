@@ -22,6 +22,8 @@ use crate::{
     state::AppState,
 };
 
+use crate::api::ap::collections as ap_coll;
+
 const DEFAULT_LIMIT: i64 = 40;
 const MAX_LIMIT: i64 = 100;
 const MAX_ITEMS: i64 = 25;
@@ -428,6 +430,7 @@ pub async fn create_collection(
 
     let c = load_collection(&state, new_id).await?.ok_or(AppError::NotFound)?;
     let entity = collection_entity(&state, &instance.domain, &c, Some(auth.account_id)).await?;
+    distribute_collection(&state, &instance.domain, new_id, auth.account_id, true).await;
     Ok(Json(json!({ "collection": entity })))
 }
 
@@ -506,6 +509,7 @@ pub async fn update_collection(
 
     let c = load_collection(&state, id).await?.ok_or(AppError::NotFound)?;
     let entity = collection_entity(&state, &instance.domain, &c, Some(auth.account_id)).await?;
+    distribute_collection(&state, &instance.domain, id, auth.account_id, false).await;
     Ok(Json(json!({ "collection": entity })))
 }
 
@@ -513,6 +517,7 @@ pub async fn update_collection(
 
 pub async fn delete_collection(
     State(state): State<AppState>,
+    Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
     Extension(auth): Extension<AuthenticatedUser>,
     Path(id): Path<i64>,
 ) -> AppResult<impl IntoResponse> {
@@ -524,6 +529,7 @@ pub async fn delete_collection(
     sqlx::query!("DELETE FROM collections WHERE id = $1", id)
         .execute(&state.db)
         .await?;
+    distribute_collection_removal(&state, &instance.domain, id, auth.account_id).await;
     Ok(Json(json!({})))
 }
 
@@ -590,6 +596,67 @@ async fn add_item(state: &AppState, collection_id: i64, account_id: i64) -> AppR
     Ok(item_entity(row.id, row.state, row.created_at, Some(account_id)))
 }
 
+// ── ActivityPub distribution to followers (best-effort) ───────────────────────
+
+async fn owner_private_key(state: &AppState, owner_account_id: i64) -> Option<(String, String)> {
+    let row = sqlx::query!(
+        "SELECT username, private_key FROM accounts WHERE id = $1 AND domain IS NULL",
+        owner_account_id,
+    )
+    .fetch_optional(&state.db)
+    .await
+    .ok()??;
+    let pk = row.private_key.filter(|s| !s.is_empty())?;
+    Some((row.username, pk))
+}
+
+/// Distribute an `Add`/`Update(FeaturedCollection)` to the owner's followers.
+async fn distribute_collection(
+    state: &AppState,
+    domain: &str,
+    collection_id: i64,
+    owner_account_id: i64,
+    is_create: bool,
+) {
+    let Some(ap) = ap_coll::load_ap_collection(state, collection_id).await.ok().flatten() else {
+        return;
+    };
+    let Ok(body) = ap_coll::featured_collection_body(state, domain, &ap).await else {
+        return;
+    };
+    let Some((_, pk)) = owner_private_key(state, owner_account_id).await else {
+        return;
+    };
+    let key_id = format!("https://{domain}/users/{}#main-key", ap.owner_username);
+    let activity = if is_create {
+        ap_coll::add_collection_activity(domain, &ap.owner_username, body)
+    } else {
+        ap_coll::update_collection_activity(
+            domain,
+            &ap.owner_username,
+            collection_id,
+            ap.updated_at.timestamp(),
+            body,
+        )
+    };
+    crate::federation::delivery::fanout_to_followers(state, activity, owner_account_id, key_id, pk);
+}
+
+/// Distribute a `Remove` (collection deleted) to the owner's followers.
+async fn distribute_collection_removal(
+    state: &AppState,
+    domain: &str,
+    collection_id: i64,
+    owner_account_id: i64,
+) {
+    let Some((username, pk)) = owner_private_key(state, owner_account_id).await else {
+        return;
+    };
+    let key_id = format!("https://{domain}/users/{username}#main-key");
+    let activity = ap_coll::remove_collection_activity(domain, &username, collection_id);
+    crate::federation::delivery::fanout_to_followers(state, activity, owner_account_id, key_id, pk);
+}
+
 async fn refresh_item_count(state: &AppState, collection_id: i64) -> AppResult<()> {
     sqlx::query!(
         r#"UPDATE collections SET item_count =
@@ -610,6 +677,7 @@ pub struct AddItemForm {
 /// POST /api/v1/collections/{id}/items
 pub async fn add_collection_item(
     State(state): State<AppState>,
+    Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
     Extension(auth): Extension<AuthenticatedUser>,
     Path(collection_id): Path<i64>,
     Json(form): Json<AddItemForm>,
@@ -627,12 +695,14 @@ pub async fn add_collection_item(
         .ok_or_else(|| AppError::Unprocessable("`account_id` parameter is missing".into()))?;
 
     let item = add_item(&state, collection_id, account_id).await?;
+    distribute_collection(&state, &instance.domain, collection_id, auth.account_id, false).await;
     Ok(Json(json!({ "collection_item": item })))
 }
 
 /// DELETE /api/v1/collections/{id}/items/{item_id}
 pub async fn delete_collection_item(
     State(state): State<AppState>,
+    Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
     Extension(auth): Extension<AuthenticatedUser>,
     Path((collection_id, item_id)): Path<(i64, i64)>,
 ) -> AppResult<impl IntoResponse> {
@@ -652,12 +722,14 @@ pub async fn delete_collection_item(
         return Err(AppError::NotFound);
     }
     refresh_item_count(&state, collection_id).await?;
+    distribute_collection(&state, &instance.domain, collection_id, auth.account_id, false).await;
     Ok(Json(json!({})))
 }
 
 /// POST /api/v1/collections/{id}/items/{item_id}/revoke
 pub async fn revoke_collection_item(
     State(state): State<AppState>,
+    Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
     Extension(auth): Extension<AuthenticatedUser>,
     Path((collection_id, item_id)): Path<(i64, i64)>,
 ) -> AppResult<impl IntoResponse> {
@@ -677,5 +749,6 @@ pub async fn revoke_collection_item(
         return Err(AppError::NotFound);
     }
     refresh_item_count(&state, collection_id).await?;
+    distribute_collection(&state, &instance.domain, collection_id, auth.account_id, false).await;
     Ok(Json(json!({})))
 }
