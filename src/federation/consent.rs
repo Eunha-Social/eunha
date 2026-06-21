@@ -39,6 +39,25 @@ pub fn feature_request(
     to_value(&req)
 }
 
+/// Build a `QuoteRequest` (we ask a remote author for consent to quote their
+/// post). `id` is the request activity URI, `quoted_status` the post we want to
+/// quote, `quoting_status` our quote post.
+pub fn quote_request(
+    id: &str,
+    actor: &str,
+    quoted_status: &str,
+    quoting_status: &str,
+) -> anyhow::Result<Value> {
+    let mut req = vocab::ConsentRequest::new(
+        RequestType::QuoteRequest,
+        iri(id)?,
+        iri(quoted_status)?,
+        iri(quoting_status)?,
+    );
+    req.actor = Some(Reference::id(iri(actor)?));
+    to_value(&req)
+}
+
 /// Build an `Accept` granting a request, pointing `result` at an authorization
 /// stamp. `to` is the original requester.
 pub fn accept(

@@ -1260,6 +1260,49 @@ async fn handle_accept_reject(
                 refresh_collection_item_count(state, item.collection_id).await?;
             }
         }
+
+        // Quote-request consent: the object may be one of our outstanding
+        // QuoteRequests (matched by quotes.activity_uri).
+        let quote = sqlx::query!(
+            r#"SELECT q.id, a.uri AS quoted_account_uri
+               FROM quotes q JOIN accounts a ON a.id = q.quoted_account_id
+               WHERE q.activity_uri = $1 AND q.state = 0"#,
+            uri,
+        )
+        .fetch_optional(&state.db)
+        .await?;
+        if let Some(q) = quote {
+            // Only the quoted account itself may answer.
+            if q.quoted_account_uri == actor_uri {
+                if activity_type == "Accept" {
+                    let approval_uri = activity
+                        .get("result")
+                        .and_then(|r| {
+                            if r.is_string() {
+                                r.as_str()
+                            } else {
+                                r.get("id").and_then(|i| i.as_str())
+                            }
+                        })
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.to_string());
+                    sqlx::query!(
+                        "UPDATE quotes SET state = 1, approval_uri = $2, updated_at = now() WHERE id = $1",
+                        q.id,
+                        approval_uri.as_deref(),
+                    )
+                    .execute(&state.db)
+                    .await?;
+                } else {
+                    sqlx::query!(
+                        "UPDATE quotes SET state = 2, updated_at = now() WHERE id = $1",
+                        q.id,
+                    )
+                    .execute(&state.db)
+                    .await?;
+                }
+            }
+        }
     }
 
     Ok(())

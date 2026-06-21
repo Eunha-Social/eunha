@@ -259,11 +259,15 @@ pub async fn post_status(
     .fetch_one(&state.db)
     .await?;
 
-    // Create a quotes record if this is a quote post
+    // Create a quotes record if this is a quote post. When the quoted author is
+    // remote we ask for consent via a FEP-044f QuoteRequest (sent below) and keep
+    // the quote pending until they Accept; local quotes accept by visibility.
+    let mut quote_request_activity_uri: Option<String> = None;
     if let Some(qid) = quote_of_id {
-        // Determine state based on the quoted status's visibility
         let quoted = sqlx::query!(
-            "SELECT account_id, visibility FROM statuses WHERE id = $1",
+            "SELECT s.account_id, s.visibility, a.domain
+             FROM statuses s JOIN accounts a ON a.id = s.account_id
+             WHERE s.id = $1",
             qid,
         )
         .fetch_optional(&state.db)
@@ -271,22 +275,37 @@ pub async fn post_status(
         .ok()
         .flatten();
 
-        let quote_state = match quoted.as_ref().map(|q| q.visibility) {
-            Some(0) | Some(1) => crate::db::models::quote_state::ACCEPTED, // public, unlisted
-            _ => crate::db::models::quote_state::PENDING,
+        let quoted_is_remote = quoted.as_ref().and_then(|q| q.domain.clone()).is_some();
+        let quoted_account_id = quoted.as_ref().map(|q| q.account_id).unwrap_or(account.id);
+
+        let (quote_state, activity_uri) = if quoted_is_remote {
+            let au = format!(
+                "https://{}/users/{}/quote_requests/{}",
+                instance.domain,
+                account.username,
+                crate::snowflake::next_id()
+            );
+            quote_request_activity_uri = Some(au.clone());
+            (crate::db::models::quote_state::PENDING, Some(au))
+        } else {
+            let st = match quoted.as_ref().map(|q| q.visibility) {
+                Some(0) | Some(1) => crate::db::models::quote_state::ACCEPTED, // public, unlisted
+                _ => crate::db::models::quote_state::PENDING,
+            };
+            (st, None)
         };
 
-        let quoted_account_id = quoted.map(|q| q.account_id).unwrap_or(account.id);
         let quote_row_id = crate::snowflake::next_id();
         let _ = sqlx::query!(
-            r#"INSERT INTO quotes (id, status_id, quoted_status_id, account_id, quoted_account_id, state)
-               VALUES ($1, $2, $3, $4, $5, $6)
+            r#"INSERT INTO quotes (id, status_id, quoted_status_id, account_id, quoted_account_id, activity_uri, state)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)
                ON CONFLICT DO NOTHING"#,
             quote_row_id,
             status.id,
             qid,
             account.id,
             quoted_account_id,
+            activity_uri,
             quote_state,
         )
         .execute(&state.db)
@@ -652,6 +671,43 @@ pub async fn post_status(
             let activity_id = format!("{}/activity", uri);
             let activity = crate::federation::activity::create_note(&activity_id, &actor_url, note)?;
             let key_id = format!("{}#main-key", actor_url);
+
+            // FEP-044f: ask a remote quoted author for consent to quote them.
+            if let (Some(qr_uri), Some(quoted_status_uri), Some(qid)) =
+                (&quote_request_activity_uri, &quoted_uri, quote_of_id)
+            {
+                if let Ok(Some(qa)) = sqlx::query!(
+                    "SELECT a.inbox_url, a.shared_inbox_url
+                     FROM statuses s JOIN accounts a ON a.id = s.account_id
+                     WHERE s.id = $1",
+                    qid,
+                )
+                .fetch_optional(&state.db)
+                .await
+                {
+                    let qinbox = if !qa.shared_inbox_url.is_empty() {
+                        qa.shared_inbox_url
+                    } else {
+                        qa.inbox_url
+                    };
+                    if !qinbox.is_empty() {
+                        if let Ok(qr) = crate::federation::consent::quote_request(
+                            qr_uri,
+                            &actor_url,
+                            quoted_status_uri,
+                            &uri,
+                        ) {
+                            crate::federation::delivery::deliver_to_inboxes(
+                                state.http.clone(),
+                                qr,
+                                vec![qinbox],
+                                key_id.clone(),
+                                private_key.clone(),
+                            );
+                        }
+                    }
+                }
+            }
 
             // Collect remote inboxes for mentioned accounts (used by both direct and non-direct)
             let mention_inboxes: Vec<String> = resolved.iter()

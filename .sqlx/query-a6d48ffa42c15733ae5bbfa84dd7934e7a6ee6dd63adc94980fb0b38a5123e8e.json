@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT account_id, visibility FROM statuses WHERE id = $1",
+  "query": "SELECT s.account_id, s.visibility, a.domain\n             FROM statuses s JOIN accounts a ON a.id = s.account_id\n             WHERE s.id = $1",
   "describe": {
     "columns": [
       {
@@ -12,6 +12,11 @@
         "ordinal": 1,
         "name": "visibility",
         "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "domain",
+        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -21,8 +26,9 @@
     },
     "nullable": [
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "3cc70daeca2fc678efa8bdc0756e32988bc8cc19611df3b79bcb7505677621dd"
+  "hash": "a6d48ffa42c15733ae5bbfa84dd7934e7a6ee6dd63adc94980fb0b38a5123e8e"
 }

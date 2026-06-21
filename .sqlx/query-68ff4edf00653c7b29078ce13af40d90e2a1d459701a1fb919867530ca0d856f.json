@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT a.inbox_url, a.shared_inbox_url\n                     FROM statuses s JOIN accounts a ON a.id = s.account_id\n                     WHERE s.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "inbox_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "shared_inbox_url",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "68ff4edf00653c7b29078ce13af40d90e2a1d459701a1fb919867530ca0d856f"
+}
