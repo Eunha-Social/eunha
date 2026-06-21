@@ -1,17 +1,15 @@
 use reqwest::StatusCode;
 use serde_json::Value;
 use sqlx::PgPool;
-use uuid::Uuid;
 
 use super::helpers::TestContext;
 
 /// Insert a published announcement directly for testing.
-async fn seed_announcement(db: &PgPool, instance_id: Uuid, text: &str) -> i64 {
+async fn seed_announcement(db: &PgPool, text: &str) -> i64 {
     sqlx::query_scalar!(
-        r#"INSERT INTO announcements (instance_id, text, published, published_at)
-           VALUES ($1, $2, true, now())
+        r#"INSERT INTO announcements (text, published, published_at)
+           VALUES ($1, true, now())
            RETURNING id"#,
-        instance_id,
         text,
     )
     .fetch_one(db)
@@ -19,19 +17,11 @@ async fn seed_announcement(db: &PgPool, instance_id: Uuid, text: &str) -> i64 {
     .unwrap()
 }
 
-async fn get_instance_id(db: &PgPool, domain: &str) -> Uuid {
-    sqlx::query_scalar!("SELECT id FROM instances WHERE domain = $1", domain)
-        .fetch_one(db)
-        .await
-        .unwrap()
-}
-
 /// GET /api/v1/announcements returns published announcements.
 #[tokio::test]
 async fn test_announcements_list() {
     let ctx = TestContext::new("ann-list").await;
-    let iid = get_instance_id(&ctx.db, &ctx.domain).await;
-    seed_announcement(&ctx.db, iid, "Hello everyone!").await;
+    seed_announcement(&ctx.db, "Hello everyone!").await;
 
     let resp = ctx.api.get("/api/v1/announcements", Some(&ctx.alice_token)).await;
     assert_eq!(resp.status(), StatusCode::OK);
@@ -44,8 +34,7 @@ async fn test_announcements_list() {
 #[tokio::test]
 async fn test_announcements_unauthenticated() {
     let ctx = TestContext::new("ann-unauth").await;
-    let iid = get_instance_id(&ctx.db, &ctx.domain).await;
-    seed_announcement(&ctx.db, iid, "Public announcement").await;
+    seed_announcement(&ctx.db, "Public announcement").await;
 
     let resp = ctx.api.get("/api/v1/announcements", None).await;
     assert_eq!(resp.status(), StatusCode::OK);
@@ -57,8 +46,7 @@ async fn test_announcements_unauthenticated() {
 #[tokio::test]
 async fn test_announcement_shape() {
     let ctx = TestContext::new("ann-shape").await;
-    let iid = get_instance_id(&ctx.db, &ctx.domain).await;
-    seed_announcement(&ctx.db, iid, "Field check announcement").await;
+    seed_announcement(&ctx.db, "Field check announcement").await;
 
     let body: Vec<Value> = ctx.api.get("/api/v1/announcements", Some(&ctx.alice_token))
         .await.json().await.unwrap();
@@ -73,8 +61,7 @@ async fn test_announcement_shape() {
 #[tokio::test]
 async fn test_announcement_dismiss() {
     let ctx = TestContext::new("ann-dismiss").await;
-    let iid = get_instance_id(&ctx.db, &ctx.domain).await;
-    let ann_id = seed_announcement(&ctx.db, iid, "Dismiss me").await;
+    let ann_id = seed_announcement(&ctx.db, "Dismiss me").await;
 
     let resp = ctx.api.post_json(
         &format!("/api/v1/announcements/{}/dismiss", ann_id),
@@ -114,8 +101,7 @@ async fn test_announcement_dismiss_not_found() {
 #[tokio::test]
 async fn test_announcement_reaction_add() {
     let ctx = TestContext::new("ann-react-add").await;
-    let iid = get_instance_id(&ctx.db, &ctx.domain).await;
-    let ann_id = seed_announcement(&ctx.db, iid, "React to me").await;
+    let ann_id = seed_announcement(&ctx.db, "React to me").await;
 
     let resp = ctx.api.put_json(
         &format!("/api/v1/announcements/{}/reactions/👍", ann_id),
@@ -139,8 +125,7 @@ async fn test_announcement_reaction_add() {
 #[tokio::test]
 async fn test_announcement_reaction_remove() {
     let ctx = TestContext::new("ann-react-rm").await;
-    let iid = get_instance_id(&ctx.db, &ctx.domain).await;
-    let ann_id = seed_announcement(&ctx.db, iid, "React then remove").await;
+    let ann_id = seed_announcement(&ctx.db, "React then remove").await;
 
     // Add it.
     ctx.api.put_json(

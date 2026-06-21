@@ -295,14 +295,15 @@ async fn test_authorization_code_grant() {
     .unwrap();
 
     let alice_id: i64 = ctx.alice_id.parse().unwrap();
+    let owner_id = super::helpers::user_id_for(&ctx.db, alice_id).await;
     let code = "test-auth-code-12345";
 
     sqlx::query!(
         r#"INSERT INTO oauth_access_grants
-             (application_id, account_id, token, redirect_uri, scopes, expires_at)
-           VALUES ($1, $2, $3, $4, $5, now() + interval '10 minutes')"#,
+             (application_id, resource_owner_id, token, redirect_uri, scopes, expires_in)
+           VALUES ($1, $2, $3, $4, $5, 600)"#,
         app_id,
-        alice_id,
+        owner_id,
         code,
         "https://app.example/callback",
         "read write",
@@ -356,12 +357,14 @@ async fn test_authorization_code_expired_returns_401() {
     .unwrap();
 
     let expired_code = format!("expired-code-{}", uuid::Uuid::new_v4());
+    let owner_id =
+        super::helpers::user_id_for(&ctx.db, ctx.alice_id.parse::<i64>().unwrap()).await;
     sqlx::query!(
         r#"INSERT INTO oauth_access_grants
-             (application_id, account_id, token, redirect_uri, scopes, expires_at)
-           VALUES ($1, $2, $3, $4, $5, now() - interval '1 minute')"#,
+             (application_id, resource_owner_id, token, redirect_uri, scopes, expires_in, created_at)
+           VALUES ($1, $2, $3, $4, $5, 600, now() - interval '1 hour')"#,
         app_id,
-        ctx.alice_id.parse::<i64>().unwrap(),
+        owner_id,
         expired_code,
         "https://app.example/callback",
         "read",

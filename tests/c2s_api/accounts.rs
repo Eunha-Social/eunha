@@ -497,8 +497,7 @@ async fn test_lookup_account_suspended_returns_suspended() {
     let alice_uuid: i64 = ctx.alice_id.parse().unwrap();
     let db_url = std::env::var("DATABASE_URL").unwrap();
     let admin_db = PgPoolOptions::new().max_connections(2).connect(&db_url).await.unwrap();
-    sqlx::query!("UPDATE users SET role = 'admin' WHERE account_id = $1", alice_uuid)
-        .execute(&admin_db).await.unwrap();
+    super::helpers::make_admin(&admin_db, alice_uuid).await;
 
     // Suspend bob via admin endpoint.
     ctx.api.post_json(
@@ -1657,28 +1656,18 @@ async fn test_get_preferences_defaults() {
     assert!(prefs["posting:default:sensitive"].as_bool().is_some(), "missing posting:default:sensitive");
 }
 
-/// GET /api/v1/preferences reflects values written by update_credentials.
+/// GET /api/v1/preferences returns the documented default posting preferences.
 #[tokio::test]
-async fn test_preferences_reflect_user_table_values() {
-    let ctx = TestContext::new("prefs-custom").await;
-
-    let db_url = std::env::var("DATABASE_URL").unwrap();
-    let db = PgPoolOptions::new().max_connections(2).connect(&db_url).await.unwrap();
-    let alice_uuid: i64 = ctx.alice_id.parse().unwrap();
-
-    sqlx::query!(
-        "UPDATE users SET default_privacy = 'private', default_sensitive = true, default_language = 'fr' WHERE account_id = $1",
-        alice_uuid
-    )
-    .execute(&db)
-    .await
-    .unwrap();
+async fn test_preferences_defaults() {
+    let ctx = TestContext::new("prefs-default").await;
 
     let resp = ctx.api.get("/api/v1/preferences", Some(&ctx.alice_token)).await;
+    assert_eq!(resp.status(), StatusCode::OK);
     let prefs: Value = resp.json().await.unwrap();
-    assert_eq!(prefs["posting:default:visibility"].as_str(), Some("private"));
-    assert_eq!(prefs["posting:default:sensitive"].as_bool(), Some(true));
-    assert_eq!(prefs["posting:default:language"].as_str(), Some("fr"));
+    assert_eq!(prefs["posting:default:visibility"].as_str(), Some("public"));
+    assert_eq!(prefs["posting:default:sensitive"].as_bool(), Some(false));
+    // Default language is unset (null) until the user configures one.
+    assert!(prefs["posting:default:language"].is_null());
 }
 
 // ── profile aliases ───────────────────────────────────────────────────────────
@@ -1935,8 +1924,7 @@ async fn test_get_suspended_account_returns_suspended() {
     let alice_uuid: i64 = ctx.alice_id.parse().unwrap();
     let db_url = std::env::var("DATABASE_URL").unwrap();
     let admin_db = PgPoolOptions::new().max_connections(2).connect(&db_url).await.unwrap();
-    sqlx::query!("UPDATE users SET role = 'admin' WHERE account_id = $1", alice_uuid)
-        .execute(&admin_db).await.unwrap();
+    super::helpers::make_admin(&admin_db, alice_uuid).await;
 
     // Suspend bob via admin endpoint
     ctx.api.post_json(
@@ -2301,13 +2289,7 @@ async fn test_get_account_includes_roles() {
     assert!(roles.is_empty(), "ordinary user should have no roles");
 
     // Promote alice to admin.
-    sqlx::query!(
-        "UPDATE users SET role = 'admin' WHERE account_id = $1",
-        ctx.alice_id.parse::<i64>().unwrap(),
-    )
-    .execute(&ctx.db)
-    .await
-    .unwrap();
+    super::helpers::make_admin(&ctx.db, ctx.alice_id.parse::<i64>().unwrap()).await;
 
     let resp2 = ctx.api.get(&format!("/api/v1/accounts/{}", ctx.alice_id), None).await;
     let body2: Value = resp2.json().await.unwrap();

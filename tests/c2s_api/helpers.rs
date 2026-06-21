@@ -1,11 +1,31 @@
 use std::net::SocketAddr;
+use std::str::FromStr;
 
 use argon2::{Argon2, PasswordHasher};
 use argon2::password_hash::{rand_core::OsRng, SaltString};
 use axum::http::StatusCode as AxumStatus;
 use reqwest::Client;
+use sqlx::postgres::PgConnectOptions;
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use uuid::Uuid;
+
+/// Swap the database name in a Postgres connection URL, preserving any query.
+fn replace_db_name(url: &str, db: &str) -> String {
+    let (base, query) = match url.split_once('?') {
+        Some((b, q)) => (b, Some(q)),
+        None => (url, None),
+    };
+    let prefix = match base.rfind('/') {
+        Some(i) => &base[..i],
+        None => base,
+    };
+    let mut out = format!("{prefix}/{db}");
+    if let Some(q) = query {
+        out.push('?');
+        out.push_str(q);
+    }
+    out
+}
 
 // ── fake S3 server ──────────────────────────────────────────────────────────
 
@@ -293,6 +313,43 @@ pub struct TestContext {
     pub state: eunha::state::AppState,
     /// Kept alive so the server task isn't dropped while tests run.
     pub _server: tokio::task::JoinHandle<()>,
+    /// Maintenance connection URL and per-test database name, for teardown.
+    admin_url: String,
+    test_db_name: String,
+}
+
+impl Drop for TestContext {
+    fn drop(&mut self) {
+        let admin_url = self.admin_url.clone();
+        let db_name = self.test_db_name.clone();
+        // Drop the per-test database on a separate thread (we can't block the
+        // async runtime in Drop). FORCE terminates any lingering connections.
+        let _ = std::thread::spawn(move || {
+            let rt = match tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+            {
+                Ok(rt) => rt,
+                Err(_) => return,
+            };
+            rt.block_on(async {
+                if let Ok(opts) = PgConnectOptions::from_str(&admin_url) {
+                    if let Ok(pool) = PgPoolOptions::new()
+                        .max_connections(1)
+                        .connect_with(opts.database("postgres"))
+                        .await
+                    {
+                        let _ = sqlx::query(&format!(
+                            "DROP DATABASE IF EXISTS \"{db_name}\" WITH (FORCE)"
+                        ))
+                        .execute(&pool)
+                        .await;
+                    }
+                }
+            });
+        })
+        .join();
+    }
 }
 
 impl TestContext {
@@ -304,14 +361,40 @@ impl TestContext {
         let uid = &Uuid::new_v4().to_string()[..8];
         let domain = format!("{}-{}.c2s-test.invalid", label, uid);
 
-        let db_url = std::env::var("DATABASE_URL")
+        let admin_url = std::env::var("DATABASE_URL")
             .expect("DATABASE_URL must be set for integration tests");
 
+        // Each test runs against its own freshly-migrated database. Local
+        // accounts have a NULL domain, so the global (username, domain)
+        // uniqueness constraint means "alice"/"bob" can only exist once per
+        // database — isolating tests by database keeps them independent.
+        let test_db_name = format!("c2s_{uid}");
+        let base_opts = PgConnectOptions::from_str(&admin_url).expect("invalid DATABASE_URL");
+        {
+            let admin = PgPoolOptions::new()
+                .max_connections(1)
+                .connect_with(base_opts.clone().database("postgres"))
+                .await
+                .expect("connect to maintenance database");
+            sqlx::query(&format!("CREATE DATABASE \"{test_db_name}\""))
+                .execute(&admin)
+                .await
+                .expect("create per-test database");
+            admin.close().await;
+        }
+
+        let db_opts = base_opts.database(&test_db_name);
         let db = PgPoolOptions::new()
             .max_connections(5)
-            .connect(&db_url)
+            .connect_with(db_opts.clone())
             .await
-            .expect("failed to connect to test database");
+            .expect("connect to per-test database");
+        sqlx::migrate!("./migrations")
+            .run(&db)
+            .await
+            .expect("run migrations on per-test database");
+
+        let db_url = replace_db_name(&admin_url, &test_db_name);
 
         let (alice_id, alice_token) =
             seed_user(&db, &domain, "alice", "alice@test.invalid").await;
@@ -322,13 +405,15 @@ impl TestContext {
         // since `db` is moved into AppState below.
         let test_db = PgPoolOptions::new()
             .max_connections(2)
-            .connect(&db_url)
+            .connect_with(db_opts)
             .await
             .expect("failed to connect to test database (test_db)");
 
         let redis_url = std::env::var("REDIS_URL")
             .unwrap_or_else(|_| "redis://127.0.0.1:6379".into());
         let fake_s3 = spawn_fake_s3().await;
+        let (vapid_private_key, vapid_public_key) =
+            eunha::push::generate_vapid_keypair().expect("generate test VAPID keypair");
         let config = eunha::config::Config {
             database_url: db_url,
             redis_url,
@@ -346,6 +431,20 @@ impl TestContext {
             resend: eunha::config::ResendConfig {
                 api_key: "test-key".into(),
                 from: "test@test.invalid".into(),
+            },
+            instance: eunha::config::InstanceConfig {
+                domain: domain.clone(),
+                title: "c2s test".into(),
+                description: String::new(),
+                short_description: String::new(),
+                contact_email: None,
+                registrations_open: true,
+                approval_required: false,
+                vapid_private_key,
+                vapid_public_key,
+                icon_url: None,
+                privacy_policy: String::new(),
+                terms_of_service: String::new(),
             },
         };
         let state = eunha::state::AppState::new(db, config).await
@@ -374,6 +473,8 @@ impl TestContext {
             db: test_db,
             state: state_clone,
             _server: server,
+            admin_url,
+            test_db_name,
         }
     }
 }
@@ -400,9 +501,9 @@ pub async fn seed_account_and_token(
 
     let account_id = sqlx::query_scalar!(
         r#"INSERT INTO accounts
-             (id, username, display_name, note, note_text,
+             (id, username, display_name, note,
               url, uri, public_key, inbox_url, outbox_url, shared_inbox_url, discoverable)
-           VALUES ($1,$2,$2,'','', $3,$4,'test-public-key',$4||'/inbox',$4||'/outbox',''::text, true)
+           VALUES ($1,$2,$2,'', $3,$4,'test-public-key',$4||'/inbox',$4||'/outbox',''::text, true)
            RETURNING id"#,
         eunha::snowflake::next_id(),
         username,
@@ -416,11 +517,10 @@ pub async fn seed_account_and_token(
     let encrypted_password = hash_password("testpassword123");
     sqlx::query!(
         r#"INSERT INTO users
-             (account_id, email, email_normalized, encrypted_password, confirmed_at, approved_at)
-           VALUES ($1,$2,$3,$4,now(),now())"#,
+             (account_id, email, encrypted_password, confirmed_at, approved)
+           VALUES ($1,$2,$3,now(),true)"#,
         account_id,
         email,
-        email.to_lowercase(),
         encrypted_password,
     )
     .execute(db)
@@ -457,6 +557,37 @@ pub fn hash_password(password: &str) -> String {
         .hash_password(password.as_bytes(), &salt)
         .unwrap()
         .to_string()
+}
+
+/// Grant a user admin privileges by assigning a role with position >= 100
+/// (eunha treats role position >= 100 as administrator).
+pub async fn make_admin(db: &PgPool, account_id: i64) {
+    let role_id = sqlx::query_scalar!(
+        r#"INSERT INTO user_roles (id, name, position, permissions, highlighted)
+           VALUES ($1, 'Admin', 100, 1, true)
+           RETURNING id"#,
+        eunha::snowflake::next_id(),
+    )
+    .fetch_one(db)
+    .await
+    .unwrap();
+
+    sqlx::query!(
+        "UPDATE users SET role_id = $1 WHERE account_id = $2",
+        role_id,
+        account_id,
+    )
+    .execute(db)
+    .await
+    .unwrap();
+}
+
+/// Look up the `users.id` for a given account.
+pub async fn user_id_for(db: &PgPool, account_id: i64) -> i64 {
+    sqlx::query_scalar!("SELECT id FROM users WHERE account_id = $1", account_id)
+        .fetch_one(db)
+        .await
+        .unwrap()
 }
 
 /// Create an additional access token for `account_id` with the given scopes.

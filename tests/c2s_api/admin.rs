@@ -1,21 +1,12 @@
 use reqwest::StatusCode;
 use serde_json::{json, Value};
-use sqlx::postgres::PgPoolOptions;
 
 use super::helpers::TestContext;
 
 /// Elevate alice to admin role for tests that need admin privileges.
 async fn make_admin(ctx: &TestContext) {
     let alice_uuid: i64 = ctx.alice_id.parse().unwrap();
-    let db_url = std::env::var("DATABASE_URL").unwrap();
-    let db = PgPoolOptions::new().max_connections(2).connect(&db_url).await.unwrap();
-    sqlx::query!(
-        "UPDATE users SET role = 'admin' WHERE account_id = $1",
-        alice_uuid,
-    )
-    .execute(&db)
-    .await
-    .unwrap();
+    super::helpers::make_admin(&ctx.db, alice_uuid).await;
 }
 
 /// Non-admin token gets 403 from admin endpoints.
@@ -633,7 +624,7 @@ async fn test_admin_list_accounts_pending_filter() {
     // Set bob's approved_at to NULL to simulate a pending account.
     let db_url = std::env::var("DATABASE_URL").unwrap();
     let db = sqlx::postgres::PgPoolOptions::new().max_connections(2).connect(&db_url).await.unwrap();
-    sqlx::query!("UPDATE users SET approved_at = NULL WHERE account_id = $1", bob_uuid)
+    sqlx::query!("UPDATE users SET approved = false WHERE account_id = $1", bob_uuid)
         .execute(&db)
         .await
         .unwrap();

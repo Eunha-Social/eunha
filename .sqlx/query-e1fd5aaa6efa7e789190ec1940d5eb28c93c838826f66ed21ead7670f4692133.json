@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT replies_count, reblogs_count, favourites_count, quotes_count\n         FROM status_stats WHERE status_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "replies_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "reblogs_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "favourites_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "quotes_count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "e1fd5aaa6efa7e789190ec1940d5eb28c93c838826f66ed21ead7670f4692133"
+}

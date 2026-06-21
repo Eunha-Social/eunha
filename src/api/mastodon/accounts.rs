@@ -4220,6 +4220,19 @@ pub async fn build_status_with_app(
     api.emojis = status_emojis;
     api.poll = fetch_status_poll(state, id, viewer_account_id).await?;
     api.card = fetch_status_card(state, id).await;
+    if let Some(st) = sqlx::query!(
+        "SELECT replies_count, reblogs_count, favourites_count, quotes_count
+         FROM status_stats WHERE status_id = $1",
+        id,
+    )
+    .fetch_optional(&state.db)
+    .await?
+    {
+        api.replies_count = st.replies_count;
+        api.reblogs_count = st.reblogs_count;
+        api.favourites_count = st.favourites_count;
+        api.quotes_count = st.quotes_count;
+    }
     // Populate quoted status if present (check quotes table)
     {
         let quote_statuses = vec![s.clone()];
@@ -4242,6 +4255,19 @@ pub async fn build_status_with_app(
         rb.emojis = reblog_emojis;
         rb.poll = fetch_status_poll(state, rid, None).await?;
         rb.card = fetch_status_card(state, rid).await;
+        if let Some(st) = sqlx::query!(
+            "SELECT replies_count, reblogs_count, favourites_count, quotes_count
+             FROM status_stats WHERE status_id = $1",
+            rid,
+        )
+        .fetch_optional(&state.db)
+        .await?
+        {
+            rb.replies_count = st.replies_count;
+            rb.reblogs_count = st.reblogs_count;
+            rb.favourites_count = st.favourites_count;
+            rb.quotes_count = st.quotes_count;
+        }
     }
     Ok(api)
 }

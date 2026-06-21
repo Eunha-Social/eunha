@@ -46,16 +46,11 @@ async fn test_annual_report_lifecycle() {
 
     // Insert a status in the past year (2023) directly via DB
     let alice_id: i64 = ctx.alice_id.parse().unwrap();
-    let instance_id: sqlx::types::Uuid = sqlx::query_scalar!(
-        "SELECT instance_id FROM accounts WHERE id = $1",
-        alice_id,
-    ).fetch_one(&ctx.db).await.unwrap();
-
     let status_id = eunha::snowflake::next_id();
     sqlx::query!(
-        "INSERT INTO statuses (id, account_id, instance_id, text, visibility, created_at)
-         VALUES ($1, $2, $3, 'test post 2023', 0, '2023-06-15T12:00:00Z'::timestamptz)",
-        status_id, alice_id, instance_id,
+        "INSERT INTO statuses (id, account_id, text, visibility, created_at)
+         VALUES ($1, $2, 'test post 2023', 0, '2023-06-15T12:00:00Z'::timestamptz)",
+        status_id, alice_id,
     ).execute(&ctx.db).await.unwrap();
 
     // State should be eligible
@@ -121,18 +116,13 @@ async fn test_annual_report_data_structure() {
     let ctx = TestContext::new("annrep-data").await;
 
     let alice_id: i64 = ctx.alice_id.parse().unwrap();
-    let instance_id: sqlx::types::Uuid = sqlx::query_scalar!(
-        "SELECT instance_id FROM accounts WHERE id = $1",
-        alice_id,
-    ).fetch_one(&ctx.db).await.unwrap();
-
     // Insert several statuses in 2022
     for i in 0..5 {
         let sid = eunha::snowflake::next_id();
         sqlx::query!(
-            "INSERT INTO statuses (id, account_id, instance_id, text, visibility, created_at)
-             VALUES ($1, $2, $3, $4, 0, '2022-03-01T12:00:00Z'::timestamptz)",
-            sid, alice_id, instance_id,
+            "INSERT INTO statuses (id, account_id, text, visibility, created_at)
+             VALUES ($1, $2, $3, 0, '2022-03-01T12:00:00Z'::timestamptz)",
+            sid, alice_id,
             format!("post number {i}"),
         ).execute(&ctx.db).await.unwrap();
     }

@@ -1,6 +1,5 @@
 use reqwest::StatusCode;
 use serde_json::{json, Value};
-use uuid::Uuid;
 
 use super::helpers::TestContext;
 
@@ -164,19 +163,10 @@ async fn test_announcement_dismiss() {
     let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
     let pool = PgPoolOptions::new().max_connections(2).connect(&db_url).await.unwrap();
 
-    let instance_id: Uuid = sqlx::query_scalar!(
-        "SELECT id FROM instances WHERE domain = $1",
-        ctx.domain,
-    )
-    .fetch_one(&pool)
-    .await
-    .unwrap();
-
     let ann_id: i64 = sqlx::query_scalar!(
-        r#"INSERT INTO announcements (instance_id, text, published, all_day, published_at, created_at, updated_at)
-           VALUES ($1, 'test announcement', true, false, now(), now(), now())
+        r#"INSERT INTO announcements (text, published, all_day, published_at, created_at, updated_at)
+           VALUES ('test announcement', true, false, now(), now(), now())
            RETURNING id"#,
-        instance_id,
     )
     .fetch_one(&pool)
     .await
