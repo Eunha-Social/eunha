@@ -34,8 +34,8 @@ RUN cargo chef cook --release --recipe-path recipe.json
 
 # ── Stage 3d: Build application ─────────────────────────────────────────────
 FROM chef AS rust-builder
-ARG DATABASE_URL
-ENV DATABASE_URL=${DATABASE_URL}
+# Use the committed .sqlx cache so the build doesn't depend on a live database.
+ENV SQLX_OFFLINE=true
 COPY --from=cacher /app/target target
 COPY --from=cacher $CARGO_HOME $CARGO_HOME
 COPY . .

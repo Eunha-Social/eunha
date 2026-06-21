@@ -3,8 +3,6 @@ services:
     build:
       context: .
       network: host
-      args:
-        DATABASE_URL: ${DATABASE_URL}
     restart: unless-stopped
     environment:
       REDIS_URL: redis://host.docker.internal
