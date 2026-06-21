@@ -609,26 +609,12 @@ pub async fn post_status(
                 .filter_map(|(_, a)| a.url.clone())
                 .collect();
 
-            // to/cc per Mastodon's TagManager#to / #cc
-            let (to_strs, cc_strs): (Vec<String>, Vec<String>) = match visibility.as_str() {
-                "public" => (
-                    vec![crate::federation::activity::AS_PUBLIC.to_string()],
-                    std::iter::once(followers_url.clone())
-                        .chain(mentioned_urls.iter().cloned())
-                        .collect(),
-                ),
-                "unlisted" => (
-                    vec![followers_url.clone()],
-                    std::iter::once(crate::federation::activity::AS_PUBLIC.to_string())
-                        .chain(mentioned_urls.iter().cloned())
-                        .collect(),
-                ),
-                "private" => (
-                    vec![followers_url.clone()],
-                    mentioned_urls.clone(),
-                ),
-                _ /* direct */ => (mentioned_urls.clone(), vec![]),
-            };
+            // to/cc per the fediverse addressing convention (portable logic in feder-core).
+            let (to_strs, cc_strs) = crate::db::models::vis::audience(
+                crate::db::models::vis::from_str(&visibility),
+                &followers_url,
+                &mentioned_urls,
+            );
 
             let published = status.created_at.to_rfc3339();
             let in_reply_to_uri: Option<String> = if let Some(parent_id) = in_reply_to_id {

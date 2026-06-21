@@ -480,18 +480,7 @@ async fn handle_create(
     // Visibility is determined from the Note object's own to/cc fields.
     let note_to = as_string_vec(object.get("to"));
     let note_cc = as_string_vec(object.get("cc"));
-    const PUBLIC: &str = "https://www.w3.org/ns/activitystreams#Public";
-    let visibility = if note_to.iter().any(|u| u == PUBLIC) {
-        crate::db::models::vis::PUBLIC
-    } else if note_cc.iter().any(|u| u == PUBLIC) {
-        crate::db::models::vis::UNLISTED
-    } else if note_to.iter().any(|u| u.ends_with("/followers"))
-        || note_cc.iter().any(|u| u.ends_with("/followers"))
-    {
-        crate::db::models::vis::PRIVATE
-    } else {
-        crate::db::models::vis::DIRECT
-    };
+    let visibility = crate::db::models::vis::from_audience(&note_to, &note_cc);
 
     let language = object
         .get("contentMap")
@@ -2164,18 +2153,7 @@ pub async fn fetch_remote_status(state: &AppState, uri: &str) -> AppResult<Optio
 
     let note_to = as_string_vec(object.get("to"));
     let note_cc = as_string_vec(object.get("cc"));
-    const PUBLIC: &str = "https://www.w3.org/ns/activitystreams#Public";
-    let visibility = if note_to.iter().any(|u| u == PUBLIC) {
-        crate::db::models::vis::PUBLIC
-    } else if note_cc.iter().any(|u| u == PUBLIC) {
-        crate::db::models::vis::UNLISTED
-    } else if note_to.iter().any(|u| u.ends_with("/followers"))
-        || note_cc.iter().any(|u| u.ends_with("/followers"))
-    {
-        crate::db::models::vis::PRIVATE
-    } else {
-        crate::db::models::vis::DIRECT
-    };
+    let visibility = crate::db::models::vis::from_audience(&note_to, &note_cc);
     let language = object
         .get("contentMap")
         .and_then(|m| m.as_object())

@@ -1778,6 +1778,7 @@ dependencies = [
  "clap",
  "config",
  "dotenvy",
+ "feder-core",
  "feder-vocab",
  "futures",
  "hex",
@@ -1856,9 +1857,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "feder-core"
+version = "0.1.0"
+source = "git+https://github.com/limeburst/feder.git#4e0b5c6747a7f7686bf218502df19024df9b8d6f"
+dependencies = [
+ "feder-vocab",
+]
+
+[[package]]
 name = "feder-vocab"
 version = "0.1.0"
-source = "git+https://github.com/limeburst/feder.git#0d129ab6bab056ba32d6da77e55079d75842b097"
+source = "git+https://github.com/limeburst/feder.git#4e0b5c6747a7f7686bf218502df19024df9b8d6f"
 dependencies = [
  "iri-string",
  "serde",

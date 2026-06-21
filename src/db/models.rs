@@ -342,6 +342,29 @@ pub mod vis {
         // Mastodon masks "limited" (4) as "private" so clients don't need to handle it.
         match v { PUBLIC => "public", UNLISTED => "unlisted", PRIVATE | LIMITED => "private", _ => "direct" }
     }
+
+    /// Derive visibility from an object's `to`/`cc` audience (portable logic in feder-core).
+    pub fn from_audience<S: AsRef<str>, T: AsRef<str>>(to: &[S], cc: &[T]) -> i32 {
+        use feder_core::addressing::Visibility;
+        match feder_core::addressing::visibility_from_audience(to, cc) {
+            Visibility::Public => PUBLIC,
+            Visibility::Unlisted => UNLISTED,
+            Visibility::Private => PRIVATE,
+            Visibility::Direct => DIRECT,
+        }
+    }
+
+    /// Compute the `(to, cc)` audience for an outgoing status of this visibility.
+    pub fn audience(v: i32, followers: &str, mentioned: &[String]) -> (Vec<String>, Vec<String>) {
+        use feder_core::addressing::Visibility;
+        let vis = match v {
+            PUBLIC => Visibility::Public,
+            UNLISTED => Visibility::Unlisted,
+            PRIVATE | LIMITED => Visibility::Private,
+            _ => Visibility::Direct,
+        };
+        feder_core::addressing::audience_for(vis, followers, mentioned)
+    }
 }
 
 /// Integer-to-text helpers for lists.replies_policy (followed=0 list=1 none=2).
