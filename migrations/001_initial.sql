@@ -51,6 +51,8 @@ CREATE TABLE user_roles (
     position         INTEGER NOT NULL DEFAULT 0,
     permissions      BIGINT NOT NULL DEFAULT 0,
     highlighted      BOOLEAN NOT NULL DEFAULT false,
+    require_2fa      BOOLEAN NOT NULL DEFAULT false,
+    collection_limit INTEGER NOT NULL DEFAULT 10,
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -129,6 +131,13 @@ CREATE TABLE accounts (
     header_remote_url               TEXT NOT NULL DEFAULT '',
     avatar_storage_schema_version   INTEGER,
     header_storage_schema_version   INTEGER,
+    avatar_description              TEXT NOT NULL DEFAULT '',
+    header_description              TEXT NOT NULL DEFAULT '',
+    show_featured                   BOOLEAN NOT NULL DEFAULT true,
+    show_media                      BOOLEAN NOT NULL DEFAULT true,
+    show_media_replies              BOOLEAN NOT NULL DEFAULT true,
+    feature_approval_policy         INTEGER NOT NULL DEFAULT 0,
+    collections_url                 TEXT,
     created_at                      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at                      TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT accounts_local_unique UNIQUE NULLS NOT DISTINCT (username, domain)
@@ -390,6 +399,7 @@ CREATE TABLE media_attachments (
     thumbnail_file_size         INTEGER,
     thumbnail_updated_at        TIMESTAMPTZ,
     thumbnail_remote_url        TEXT,
+    thumbnail_storage_schema_version INTEGER,
     created_at                  TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at                  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -505,6 +515,7 @@ CREATE TABLE notification_policies (
     for_new_accounts     INTEGER NOT NULL DEFAULT 0,
     for_private_mentions INTEGER NOT NULL DEFAULT 1,
     for_limited_accounts INTEGER NOT NULL DEFAULT 1,
+    for_bots             INTEGER NOT NULL DEFAULT 0,
     created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -774,10 +785,11 @@ CREATE INDEX index_account_domain_blocks_on_account_id_and_domain
 
 -- ── custom_emoji_categories ───────────────────────────────────────────────────
 CREATE TABLE custom_emoji_categories (
-    id         BIGSERIAL PRIMARY KEY,
-    name       TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+    id                BIGSERIAL PRIMARY KEY,
+    name              TEXT,
+    featured_emoji_id BIGINT,
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX index_custom_emoji_categories_on_name ON custom_emoji_categories(name);
 
@@ -800,6 +812,8 @@ CREATE TABLE custom_emojis (
     updated_at                  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER SEQUENCE custom_emojis_id_seq OWNED BY custom_emojis.id;
+-- Circular FK: custom_emoji_categories.featured_emoji_id -> custom_emojis (added after custom_emojis exists)
+ALTER TABLE custom_emoji_categories ADD CONSTRAINT fk_custom_emoji_categories_featured_emoji_id FOREIGN KEY (featured_emoji_id) REFERENCES custom_emojis(id) ON DELETE SET NULL;
 -- Matches Mastodon's index_custom_emojis_on_shortcode_and_domain (remote emojis unique per domain)
 CREATE UNIQUE INDEX index_custom_emojis_on_shortcode_and_domain ON custom_emojis (shortcode, domain);
 -- Partial index for local emojis (domain IS NULL) — needed for ON CONFLICT in admin upserts
@@ -1011,10 +1025,13 @@ CREATE TABLE preview_cards (
     image_file_size             INTEGER,
     image_updated_at            TIMESTAMPTZ,
     image_storage_schema_version INTEGER,
+    unverified_author_account_id BIGINT REFERENCES accounts(id) ON DELETE SET NULL,
     fetched_at                  TIMESTAMPTZ NOT NULL DEFAULT now(),
     created_at                  TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at                  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE INDEX index_preview_cards_on_unverified_author_account_id_and_id
+    ON preview_cards (unverified_author_account_id, id) WHERE unverified_author_account_id IS NOT NULL;
 -- ── preview_card_providers ────────────────────────────────────────────────────
 CREATE TABLE preview_card_providers (
     id                  BIGSERIAL PRIMARY KEY,
@@ -1283,6 +1300,7 @@ CREATE TABLE bulk_imports (
     finished_at       TIMESTAMPTZ,
     overwrite         BOOLEAN NOT NULL DEFAULT false,
     likely_mismatched BOOLEAN NOT NULL DEFAULT false,
+    missing_status    BOOLEAN NOT NULL DEFAULT false,
     original_filename TEXT NOT NULL DEFAULT '',
     created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -1613,6 +1631,7 @@ CREATE TABLE generated_annual_reports (
     year           INT NOT NULL,
     data           JSONB NOT NULL DEFAULT '{}',
     schema_version INT NOT NULL DEFAULT 1,
+    share_key      TEXT,
     viewed_at      TIMESTAMPTZ,
     created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -1720,6 +1739,7 @@ CREATE TABLE collection_items (
     collection_id             BIGINT NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
     account_id                BIGINT REFERENCES accounts(id) ON DELETE SET NULL,
     uri                       TEXT,
+    activity_uri              TEXT,
     object_uri                TEXT,
     approval_uri              TEXT,
     approval_last_verified_at TIMESTAMPTZ,
