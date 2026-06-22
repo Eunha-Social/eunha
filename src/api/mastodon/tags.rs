@@ -6,7 +6,7 @@ use axum::{
 };
 use std::collections::HashMap;
 use crate::{
-    error::AppResult,
+    error::{AppError, AppResult},
     middleware::{AuthenticatedUser, ResolvedInstance},
     state::AppState,
 };
@@ -101,16 +101,18 @@ pub async fn get_tag(
     let domain = &instance.domain;
     let name = name.to_lowercase();
 
-    // Mastodon returns an empty-id tag for unknown (but valid) hashtag names;
-    // it does NOT 404. Match that behaviour.
+    // Mastodon's TagsController#show uses Tag.find_normalized! which raises
+    // RecordNotFound (→ 404) for hashtags that do not exist.
     let tag = sqlx::query!(
         "SELECT id FROM tags WHERE name = $1",
         name,
     )
     .fetch_optional(&state.db)
-    .await?;
+    .await?
+    .ok_or(AppError::NotFound)?;
 
-    let (following, featuring, history, id_str) = if let Some(ref t) = tag {
+    let (following, featuring, history, id_str) = {
+        let t = &tag;
         let history = fetch_tag_history(&state.db, t.id).await;
         let (following, featuring) = if let Some(Extension(ref auth)) = auth {
             let following = sqlx::query_scalar!(
@@ -139,14 +141,6 @@ pub async fn get_tag(
             (None, None)
         };
         (following, featuring, history, t.id.to_string())
-    } else {
-        // Tag not in DB: return empty-id tag with no history (matches Mastodon)
-        let (following, featuring) = if auth.is_some() {
-            (Some(false), Some(false))
-        } else {
-            (None, None)
-        };
-        (following, featuring, vec![], String::new())
     };
 
     Ok(Json(Tag {

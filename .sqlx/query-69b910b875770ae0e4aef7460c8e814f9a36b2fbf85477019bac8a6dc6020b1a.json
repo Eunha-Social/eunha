@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT ur.id, ur.name, ur.color, ur.permissions, ur.highlighted\n           FROM users u\n           JOIN user_roles ur ON ur.id = u.role_id\n           WHERE u.account_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "color",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "permissions",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "highlighted",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "69b910b875770ae0e4aef7460c8e814f9a36b2fbf85477019bac8a6dc6020b1a"
+}

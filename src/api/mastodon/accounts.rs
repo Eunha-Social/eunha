@@ -64,118 +64,52 @@ pub async fn verify_credentials(
     Ok(Json(api_account))
 }
 
-/// Permission flags mirroring Mastodon's UserRole::FLAGS.
-/// ALL is the OR of every flag, matching `FLAGS.values.reduce(&:|)`.
-mod role_flags {
-    const ADMINISTRATOR:              u64 = 1 << 0;
-    const VIEW_DEVOPS:                u64 = 1 << 1;
-    const VIEW_AUDIT_LOG:             u64 = 1 << 2;
-    const VIEW_DASHBOARD:             u64 = 1 << 3;
-    const MANAGE_REPORTS:             u64 = 1 << 4;
-    const MANAGE_FEDERATION:          u64 = 1 << 5;
-    const MANAGE_SETTINGS:            u64 = 1 << 6;
-    const MANAGE_BLOCKS:              u64 = 1 << 7;
-    const MANAGE_TAXONOMIES:          u64 = 1 << 8;
-    const MANAGE_APPEALS:             u64 = 1 << 9;
-    const MANAGE_USERS:               u64 = 1 << 10;
-    const MANAGE_INVITES:             u64 = 1 << 11;
-    const MANAGE_RULES:               u64 = 1 << 12;
-    const MANAGE_ANNOUNCEMENTS:       u64 = 1 << 13;
-    const MANAGE_CUSTOM_EMOJIS:       u64 = 1 << 14;
-    const MANAGE_WEBHOOKS:            u64 = 1 << 15;
-    const INVITE_USERS:               u64 = 1 << 16;
-    const MANAGE_ROLES:               u64 = 1 << 17;
-    const MANAGE_USER_ACCESS:         u64 = 1 << 18;
-    const DELETE_USER_DATA:           u64 = 1 << 19;
-    const VIEW_FEEDS:                 u64 = 1 << 20;
-    const INVITE_BYPASS_APPROVAL:     u64 = 1 << 21;
-    const MANAGE_EMAIL_SUBSCRIPTIONS: u64 = 1 << 22;
-
-    pub const ALL: u64 = ADMINISTRATOR
-        | VIEW_DEVOPS
-        | VIEW_AUDIT_LOG
-        | VIEW_DASHBOARD
-        | MANAGE_REPORTS
-        | MANAGE_FEDERATION
-        | MANAGE_SETTINGS
-        | MANAGE_BLOCKS
-        | MANAGE_TAXONOMIES
-        | MANAGE_APPEALS
-        | MANAGE_USERS
-        | MANAGE_INVITES
-        | MANAGE_RULES
-        | MANAGE_ANNOUNCEMENTS
-        | MANAGE_CUSTOM_EMOJIS
-        | MANAGE_WEBHOOKS
-        | INVITE_USERS
-        | MANAGE_ROLES
-        | MANAGE_USER_ACCESS
-        | DELETE_USER_DATA
-        | VIEW_FEEDS
-        | INVITE_BYPASS_APPROVAL
-        | MANAGE_EMAIL_SUBSCRIPTIONS;
-
-    pub const MODERATOR: u64 = VIEW_AUDIT_LOG
-        | VIEW_DASHBOARD
-        | MANAGE_REPORTS
-        | MANAGE_USERS
-        | MANAGE_INVITES
-        | MANAGE_APPEALS;
-}
-
 /// Fetch highlighted roles for a local account.  Returns an empty vec for
 /// remote accounts (they have no row in `users`).
 async fn fetch_account_roles(state: &AppState, account_id: i64) -> Vec<super::types::AccountRole> {
-    let position: i32 = sqlx::query_scalar!(
-        r#"SELECT COALESCE(ur.position, 0) AS "pos!: i32"
+    let row = sqlx::query!(
+        r#"SELECT ur.id, ur.name, ur.color
            FROM users u
-           LEFT JOIN user_roles ur ON ur.id = u.role_id
+           JOIN user_roles ur ON ur.id = u.role_id
            WHERE u.account_id = $1"#,
         account_id,
     )
     .fetch_optional(&state.db)
     .await
     .ok()
-    .flatten()
-    .unwrap_or(0);
+    .flatten();
 
-    if position >= 1000 {
-        vec![super::types::AccountRole { id: "1".into(), name: "Admin".into(), color: "#6364ff".into() }]
-    } else if position >= 100 {
-        vec![super::types::AccountRole { id: "2".into(), name: "Moderator".into(), color: "#6364ff".into() }]
-    } else {
-        vec![]
+    match row {
+        Some(r) => vec![super::types::AccountRole {
+            id: r.id.to_string(),
+            name: r.name,
+            color: r.color,
+        }],
+        None => vec![],
     }
 }
 
 /// Fetch the single current role for a local account (used in CredentialAccount).
 pub async fn fetch_account_role(state: &AppState, account_id: i64) -> Option<super::types::Role> {
-    let position: i32 = sqlx::query_scalar!(
-        r#"SELECT COALESCE(ur.position, 0) AS "pos!: i32"
+    let row = sqlx::query!(
+        r#"SELECT ur.id, ur.name, ur.color, ur.permissions, ur.highlighted
            FROM users u
-           LEFT JOIN user_roles ur ON ur.id = u.role_id
+           JOIN user_roles ur ON ur.id = u.role_id
            WHERE u.account_id = $1"#,
         account_id,
     )
     .fetch_optional(&state.db)
     .await
     .ok()
-    .flatten()
-    .unwrap_or(0);
+    .flatten()?;
 
-    if position >= 1000 {
-        Some(super::types::Role {
-            id: "1".into(), name: "Admin".into(), color: "#6364ff".into(),
-            permissions: role_flags::ALL.to_string(), highlighted: true,
-        })
-    } else if position >= 100 {
-        Some(super::types::Role {
-            id: "2".into(), name: "Moderator".into(), color: "#6364ff".into(),
-            permissions: role_flags::MODERATOR.to_string(), highlighted: true,
-        })
-    } else {
-        None
-    }
+    Some(super::types::Role {
+        id: row.id.to_string(),
+        name: row.name,
+        color: row.color,
+        permissions: row.permissions.to_string(),
+        highlighted: row.highlighted,
+    })
 }
 
 // ── GET /api/v1/accounts/lookup ───────────────────────────────────────────
@@ -4557,9 +4491,9 @@ pub async fn batch_account_roles(
         return std::collections::HashMap::new();
     }
     sqlx::query!(
-        r#"SELECT u.account_id, COALESCE(ur.position, 0) AS "role_position!: i64"
+        r#"SELECT u.account_id, ur.id AS "role_id!", ur.name AS "role_name!", ur.color AS "role_color!"
            FROM users u
-           LEFT JOIN user_roles ur ON ur.id = u.role_id
+           JOIN user_roles ur ON ur.id = u.role_id
            WHERE u.account_id = ANY($1::bigint[])"#,
         &local_ids,
     )
@@ -4568,13 +4502,11 @@ pub async fn batch_account_roles(
     .unwrap_or_default()
     .into_iter()
     .map(|r| {
-        let roles = if r.role_position >= 1000 {
-            vec![super::types::AccountRole { id: "1".into(), name: "Admin".into(), color: "#6364ff".into() }]
-        } else if r.role_position >= 100 {
-            vec![super::types::AccountRole { id: "2".into(), name: "Moderator".into(), color: "#6364ff".into() }]
-        } else {
-            vec![]
-        };
+        let roles = vec![super::types::AccountRole {
+            id: r.role_id.to_string(),
+            name: r.role_name,
+            color: r.role_color,
+        }];
         (r.account_id, roles)
     })
     .collect()

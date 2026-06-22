@@ -65,8 +65,40 @@ pub async fn post_status(
     use axum::response::IntoResponse;
     auth.require_scope("write:statuses")?;
 
+    // Capture the Idempotency-Key header before the request body is consumed.
+    let idempotency_key = request
+        .headers()
+        .get("Idempotency-Key")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
     let form = extract_post_status_form(request).await?;
     let account = fetch_account(&state, auth.account_id).await?;
+
+    // If we've already processed a request with this key, replay the stored status.
+    if let Some(ref ik) = idempotency_key {
+        use redis::AsyncCommands;
+        let redis_key = format!("idempotency:{}:{}", auth.account_id, ik);
+        let mut redis = state.redis.clone();
+        if let Ok(Some(existing_id)) = redis.get::<_, Option<i64>>(&redis_key).await {
+            if let Some(status) = sqlx::query_as!(
+                DbStatus,
+                "SELECT * FROM statuses WHERE id = $1 AND deleted_at IS NULL",
+                existing_id,
+            )
+            .fetch_optional(&state.db)
+            .await?
+            {
+                let media = fetch_status_media(&state, status.id).await?;
+                let viewer_ctx = build_viewer_context(&state, auth.account_id, status.id).await.ok();
+                let api_status = super::accounts::build_status_with_app(
+                    &state, &status, &account, media, None, viewer_ctx, None,
+                )
+                .await?;
+                return Ok((axum::http::StatusCode::OK, Json(api_status)).into_response());
+            }
+        }
+    }
     let text = form.status.clone().unwrap_or_default();
     if text.is_empty() && form.media_ids.as_ref().map_or(true, |m| m.is_empty()) && form.poll.is_none() {
         return Err(AppError::Unprocessable("Status must have text or media".into()));
@@ -778,6 +810,14 @@ pub async fn post_status(
                 );
             }
         }
+    }
+
+    // Record the idempotency mapping so a retried request replays this status.
+    if let Some(ref ik) = idempotency_key {
+        use redis::AsyncCommands;
+        let redis_key = format!("idempotency:{}:{}", auth.account_id, ik);
+        let mut redis = state.redis.clone();
+        let _: redis::RedisResult<()> = redis.set_ex(redis_key, status.id, 21600).await;
     }
 
     Ok((axum::http::StatusCode::OK, Json(api_status)).into_response())
@@ -2654,8 +2694,10 @@ pub async fn translate_status(
     Extension(auth): Extension<AuthenticatedUser>,
 ) -> AppResult<()> {
     auth.require_scope("read:statuses")?;
-    // Translation is not configured; Mastodon returns 404 via NotConfiguredError rescue.
-    Err(crate::error::AppError::NotFound)
+    // Translation is not configured; Mastodon returns 503 ServiceUnavailable.
+    Err(crate::error::AppError::ServiceUnavailable(
+        "Translation service is currently unavailable".to_string(),
+    ))
 }
 
 // ── GET /api/v1/statuses/:id/card ─────────────────────────────────────────

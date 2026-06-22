@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT u.account_id, ur.id AS \"role_id!\", ur.name AS \"role_name!\", ur.color AS \"role_color!\"\n           FROM users u\n           JOIN user_roles ur ON ur.id = u.role_id\n           WHERE u.account_id = ANY($1::bigint[])",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "account_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "role_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "role_name!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "role_color!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "63f4a50eb923168afd590ea0cac63c8cb39e9812aa7ac812d72db8295ad7befd"
+}
