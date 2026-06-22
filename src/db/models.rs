@@ -375,21 +375,34 @@ pub mod quote_policy {
     pub const PUBLIC: i32 = 0;
     pub const FOLLOWERS: i32 = 1;
     pub const NOBODY: i32 = 2;
+    /// Anyone may quote, but only with the author's manual approval.
+    pub const MANUAL: i32 = 3;
 
     pub fn from_str(s: &str) -> i32 {
         match s {
             "followers" => FOLLOWERS,
             "nobody" => NOBODY,
+            "manual" => MANUAL,
             _ => PUBLIC,
         }
     }
 
-    /// Labels for the `quote_approval.automatic` API field.
+    /// Labels for the `quote_approval.automatic` API field (who may quote
+    /// without asking).
     pub fn automatic_labels(v: i32) -> Vec<&'static str> {
         match v {
             FOLLOWERS => vec!["followers"],
-            NOBODY => vec![],
+            NOBODY | MANUAL => vec![],
             _ => vec!["public"],
+        }
+    }
+
+    /// Labels for the `quote_approval.manual` API field (who may quote only
+    /// with the author's approval).
+    pub fn manual_labels(v: i32) -> Vec<&'static str> {
+        match v {
+            MANUAL => vec!["public"],
+            _ => vec![],
         }
     }
 }

@@ -231,13 +231,17 @@ fn build_quote_approval(
         .into_iter()
         .map(str::to_owned)
         .collect();
-    let manual: Vec<String> = Vec::new();
+    let manual: Vec<String> = quote_policy::manual_labels(policy)
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
 
     let current_user = match viewer {
         None => "unknown".to_string(),
         Some(ctx) => match policy {
             quote_policy::PUBLIC => "automatic".to_string(),
             quote_policy::FOLLOWERS if ctx.follows_author => "automatic".to_string(),
+            quote_policy::MANUAL => "manual".to_string(),
             _ => "denied".to_string(),
         },
     };

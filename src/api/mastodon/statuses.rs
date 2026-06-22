@@ -304,7 +304,7 @@ pub async fn post_status(
     let mut quote_request_activity_uri: Option<String> = None;
     if let Some(qid) = quote_of_id {
         let quoted = sqlx::query!(
-            "SELECT s.account_id, s.visibility, a.domain
+            "SELECT s.account_id, s.visibility, s.quote_approval_policy, a.domain
              FROM statuses s JOIN accounts a ON a.id = s.account_id
              WHERE s.id = $1",
             qid,
@@ -327,9 +327,19 @@ pub async fn post_status(
             quote_request_activity_uri = Some(au.clone());
             (crate::db::models::quote_state::PENDING, Some(au))
         } else {
-            let st = match quoted.as_ref().map(|q| q.visibility) {
-                Some(0) | Some(1) => crate::db::models::quote_state::ACCEPTED, // public, unlisted
-                _ => crate::db::models::quote_state::PENDING,
+            use crate::db::models::quote_policy;
+            let policy = quoted.as_ref().map(|q| q.quote_approval_policy).unwrap_or(quote_policy::PUBLIC);
+            // The author's own quotes are always accepted; a manual-approval
+            // policy holds others' quotes pending until the author approves.
+            let st = if quoted_account_id == account.id {
+                crate::db::models::quote_state::ACCEPTED
+            } else if policy == quote_policy::MANUAL || policy == quote_policy::NOBODY {
+                crate::db::models::quote_state::PENDING
+            } else {
+                match quoted.as_ref().map(|q| q.visibility) {
+                    Some(0) | Some(1) => crate::db::models::quote_state::ACCEPTED, // public, unlisted
+                    _ => crate::db::models::quote_state::PENDING,
+                }
             };
             (st, None)
         };
@@ -2751,7 +2761,7 @@ pub async fn update_interaction_policy(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     Extension(auth): Extension<AuthenticatedUser>,
-    _body: Option<Json<InteractionPolicyForm>>,
+    body: Option<Json<InteractionPolicyForm>>,
 ) -> AppResult<Json<Status>> {
     auth.require_scope("write:statuses")?;
     // Verify the status exists and belongs to the authenticated user
@@ -2766,7 +2776,34 @@ pub async fn update_interaction_policy(
         return Err(AppError::Forbidden);
     }
 
-    // interaction_policy column was removed for Mastodon schema compat; accept but no-op
+    // Translate the can_quote interaction policy into our quote_approval_policy.
+    if let Some(Json(form)) = body {
+        if let Some(can_quote) = form.can_quote {
+            use crate::db::models::quote_policy;
+            let always = can_quote.always.unwrap_or_default();
+            let with_approval = can_quote.with_approval.unwrap_or_default();
+            let policy = if !always.is_empty() {
+                // Someone may quote automatically — map by the broadest audience.
+                if always.iter().any(|p| p.ends_with("#Public")) {
+                    quote_policy::PUBLIC
+                } else if always.iter().any(|p| p.ends_with("/followers")) {
+                    quote_policy::FOLLOWERS
+                } else {
+                    quote_policy::PUBLIC
+                }
+            } else if !with_approval.is_empty() {
+                quote_policy::MANUAL
+            } else {
+                quote_policy::NOBODY
+            };
+            sqlx::query!(
+                "UPDATE statuses SET quote_approval_policy = $1 WHERE id = $2",
+                policy, id,
+            )
+            .execute(&state.db)
+            .await?;
+        }
+    }
 
     // Re-fetch
     let status = sqlx::query_as!(
