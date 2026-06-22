@@ -30,6 +30,7 @@ pub async fn verify_credentials(
     let account = fetch_account(&state, auth.account_id).await?;
     let mut api_account = account_from_db(&account);
     api_account.emojis = fetch_account_emojis(&state, &account).await;
+    apply_account_stats(&state, &mut api_account, account.id).await;
 
     let (default_privacy, default_sensitive, default_language, default_quote_policy) =
         ("public".to_string(), false, None::<String>, "public".to_string());
@@ -217,6 +218,7 @@ pub async fn lookup_account(
         let mut api = account_from_db(&account);
         api.emojis = fetch_account_emojis(&state, &account).await;
         api.roles = fetch_account_roles(&state, account.id).await;
+        apply_account_stats(&state, &mut api, account.id).await;
         return Ok(Json(api));
     }
 
@@ -298,6 +300,7 @@ pub async fn get_account(
     let mut api_account = account_from_db(&account);
     api_account.emojis = fetch_account_emojis(&state, &account).await;
     api_account.roles = fetch_account_roles(&state, account.id).await;
+    apply_account_stats(&state, &mut api_account, account.id).await;
     if let Some(moved_account_id) = account.moved_to_account_id {
         if let Ok(Some(moved)) = sqlx::query_as!(
             Account,
@@ -309,6 +312,7 @@ pub async fn get_account(
             let mut moved_api = account_from_db(&moved);
             moved_api.emojis = fetch_account_emojis(&state, &moved).await;
             moved_api.roles = fetch_account_roles(&state, moved.id).await;
+            apply_account_stats(&state, &mut moved_api, moved.id).await;
             api_account.moved = Some(Box::new(moved_api));
         }
     }
@@ -343,7 +347,7 @@ pub async fn get_account_statuses(
     }
     let viewer_id = auth.as_ref().map(|Extension(a)| a.account_id);
 
-    // If target has blocked the viewer, return empty list (matches Mastodon's Status.none).
+    // If the target has blocked the viewer, deny access (Mastodon returns 403).
     if let Some(vid) = viewer_id {
         if vid != account.id {
             let blocked = sqlx::query_scalar!(
@@ -354,7 +358,7 @@ pub async fn get_account_statuses(
             .await?
             .is_some();
             if blocked {
-                return Ok((HeaderMap::new(), Json(Vec::<super::types::Status>::new())));
+                return Err(AppError::Forbidden);
             }
         }
     }
@@ -1801,6 +1805,7 @@ async fn build_credential_account_response(
     let fields = super::convert::fields_from_db(account.fields.as_ref().unwrap_or(&serde_json::json!([])));
     let mut api_account = account_from_db(&account);
     api_account.emojis = fetch_account_emojis(state, &account).await;
+    apply_account_stats(state, &mut api_account, account.id).await;
     let follow_requests_count: i64 = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM (SELECT 1 FROM follow_requests WHERE target_account_id = $1 LIMIT 40) sub",
         auth.account_id,
@@ -4573,12 +4578,46 @@ pub async fn batch_accounts_to_api(
 ) -> Vec<super::types::Account> {
     let emojis_map = batch_account_emojis(state, accounts).await;
     let roles_map = batch_account_roles(state, accounts).await;
+    let ids: Vec<i64> = accounts.iter().map(|a| a.id).collect();
+    let stats_map: std::collections::HashMap<i64, (i64, i64, i64)> = sqlx::query!(
+        "SELECT account_id, statuses_count, following_count, followers_count
+         FROM account_stats WHERE account_id = ANY($1::bigint[])",
+        &ids,
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|r| (r.account_id, (r.statuses_count, r.following_count, r.followers_count)))
+    .collect();
     accounts.iter().map(|a| {
         let mut api = super::convert::account_from_db(a);
         api.emojis = emojis_map.get(&a.id).cloned().unwrap_or_default();
         api.roles = roles_map.get(&a.id).cloned().unwrap_or_default();
+        if let Some(&(s, fg, fr)) = stats_map.get(&a.id) {
+            api.statuses_count = s;
+            api.following_count = fg;
+            api.followers_count = fr;
+        }
         api
     }).collect()
+}
+
+/// Populate an account entity's `statuses_count` / `following_count` /
+/// `followers_count` from the `account_stats` table.
+pub async fn apply_account_stats(state: &AppState, api: &mut super::types::Account, account_id: i64) {
+    if let Ok(Some(st)) = sqlx::query!(
+        "SELECT statuses_count, following_count, followers_count
+         FROM account_stats WHERE account_id = $1",
+        account_id,
+    )
+    .fetch_optional(&state.db)
+    .await
+    {
+        api.statuses_count = st.statuses_count;
+        api.following_count = st.following_count;
+        api.followers_count = st.followers_count;
+    }
 }
 
 /// Spawn a background task to fetch a preview card for a newly-created status.

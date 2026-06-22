@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT statuses_count, following_count, followers_count\n         FROM account_stats WHERE account_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "statuses_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "following_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "followers_count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "60b5cc034059a41a7e000979fe08f1157f3a3fb1d2999305bf980bb96d8a86da"
+}

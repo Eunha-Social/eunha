@@ -2,10 +2,10 @@
 
 use serde_json::Value;
 
-use crate::federation::signature;
 use crate::state::AppState;
 
 /// Deliver an activity to a single remote inbox, signed with the given key.
+/// Wraps feder-runtime's signed-delivery helper with eunha's logging.
 pub async fn deliver(
     http: &reqwest::Client,
     activity: &Value,
@@ -14,30 +14,18 @@ pub async fn deliver(
     private_key_pem: &str,
 ) -> anyhow::Result<()> {
     let body = serde_json::to_vec(activity)?;
-    let headers = signature::sign_request("post", inbox_url, &body, key_id, private_key_pem)?;
-
     tracing::debug!(inbox = inbox_url, "delivering ActivityPub activity");
 
-    let resp = http
-        .post(inbox_url)
-        .header("Content-Type", "application/activity+json")
-        .header("Accept", "application/activity+json")
-        .header("Date", headers.date)
-        .header("Digest", headers.digest)
-        .header("Signature", headers.signature)
-        .body(body)
-        .send()
-        .await?;
-
-    let status = resp.status();
-    if !status.is_success() && status.as_u16() != 202 {
-        let text = resp.text().await.unwrap_or_default();
-        tracing::warn!(inbox = inbox_url, body = %activity, status = status.as_u16(), response = %text, "federation delivery failed with body");
-        anyhow::bail!("HTTP {} from {}: {}", status.as_u16(), inbox_url, text);
+    match feder_runtime::delivery::deliver(http, &body, inbox_url, key_id, private_key_pem).await {
+        Ok(()) => {
+            tracing::debug!(inbox = inbox_url, body = %activity, "federation delivery succeeded");
+            Ok(())
+        }
+        Err(e) => {
+            tracing::warn!(inbox = inbox_url, body = %activity, error = %e, "federation delivery failed");
+            Err(e)
+        }
     }
-
-    tracing::debug!(inbox = inbox_url, body = %activity, status = status.as_u16(), "federation delivery succeeded");
-    Ok(())
 }
 
 /// Fan out an activity to all remote follower inboxes for `actor_account_id`.

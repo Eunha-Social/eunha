@@ -2107,6 +2107,14 @@ async fn handle_feature_request(
 /// does not recurse into referenced posts. Returns `Ok(None)` if the object
 /// can't be fetched or isn't a storable Note.
 pub async fn fetch_remote_status(state: &AppState, uri: &str) -> AppResult<Option<i64>> {
+    fetch_remote_status_depth(state, uri, 0).await
+}
+
+/// Largest depth to which `fetch_remote_status` follows references (in-reply-to
+/// and quoted posts), to avoid unbounded fetch chains.
+const MAX_FETCH_DEPTH: u8 = 1;
+
+async fn fetch_remote_status_depth(state: &AppState, uri: &str, depth: u8) -> AppResult<Option<i64>> {
     if uri.is_empty() {
         return Ok(None);
     }
@@ -2171,18 +2179,26 @@ pub async fn fetch_remote_status(state: &AppState, uri: &str) -> AppResult<Optio
         .map(|s| s.to_string())
         .filter(|s| ["ko", "en"].contains(&s.as_str()));
 
-    // Link in-reply-to / quote only when the referenced post is already local.
+    // Link in-reply-to: use the local copy if present, otherwise fetch it once.
     let in_reply_to_uri = object.get("inReplyTo").and_then(|v| v.as_str());
     let (in_reply_to_id, in_reply_to_account_id): (Option<i64>, Option<i64>) =
         if let Some(irt) = in_reply_to_uri {
-            sqlx::query!(
+            let mut found: Option<(i64, i64)> = sqlx::query!(
                 "SELECT id, account_id FROM statuses WHERE uri = $1 AND deleted_at IS NULL",
                 irt,
             )
             .fetch_optional(&state.db)
             .await?
-            .map(|r| (Some(r.id), Some(r.account_id)))
-            .unwrap_or((None, None))
+            .map(|r| (r.id, r.account_id));
+            if found.is_none() && depth < MAX_FETCH_DEPTH {
+                if let Some(pid) = Box::pin(fetch_remote_status_depth(state, irt, depth + 1)).await? {
+                    found = sqlx::query!("SELECT id, account_id FROM statuses WHERE id = $1", pid)
+                        .fetch_optional(&state.db)
+                        .await?
+                        .map(|r| (r.id, r.account_id));
+                }
+            }
+            found.map(|(id, aid)| (Some(id), Some(aid))).unwrap_or((None, None))
         } else {
             (None, None)
         };
@@ -2231,13 +2247,22 @@ pub async fn fetch_remote_status(state: &AppState, uri: &str) -> AppResult<Optio
         .or_else(|| object.get("quoteUri").and_then(|v| v.as_str()))
         .or_else(|| object.get("_misskey_quote").and_then(|v| v.as_str()));
     if let Some(q) = quote_uri {
-        if let Some(quoted) = sqlx::query!(
+        let mut quoted: Option<(i64, i64)> = sqlx::query!(
             "SELECT id, account_id FROM statuses WHERE uri = $1 AND deleted_at IS NULL",
             q,
         )
         .fetch_optional(&state.db)
         .await?
-        {
+        .map(|r| (r.id, r.account_id));
+        if quoted.is_none() && depth < MAX_FETCH_DEPTH {
+            if let Some(qid) = Box::pin(fetch_remote_status_depth(state, q, depth + 1)).await? {
+                quoted = sqlx::query!("SELECT id, account_id FROM statuses WHERE id = $1", qid)
+                    .fetch_optional(&state.db)
+                    .await?
+                    .map(|r| (r.id, r.account_id));
+            }
+        }
+        if let Some((quoted_id, quoted_account_id)) = quoted {
             let _ = sqlx::query!(
                 r#"INSERT INTO quotes
                      (id, status_id, quoted_status_id, account_id, quoted_account_id, state, created_at, updated_at)
@@ -2245,9 +2270,9 @@ pub async fn fetch_remote_status(state: &AppState, uri: &str) -> AppResult<Optio
                    ON CONFLICT (status_id) DO NOTHING"#,
                 crate::snowflake::next_id(),
                 new_id,
-                quoted.id,
+                quoted_id,
                 account_id,
-                quoted.account_id,
+                quoted_account_id,
             )
             .execute(&state.db)
             .await;

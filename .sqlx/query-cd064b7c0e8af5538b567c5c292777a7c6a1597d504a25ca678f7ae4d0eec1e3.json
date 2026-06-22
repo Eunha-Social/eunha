@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT account_id, statuses_count, following_count, followers_count\n         FROM account_stats WHERE account_id = ANY($1::bigint[])",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "account_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "statuses_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "following_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "followers_count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "cd064b7c0e8af5538b567c5c292777a7c6a1597d504a25ca678f7ae4d0eec1e3"
+}
