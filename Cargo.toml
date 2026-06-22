@@ -9,8 +9,8 @@ name = "eunha"
 path = "src/main.rs"
 
 [[test]]
-name = "c2s_api"
-path = "tests/c2s_api/mod.rs"
+name = "integration"
+path = "tests/integration/mod.rs"
 
 [[bin]]
 name = "eunha-upload-media"

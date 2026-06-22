@@ -1,0 +1,32 @@
+//! Mastodon Client-to-Server (C2S) REST API compatibility tests.
+
+mod accounts;
+mod admin;
+mod announcements;
+mod annual_reports;
+mod apps;
+mod blocks;
+mod bookmarks;
+mod collections;
+mod conversations;
+mod domain_blocks;
+mod favourites;
+mod featured_tags;
+mod filters;
+mod follow_requests;
+mod instance;
+mod invites;
+mod lists;
+mod markers;
+mod media;
+mod mutes;
+mod notifications;
+mod polls;
+mod push;
+mod reports;
+mod scope;
+mod search;
+mod statuses;
+mod tags;
+mod timelines;
+mod trends;
