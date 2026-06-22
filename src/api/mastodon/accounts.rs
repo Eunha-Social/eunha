@@ -32,8 +32,9 @@ pub async fn verify_credentials(
     api_account.emojis = fetch_account_emojis(&state, &account).await;
     apply_account_stats(&state, &mut api_account, account.id).await;
 
+    let d = user_defaults(&state, account.id).await;
     let (default_privacy, default_sensitive, default_language, default_quote_policy) =
-        ("public".to_string(), false, None::<String>, "public".to_string());
+        (d.privacy, d.sensitive, d.language, d.quote_policy);
 
     let follow_requests: i64 = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM (SELECT 1 FROM follow_requests WHERE target_account_id = $1 LIMIT 40) sub",
@@ -1602,6 +1603,36 @@ async fn do_update_credentials(
         }
     }
 
+    // Persist posting preferences into users.settings (JSON).
+    if source_privacy.is_some()
+        || source_sensitive.is_some()
+        || source_language.is_some()
+        || source_quote_policy.is_some()
+    {
+        let mut settings = user_settings_json(&state, auth.account_id).await;
+        let obj = settings.as_object_mut().expect("settings json object");
+        if let Some(p) = &source_privacy {
+            obj.insert("privacy".into(), serde_json::json!(p));
+        }
+        if let Some(s) = source_sensitive {
+            obj.insert("sensitive".into(), serde_json::json!(s));
+        }
+        if let Some(l) = &source_language {
+            obj.insert("language".into(), serde_json::to_value(l).unwrap_or(serde_json::Value::Null));
+        }
+        if let Some(q) = &source_quote_policy {
+            obj.insert("quote_policy".into(), serde_json::json!(q));
+        }
+        let s = settings.to_string();
+        sqlx::query!(
+            "UPDATE users SET settings = $1, updated_at = now() WHERE account_id = $2",
+            s,
+            auth.account_id,
+        )
+        .execute(&state.db)
+        .await?;
+    }
+
     if let Some(ref dn) = display_name {
         sqlx::query!("UPDATE accounts SET display_name = $1 WHERE id = $2", dn, auth.account_id)
             .execute(&state.db).await?;
@@ -1778,6 +1809,7 @@ pub async fn patch_profile(
     }).collect();
     Ok(Json(super::types::Profile {
         id: a.id.to_string(),
+        username: a.username.clone(),
         display_name: a.display_name.clone(),
         note: a.note.clone(),
         fields,
@@ -2159,8 +2191,9 @@ pub async fn get_preferences(
     Extension(auth): Extension<AuthenticatedUser>,
 ) -> AppResult<Json<Preferences>> {
     auth.require_scope("read:accounts")?;
+    let d = user_defaults(&state, auth.account_id).await;
     let (privacy, sensitive, language, quote_policy) =
-        ("public".to_string(), false, None::<String>, "public".to_string());
+        (d.privacy, d.sensitive, d.language, d.quote_policy);
 
     Ok(Json(Preferences {
         posting_default_visibility: privacy,
@@ -3541,15 +3574,35 @@ pub async fn get_profile(
     Extension(crate::middleware::ResolvedInstance(instance)): Extension<crate::middleware::ResolvedInstance>,
 ) -> AppResult<Json<super::types::Profile>> {
     auth.require_scope("read:accounts")?;
+    Ok(Json(build_profile(&state, &instance.domain, auth.account_id).await?))
+}
+
+/// PUT /api/v1/profile — accepts a JSON body and returns the current profile.
+/// (Profile field edits go through update_credentials / the multipart PATCH.)
+pub async fn put_profile(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedUser>,
+    Extension(crate::middleware::ResolvedInstance(instance)): Extension<crate::middleware::ResolvedInstance>,
+    _body: Option<Json<serde_json::Value>>,
+) -> AppResult<Json<super::types::Profile>> {
+    auth.require_scope("write:accounts")?;
+    Ok(Json(build_profile(&state, &instance.domain, auth.account_id).await?))
+}
+
+async fn build_profile(
+    state: &AppState,
+    domain: &str,
+    account_id: i64,
+) -> AppResult<super::types::Profile> {
     let account = sqlx::query_as!(
         Account,
         "SELECT * FROM accounts WHERE id = $1",
-        auth.account_id,
+        account_id,
     )
     .fetch_one(&state.db)
     .await?;
 
-    let domain = &instance.domain;
+    let domain = &domain.to_string();
     let featured_tag_rows = sqlx::query!(
         r#"SELECT ft.id, t.name, ft.statuses_count, ft.last_status_at
            FROM featured_tags ft
@@ -3581,6 +3634,7 @@ pub async fn get_profile(
     }).collect();
     let profile = super::types::Profile {
         id: a.id.to_string(),
+        username: a.username.clone(),
         display_name: a.display_name.clone(),
         note: a.note.clone(),
         fields,
@@ -3598,7 +3652,7 @@ pub async fn get_profile(
         attribution_domains: a.attribution_domains.clone(),
         featured_tags,
     };
-    Ok(Json(profile))
+    Ok(profile)
 }
 
 // ── DELETE /api/v1/profile/avatar ────────────────────────────────────────
@@ -4601,6 +4655,36 @@ pub async fn batch_accounts_to_api(
         }
         api
     }).collect()
+}
+
+/// Read a user's stored preferences from `users.settings` (a JSON object).
+pub async fn user_settings_json(state: &AppState, account_id: i64) -> serde_json::Value {
+    let raw = sqlx::query!("SELECT settings FROM users WHERE account_id = $1", account_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|r| r.settings);
+    raw.and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_else(|| serde_json::json!({}))
+}
+
+/// A user's default posting preferences, read from `users.settings`.
+pub struct UserDefaults {
+    pub privacy: String,
+    pub sensitive: bool,
+    pub language: Option<String>,
+    pub quote_policy: String,
+}
+
+pub async fn user_defaults(state: &AppState, account_id: i64) -> UserDefaults {
+    let s = user_settings_json(state, account_id).await;
+    UserDefaults {
+        privacy: s.get("privacy").and_then(|v| v.as_str()).unwrap_or("public").to_string(),
+        sensitive: s.get("sensitive").and_then(|v| v.as_bool()).unwrap_or(false),
+        language: s.get("language").and_then(|v| v.as_str()).map(String::from),
+        quote_policy: s.get("quote_policy").and_then(|v| v.as_str()).unwrap_or("public").to_string(),
+    }
 }
 
 /// Populate an account entity's `statuses_count` / `following_count` /

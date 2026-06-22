@@ -125,9 +125,11 @@ pub async fn post_status(
         return Ok((axum::http::StatusCode::CREATED, Json(resp)).into_response());
     }
 
-    let visibility = form.visibility.as_deref().map(str::to_owned).unwrap_or_else(|| "public".to_owned());
-    let sensitive = form.sensitive.unwrap_or(false);
-    let language = form.language.clone();
+    // Fall back to the user's stored posting defaults when the form omits them.
+    let defaults = super::accounts::user_defaults(&state, auth.account_id).await;
+    let visibility = form.visibility.as_deref().map(str::to_owned).unwrap_or(defaults.privacy);
+    let sensitive = form.sensitive.unwrap_or(defaults.sensitive);
+    let language = form.language.clone().or(defaults.language);
     let in_reply_to_id = form.in_reply_to_id.as_deref().and_then(|s| s.parse::<i64>().ok());
 
     // Look up the parent author for in_reply_to_account_id
@@ -646,7 +648,7 @@ pub async fn post_status(
                 attributed_to: &actor_url,
                 content: &content,
                 summary: if status.spoiler_text.is_empty() { None } else { Some(status.spoiler_text.as_str()) },
-                sensitive: form.sensitive.unwrap_or(false),
+                sensitive,
                 in_reply_to: in_reply_to_uri.as_deref(),
                 to: &to_refs,
                 cc: &cc_refs,

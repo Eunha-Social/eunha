@@ -669,6 +669,7 @@ pub struct FilterV1 {
 #[derive(Debug, Serialize)]
 pub struct Profile {
     pub id: String,
+    pub username: String,
     pub display_name: String,
     pub note: String,               // plain text
     pub fields: Vec<Field>,
