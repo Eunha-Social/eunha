@@ -20,29 +20,6 @@ CREATE SEQUENCE quotes_id_seq;
 CREATE SEQUENCE user_roles_id_seq;
 CREATE SEQUENCE encrypted_messages_id_seq;
 
--- ── console_users ─────────────────────────────────────────────────────────────
-CREATE TABLE console_users (
-    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    email               TEXT NOT NULL,
-    email_normalized    TEXT NOT NULL UNIQUE,
-    password_hash       TEXT,
-    locale              TEXT NOT NULL DEFAULT 'en',
-    confirmed_at        TIMESTAMPTZ,
-    confirmation_token  TEXT UNIQUE,
-    request_token       UUID NOT NULL DEFAULT gen_random_uuid(),
-    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
--- ── console_sessions ──────────────────────────────────────────────────────────
-CREATE TABLE console_sessions (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    console_user_id UUID NOT NULL REFERENCES console_users(id) ON DELETE CASCADE,
-    token           TEXT NOT NULL UNIQUE,
-    expires_at      TIMESTAMPTZ,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
 -- ── user_roles ────────────────────────────────────────────────────────────────
 CREATE TABLE user_roles (
     id               BIGINT PRIMARY KEY,

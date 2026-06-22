@@ -1,9 +1,0 @@
-{
-  "plugins": [
-    ["macros", {
-      "lingui": {
-        "configPath": "./lingui.config.ts"
-      }
-    }]
-  ]
-}

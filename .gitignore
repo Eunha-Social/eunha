@@ -5,6 +5,3 @@ config.toml
 seoulearth_*
 /frontend/node_modules
 /frontend/dist
-/console/node_modules
-/console/dist
-/console/src/locales/*/messages.js

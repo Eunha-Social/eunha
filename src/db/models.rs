@@ -1,29 +1,5 @@
 use chrono::{DateTime, Utc};
 use sqlx::FromRow;
-use uuid::Uuid;
-
-#[derive(Debug, Clone, FromRow)]
-pub struct ConsoleUser {
-    pub id: Uuid,
-    pub email: String,
-    pub email_normalized: String,
-    pub password_hash: Option<String>,
-    pub locale: String,
-    pub confirmed_at: Option<DateTime<Utc>>,
-    pub confirmation_token: Option<String>,
-    pub request_token: Uuid,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, FromRow)]
-pub struct ConsoleSession {
-    pub id: Uuid,
-    pub console_user_id: Uuid,
-    pub token: String,
-    pub expires_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
-}
 
 #[derive(Debug, Clone, FromRow)]
 pub struct Account {

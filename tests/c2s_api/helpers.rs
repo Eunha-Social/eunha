@@ -418,7 +418,6 @@ impl TestContext {
             database_url: db_url,
             redis_url,
             bind_address: "127.0.0.1:0".into(),
-            console_domain: "console.c2s-test.invalid".into(),
             media_storage: eunha::config::MediaStorageConfig {
                 bucket: "test-bucket".into(),
                 region: "us-east-1".into(),

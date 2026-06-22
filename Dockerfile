@@ -5,34 +5,25 @@ WORKDIR /elk
 COPY elk/ .
 RUN pnpm install --frozen-lockfile && pnpm generate
 
-# ── Stage 2: Build console ──────────────────────────────────────────────────
-FROM node:24-alpine AS console-builder
-RUN corepack enable pnpm
-WORKDIR /console
-COPY console/package.json console/pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
-COPY console/ .
-RUN pnpm build
-
-# ── Stage 3a: Install cargo-chef ────────────────────────────────────────────
+# ── Stage 2a: Install cargo-chef ────────────────────────────────────────────
 FROM rust:1-slim-bookworm AS chef
 RUN apt-get update && apt-get install -y pkg-config libssl-dev && rm -rf /var/lib/apt/lists/*
 RUN cargo install cargo-chef --locked
 WORKDIR /app
 
-# ── Stage 3b: Generate dependency recipe ────────────────────────────────────
+# ── Stage 2b: Generate dependency recipe ────────────────────────────────────
 FROM chef AS planner
 COPY . .
 RUN cargo chef prepare --recipe-path recipe.json
 
-# ── Stage 3c: Cache dependency compilation ──────────────────────────────────
+# ── Stage 2c: Cache dependency compilation ──────────────────────────────────
 FROM chef AS cacher
 COPY --from=planner /app/recipe.json recipe.json
 # Dependencies don't contain sqlx queries so offline mode is fine here.
 ENV SQLX_OFFLINE=true
 RUN cargo chef cook --release --recipe-path recipe.json
 
-# ── Stage 3d: Build application ─────────────────────────────────────────────
+# ── Stage 2d: Build application ─────────────────────────────────────────────
 FROM chef AS rust-builder
 # Use the committed .sqlx cache so the build doesn't depend on a live database.
 ENV SQLX_OFFLINE=true
@@ -47,7 +38,6 @@ RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/
 WORKDIR /app
 COPY --from=rust-builder /app/target/release/eunha .
 COPY --from=elk-builder /elk/.output/public/ elk/.output/public/
-COPY --from=console-builder /console/dist/ console/dist/
 COPY migrations/ migrations/
 EXPOSE 3000
 CMD ["./eunha"]

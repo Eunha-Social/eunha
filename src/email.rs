@@ -10,8 +10,8 @@ impl EmailSender {
         Self { http, api_key, from }
     }
 
-    /// `code` — when non-empty, displayed prominently for manual entry (console flow).
-    ///          Leave empty for the Mastodon API flow where only the link is needed.
+    /// `code` — when non-empty, displayed prominently for manual entry.
+    ///          Leave empty when only the confirmation link is needed.
     pub async fn send_confirmation(
         &self,
         to: &str,
