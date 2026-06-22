@@ -2358,35 +2358,51 @@ pub async fn edit_status(
 
     let instance_domain = state.instance.domain.clone();
 
-    // Render old content for the status_edits snapshot
-    let old_mention_rows = sqlx::query!(
-        r#"SELECT a.username, a.domain, a.url FROM mentions m
-           JOIN accounts a ON a.id = m.account_id
-           WHERE m.status_id = $1"#,
-        id,
-    )
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default();
-    let old_mention_map: HashMap<String, (String, String)> = {
-        let mut map = HashMap::new();
-        for m in &old_mention_rows {
-            let key_short = m.username.to_lowercase();
-            let display = match &m.domain {
-                Some(d) => format!("{}@{}", m.username, d),
-                None => m.username.clone(),
-            };
-            let url = m.url.clone().unwrap_or_default();
-            map.entry(key_short.clone()).or_insert_with(|| (url.clone(), display.clone()));
-            if let Some(d) = &m.domain {
-                map.entry(format!("{}@{}", key_short, d)).or_insert_with(|| (url, display));
-            }
-        }
-        map
-    };
-    let old_content = render_content(&status.text, &instance_domain, &old_mention_map);
+    // Compute the proposed new values.
+    let new_text = form.status.clone().unwrap_or_else(|| status.text.clone());
+    if new_text.chars().count() > 500 {
+        return Err(AppError::Unprocessable("Validation failed: Text character limit of 500 exceeded".into()));
+    }
+    let new_spoiler = form.spoiler_text.clone().unwrap_or_else(|| status.spoiler_text.clone());
+    let new_sensitive = form.sensitive.unwrap_or(status.sensitive);
+    let new_language = form.language.clone().or(status.language.clone());
 
-    // Save current version to edits before updating
+    // Detect whether the attached media set changes (description edits via
+    // media_attributes also count as a change).
+    let media_changed = form.media_attributes.is_some()
+        || match form.media_ids {
+            Some(ref ids) => {
+                let mut parsed: Vec<i64> = ids.iter().filter_map(|s| s.parse::<i64>().ok()).collect();
+                let mut current: Vec<i64> = sqlx::query_scalar!(
+                    "SELECT id FROM media_attachments WHERE status_id = $1",
+                    id,
+                )
+                .fetch_all(&state.db)
+                .await
+                .unwrap_or_default();
+                parsed.sort_unstable();
+                current.sort_unstable();
+                parsed != current
+            }
+            None => false,
+        };
+
+    // Mastodon only records an edit (and bumps edited_at / notifies) when the
+    // submission actually changes the status; a no-op edit returns it as-is.
+    let significant = new_text != status.text
+        || new_spoiler != status.spoiler_text
+        || new_sensitive != status.sensitive
+        || new_language != status.language
+        || media_changed;
+
+    if !significant {
+        let media = fetch_status_media(&state, id).await?;
+        let reblog = fetch_reblog_data(&state, &status).await?;
+        let ctx = build_viewer_context(&state, auth.account_id, id).await?;
+        return Ok(Json(build_status(&state, &status, &account, media, reblog, Some(ctx)).await?));
+    }
+
+    // Save the current version to the edit history before updating.
     sqlx::query!(
         r#"INSERT INTO status_edits (status_id, account_id, text, spoiler_text, sensitive)
            VALUES ($1, $2, $3, $4, $5)"#,
@@ -2395,18 +2411,11 @@ pub async fn edit_status(
     .execute(&state.db)
     .await?;
 
-    let new_text = form.status.unwrap_or_else(|| status.text.clone());
-    if new_text.chars().count() > 500 {
-        return Err(AppError::Unprocessable("Validation failed: Text character limit of 500 exceeded".into()));
-    }
     let hashtags = extract_hashtags(&new_text);
     let mention_handles = extract_mention_handles(&new_text);
     let resolved = resolve_mention_accounts(&state, &mention_handles).await;
     let mention_map = build_mention_map(&resolved);
     let new_content = render_content(&new_text, &instance_domain, &mention_map);
-    let new_spoiler = form.spoiler_text.unwrap_or_else(|| status.spoiler_text.clone());
-    let new_sensitive = form.sensitive.unwrap_or(status.sensitive);
-    let new_language = form.language.or(status.language.clone());
 
     sqlx::query!(
         "UPDATE statuses SET text = $1, spoiler_text = $2, sensitive = $3, language = $4, edited_at = now() WHERE id = $5",

@@ -905,6 +905,51 @@ async fn test_status_history_after_edit() {
     assert!(history.len() >= 2, "expected at least 2 history entries, got {}", history.len());
 }
 
+/// A no-op edit (identical content) does not record a revision or set edited_at.
+#[tokio::test]
+async fn test_noop_edit_does_not_record_revision() {
+    let ctx = TestContext::new("edit-noop").await;
+
+    let status = ctx.api.post_status(&ctx.alice_token, "unchanged text", "public").await;
+    let id = status["id"].as_str().unwrap();
+    assert!(status["edited_at"].is_null(), "fresh status should have null edited_at");
+
+    // Re-submit the same text/visibility — nothing actually changes.
+    let resp = ctx.api.put_json(
+        &format!("/api/v1/statuses/{id}"),
+        Some(&ctx.alice_token),
+        &json!({"status": "unchanged text", "visibility": "public"}),
+    ).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let edited: Value = resp.json().await.unwrap();
+    assert!(edited["edited_at"].is_null(), "no-op edit must not set edited_at");
+
+    // History stays at the single (current) version — no extra revision recorded.
+    let history: Vec<Value> = ctx.api
+        .get(&format!("/api/v1/statuses/{id}/history"), None)
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(history.len(), 1, "no-op edit must not add a history entry, got {}", history.len());
+
+    // A real change still records a revision and sets edited_at.
+    let resp2 = ctx.api.put_json(
+        &format!("/api/v1/statuses/{id}"),
+        Some(&ctx.alice_token),
+        &json!({"status": "actually changed", "visibility": "public"}),
+    ).await;
+    let edited2: Value = resp2.json().await.unwrap();
+    assert!(!edited2["edited_at"].is_null(), "real edit must set edited_at");
+    let history2: Vec<Value> = ctx.api
+        .get(&format!("/api/v1/statuses/{id}/history"), None)
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert!(history2.len() >= 2, "real edit must add a history entry, got {}", history2.len());
+}
+
 /// GET /api/v1/statuses/:id/source returns the original plaintext.
 #[tokio::test]
 async fn test_status_source_returns_text() {

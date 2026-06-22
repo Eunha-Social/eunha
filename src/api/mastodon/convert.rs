@@ -212,15 +212,6 @@ fn render_status_content(
     }
 }
 
-fn ap_uri_to_policy_label(uri: &str) -> &'static str {
-    match uri {
-        "https://www.w3.org/ns/activitystreams#Public" => "public",
-        u if u.ends_with("/followers") => "followers",
-        u if u.ends_with("/following") => "following",
-        _ => "unsupported_policy",
-    }
-}
-
 fn build_quote_approval(
     s: &models::Status,
     viewer: Option<&StatusViewerContext>,
