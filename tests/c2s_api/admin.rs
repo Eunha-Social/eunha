@@ -622,8 +622,7 @@ async fn test_admin_list_accounts_pending_filter() {
     let bob_uuid: i64 = ctx.bob_id.parse().unwrap();
 
     // Set bob's approved_at to NULL to simulate a pending account.
-    let db_url = std::env::var("DATABASE_URL").unwrap();
-    let db = sqlx::postgres::PgPoolOptions::new().max_connections(2).connect(&db_url).await.unwrap();
+    let db = ctx.db.clone();
     sqlx::query!("UPDATE users SET approved = false WHERE account_id = $1", bob_uuid)
         .execute(&db)
         .await

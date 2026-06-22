@@ -404,8 +404,7 @@ async fn test_follow_locked_account_is_pending() {
     let ctx = TestContext::new("follow-locked").await;
 
     // Lock Bob's account directly in the DB.
-    let db_url = std::env::var("DATABASE_URL").unwrap();
-    let db = PgPoolOptions::new().max_connections(2).connect(&db_url).await.unwrap();
+    let db = ctx.db.clone();
     let bob_uuid: i64 = ctx.bob_id.parse().unwrap();
     sqlx::query!("UPDATE accounts SET locked = true WHERE id = $1", bob_uuid)
         .execute(&db)
@@ -495,8 +494,7 @@ async fn test_lookup_account_suspended_returns_suspended() {
 
     // Elevate alice to admin via direct DB.
     let alice_uuid: i64 = ctx.alice_id.parse().unwrap();
-    let db_url = std::env::var("DATABASE_URL").unwrap();
-    let admin_db = PgPoolOptions::new().max_connections(2).connect(&db_url).await.unwrap();
+    let admin_db = ctx.db.clone();
     super::helpers::make_admin(&admin_db, alice_uuid).await;
 
     // Suspend bob via admin endpoint.
@@ -717,8 +715,7 @@ async fn test_mute_and_unmute() {
 async fn test_authorize_follow_request() {
     let ctx = TestContext::new("follow-req-accept").await;
 
-    let db_url = std::env::var("DATABASE_URL").unwrap();
-    let db = PgPoolOptions::new().max_connections(2).connect(&db_url).await.unwrap();
+    let db = ctx.db.clone();
     let bob_uuid: i64 = ctx.bob_id.parse().unwrap();
     sqlx::query!("UPDATE accounts SET locked = true WHERE id = $1", bob_uuid)
         .execute(&db).await.unwrap();
@@ -753,8 +750,7 @@ async fn test_authorize_follow_request() {
 async fn test_reject_follow_request() {
     let ctx = TestContext::new("follow-req-reject").await;
 
-    let db_url = std::env::var("DATABASE_URL").unwrap();
-    let db = PgPoolOptions::new().max_connections(2).connect(&db_url).await.unwrap();
+    let db = ctx.db.clone();
     let bob_uuid: i64 = ctx.bob_id.parse().unwrap();
     sqlx::query!("UPDATE accounts SET locked = true WHERE id = $1", bob_uuid)
         .execute(&db).await.unwrap();
@@ -1513,8 +1509,7 @@ async fn test_relationship_blocked_by() {
 async fn test_relationship_requested_by() {
     let ctx = TestContext::new("requested-by").await;
 
-    let db_url = std::env::var("DATABASE_URL").unwrap();
-    let db = PgPoolOptions::new().max_connections(2).connect(&db_url).await.unwrap();
+    let db = ctx.db.clone();
     let alice_uuid: i64 = ctx.alice_id.parse().unwrap();
 
     // Lock Alice's account so Bob's follow becomes pending.
@@ -1542,8 +1537,7 @@ async fn test_relationship_requested_by() {
 async fn test_relationship_domain_blocking() {
     let ctx = TestContext::new("rel-domain-block").await;
 
-    let db_url = std::env::var("DATABASE_URL").unwrap();
-    let db = PgPoolOptions::new().max_connections(2).connect(&db_url).await.unwrap();
+    let db = ctx.db.clone();
     let bob_uuid: i64 = ctx.bob_id.parse().unwrap();
 
     // Set Bob's domain to a remote domain.
@@ -1572,8 +1566,7 @@ async fn test_relationship_domain_blocking() {
 async fn test_hide_collections_hides_followers_from_others() {
     let ctx = TestContext::new("hide-coll-followers").await;
 
-    let db_url = std::env::var("DATABASE_URL").unwrap();
-    let db = PgPoolOptions::new().max_connections(2).connect(&db_url).await.unwrap();
+    let db = ctx.db.clone();
     let alice_uuid: i64 = ctx.alice_id.parse().unwrap();
 
     // Bob follows Alice.
@@ -1598,8 +1591,7 @@ async fn test_hide_collections_hides_followers_from_others() {
 async fn test_hide_collections_hides_following_from_others() {
     let ctx = TestContext::new("hide-coll-following").await;
 
-    let db_url = std::env::var("DATABASE_URL").unwrap();
-    let db = PgPoolOptions::new().max_connections(2).connect(&db_url).await.unwrap();
+    let db = ctx.db.clone();
     let alice_uuid: i64 = ctx.alice_id.parse().unwrap();
 
     // Alice follows Bob.
@@ -1624,8 +1616,7 @@ async fn test_hide_collections_hides_following_from_others() {
 async fn test_hide_collections_owner_sees_own_followers() {
     let ctx = TestContext::new("hide-coll-self").await;
 
-    let db_url = std::env::var("DATABASE_URL").unwrap();
-    let db = PgPoolOptions::new().max_connections(2).connect(&db_url).await.unwrap();
+    let db = ctx.db.clone();
     let alice_uuid: i64 = ctx.alice_id.parse().unwrap();
 
     ctx.api.follow(&ctx.bob_token, &ctx.alice_id).await;
@@ -1922,8 +1913,7 @@ async fn test_get_suspended_account_returns_suspended() {
 
     // Make alice admin
     let alice_uuid: i64 = ctx.alice_id.parse().unwrap();
-    let db_url = std::env::var("DATABASE_URL").unwrap();
-    let admin_db = PgPoolOptions::new().max_connections(2).connect(&db_url).await.unwrap();
+    let admin_db = ctx.db.clone();
     super::helpers::make_admin(&admin_db, alice_uuid).await;
 
     // Suspend bob via admin endpoint
@@ -1944,8 +1934,7 @@ async fn test_get_suspended_account_returns_suspended() {
 async fn test_unlock_account_approves_pending_follows() {
     let ctx = TestContext::new("unlock-approve").await;
 
-    let db_url = std::env::var("DATABASE_URL").unwrap();
-    let db = PgPoolOptions::new().max_connections(2).connect(&db_url).await.unwrap();
+    let db = ctx.db.clone();
     let alice_uuid: i64 = ctx.alice_id.parse().unwrap();
 
     // Lock Alice's account.

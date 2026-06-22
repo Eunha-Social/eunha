@@ -160,8 +160,7 @@ async fn test_announcement_dismiss() {
     let ctx = TestContext::new("ann-dismiss").await;
 
     // Insert a published announcement via direct DB write.
-    let db_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-    let pool = PgPoolOptions::new().max_connections(2).connect(&db_url).await.unwrap();
+    let pool = ctx.db.clone();
 
     let ann_id: i64 = sqlx::query_scalar!(
         r#"INSERT INTO announcements (text, published, all_day, published_at, created_at, updated_at)
