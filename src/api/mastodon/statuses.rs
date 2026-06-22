@@ -238,12 +238,16 @@ pub async fn post_status(
 
     let is_reply = in_reply_to_id.is_some();
     let visibility_int = crate::db::models::vis::from_str(&visibility);
+    let quote_policy_int = crate::db::models::quote_policy::from_str(
+        form.quote_approval_policy.as_deref().unwrap_or(&defaults.quote_policy),
+    );
     let status = sqlx::query_as!(
         DbStatus,
         r#"INSERT INTO statuses
              (id, account_id, application_id, text, spoiler_text, visibility,
-              language, sensitive, in_reply_to_id, in_reply_to_account_id, reply, uri, url)
-           VALUES ($1,$2,$10,$3,$4,$5,$6,$7,$8,$9,$12,$11,$11)
+              language, sensitive, in_reply_to_id, in_reply_to_account_id, reply, uri, url,
+              quote_approval_policy)
+           VALUES ($1,$2,$10,$3,$4,$5,$6,$7,$8,$9,$12,$11,$11,$13)
            RETURNING *"#,
         status_id,
         account.id,
@@ -257,6 +261,7 @@ pub async fn post_status(
         auth.application_id,
         uri,
         is_reply,
+        quote_policy_int,
     )
     .fetch_one(&state.db)
     .await?;
@@ -312,6 +317,19 @@ pub async fn post_status(
         )
         .execute(&state.db)
         .await;
+
+        // Accepted quotes count toward the quoted status's quotes_count.
+        if quote_state == crate::db::models::quote_state::ACCEPTED {
+            let _ = sqlx::query!(
+                r#"INSERT INTO status_stats (status_id, quotes_count, created_at, updated_at)
+                   VALUES ($1, 1, now(), now())
+                   ON CONFLICT (status_id) DO UPDATE
+                     SET quotes_count = status_stats.quotes_count + 1, updated_at = now()"#,
+                qid,
+            )
+            .execute(&state.db)
+            .await;
+        }
     }
 
     // Store tags and mentions
@@ -1188,6 +1206,24 @@ pub async fn delete_status(
             r#"UPDATE status_stats SET replies_count = GREATEST(replies_count - 1, 0), updated_at = now()
                WHERE status_id = $1"#,
             parent_id
+        )
+        .execute(&state.db)
+        .await;
+    }
+
+    // Decrement the quoted status's quotes_count if this was an accepted quote.
+    if let Some(quoted_id) = sqlx::query_scalar!(
+        "SELECT quoted_status_id FROM quotes WHERE status_id = $1 AND state = 1",
+        id,
+    )
+    .fetch_optional(&state.db)
+    .await?
+    .flatten()
+    {
+        let _ = sqlx::query!(
+            r#"UPDATE status_stats SET quotes_count = GREATEST(quotes_count - 1, 0), updated_at = now()
+               WHERE status_id = $1"#,
+            quoted_id,
         )
         .execute(&state.db)
         .await;

@@ -225,37 +225,21 @@ fn build_quote_approval(
     s: &models::Status,
     viewer: Option<&StatusViewerContext>,
 ) -> types::QuoteApproval {
-    let always_uris: Vec<String> =
-        if matches!(s.visibility, crate::db::models::vis::PUBLIC | crate::db::models::vis::UNLISTED) {
-            vec!["https://www.w3.org/ns/activitystreams#Public".to_string()]
-        } else {
-            vec![]
-        };
-    let with_approval_uris: Vec<String> = vec![];
-
-    let automatic: Vec<String> = always_uris.iter().map(|u| ap_uri_to_policy_label(u).to_owned()).collect();
-    let manual: Vec<String> = with_approval_uris.iter().map(|u| ap_uri_to_policy_label(u).to_owned()).collect();
+    use crate::db::models::quote_policy;
+    let policy = s.quote_approval_policy;
+    let automatic: Vec<String> = quote_policy::automatic_labels(policy)
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    let manual: Vec<String> = Vec::new();
 
     let current_user = match viewer {
         None => "unknown".to_string(),
-        Some(ctx) => {
-            let public_uri = "https://www.w3.org/ns/activitystreams#Public";
-            if always_uris.iter().any(|u| u == public_uri) {
-                "automatic".to_string()
-            } else if always_uris.iter().any(|u| u.ends_with("/followers")) && ctx.follows_author {
-                "automatic".to_string()
-            } else if always_uris.iter().any(|u| u.ends_with("/following")) && ctx.author_follows {
-                "automatic".to_string()
-            } else if with_approval_uris.iter().any(|u| u == public_uri) {
-                "manual".to_string()
-            } else if with_approval_uris.iter().any(|u| u.ends_with("/followers")) && ctx.follows_author {
-                "manual".to_string()
-            } else if with_approval_uris.iter().any(|u| u.ends_with("/following")) && ctx.author_follows {
-                "manual".to_string()
-            } else {
-                "denied".to_string()
-            }
-        }
+        Some(ctx) => match policy {
+            quote_policy::PUBLIC => "automatic".to_string(),
+            quote_policy::FOLLOWERS if ctx.follows_author => "automatic".to_string(),
+            _ => "denied".to_string(),
+        },
     };
 
     types::QuoteApproval {

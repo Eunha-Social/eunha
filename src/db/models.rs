@@ -370,6 +370,30 @@ pub mod quote_state {
     }
 }
 
+/// Integer encoding of statuses.quote_approval_policy (who may quote automatically).
+pub mod quote_policy {
+    pub const PUBLIC: i32 = 0;
+    pub const FOLLOWERS: i32 = 1;
+    pub const NOBODY: i32 = 2;
+
+    pub fn from_str(s: &str) -> i32 {
+        match s {
+            "followers" => FOLLOWERS,
+            "nobody" => NOBODY,
+            _ => PUBLIC,
+        }
+    }
+
+    /// Labels for the `quote_approval.automatic` API field.
+    pub fn automatic_labels(v: i32) -> Vec<&'static str> {
+        match v {
+            FOLLOWERS => vec!["followers"],
+            NOBODY => vec![],
+            _ => vec!["public"],
+        }
+    }
+}
+
 /// Integer-to-text helpers for custom_filters.action (warn=0 hide=1).
 pub mod filter_action {
     pub const WARN: i32 = 0;
