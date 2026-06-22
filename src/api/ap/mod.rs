@@ -24,5 +24,6 @@ pub fn router() -> Router<AppState> {
             get(collections::get_quote_authorization),
         )
         .route("/collections/{id}", get(collections::get_collection))
+        .route("/actor", get(objects::get_instance_actor))
         .route("/inbox", post(inbox::shared_inbox))
 }

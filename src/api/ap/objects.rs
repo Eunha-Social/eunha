@@ -15,6 +15,43 @@ use crate::{
 pub const ACTIVITY_STREAMS: &str = "application/activity+json";
 pub const CONTENT_TYPE: &str = "application/activity+json; charset=utf-8";
 
+/// Serve the instance actor at `/actor`: an Application actor whose public key
+/// remote servers fetch to verify our signed authorized-fetch GET requests.
+pub async fn get_instance_actor(
+    State(state): State<AppState>,
+    Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
+) -> AppResult<Response> {
+    let public_key = crate::federation::instance_actor::public_key(&state)
+        .await
+        .map_err(AppError::Internal)?;
+    let actor_url = crate::federation::instance_actor::actor_url(&instance.domain);
+
+    let actor = json!({
+        "@context": [
+            "https://www.w3.org/ns/activitystreams",
+            "https://w3id.org/security/v1",
+        ],
+        "id": actor_url,
+        "type": "Application",
+        "preferredUsername": instance.domain,
+        "inbox": format!("https://{}/inbox", instance.domain),
+        "url": actor_url,
+        "manuallyApprovesFollowers": true,
+        "publicKey": {
+            "id": format!("{actor_url}#main-key"),
+            "owner": actor_url,
+            "publicKeyPem": public_key,
+        },
+    });
+
+    Ok((
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, CONTENT_TYPE)],
+        Json(actor),
+    )
+        .into_response())
+}
+
 pub async fn get_actor(
     State(state): State<AppState>,
     Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,

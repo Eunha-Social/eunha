@@ -158,13 +158,7 @@ async fn fetch_public_key(state: &AppState, actor_url: &str) -> anyhow::Result<S
         return Ok(pem);
     }
 
-    let resp = state
-        .http
-        .get(actor_url)
-        .header("Accept", "application/activity+json, application/ld+json")
-        .send()
-        .await?;
-    let actor: Value = resp.json().await?;
+    let actor = crate::federation::fetch::signed_get_json(state, actor_url).await?;
     let pem = actor
         .get("publicKey")
         .and_then(|k| k.get("publicKeyPem"))
@@ -2014,18 +2008,8 @@ async fn handle_feature_request(
     }
 
     // Fetch the remote FeaturedCollection to learn its owner and name.
-    let coll: Value = match state
-        .http
-        .get(collection_uri)
-        .header("Accept", "application/activity+json")
-        .send()
-        .await
-        .and_then(|r| r.error_for_status())
-    {
-        Ok(r) => match r.json().await {
-            Ok(v) => v,
-            Err(_) => return Ok(()),
-        },
+    let coll: Value = match crate::federation::fetch::signed_get_json(state, collection_uri).await {
+        Ok(v) => v,
         Err(_) => return Ok(()),
     };
     let owner_uri = coll
@@ -2168,18 +2152,8 @@ async fn fetch_remote_status_depth(state: &AppState, uri: &str, depth: u8) -> Ap
         return Ok(Some(id));
     }
 
-    let object: Value = match state
-        .http
-        .get(uri)
-        .header("Accept", "application/activity+json, application/ld+json")
-        .send()
-        .await
-        .and_then(|r| r.error_for_status())
-    {
-        Ok(r) => match r.json().await {
-            Ok(v) => v,
-            Err(_) => return Ok(None),
-        },
+    let object: Value = match crate::federation::fetch::signed_get_json(state, uri).await {
+        Ok(v) => v,
         Err(_) => return Ok(None),
     };
 
@@ -2370,18 +2344,9 @@ pub async fn resolve_or_fetch_remote_account(
         return Ok(id);
     }
 
-    let resp = state
-        .http
-        .get(actor_uri)
-        .header("Accept", "application/activity+json, application/ld+json")
-        .send()
+    let actor: Value = crate::federation::fetch::signed_get_json(state, actor_uri)
         .await
-        .map_err(|e| crate::error::AppError::Internal(e.into()))?;
-
-    let actor: Value = resp
-        .json()
-        .await
-        .map_err(|e| crate::error::AppError::Internal(e.into()))?;
+        .map_err(AppError::Internal)?;
 
     let username = actor
         .get("preferredUsername")
