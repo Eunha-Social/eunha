@@ -161,112 +161,122 @@ async fn handle_follow(
     .fetch_optional(&state.db)
     .await?;
 
-    if target.locked {
-        sqlx::query!(
-            r#"INSERT INTO follow_requests (account_id, target_account_id, uri)
-               VALUES ($1, $2, $3)
-               ON CONFLICT (account_id, target_account_id) DO UPDATE SET uri = EXCLUDED.uri"#,
-            follower_id,
-            target.id,
-            activity_uri,
-        )
-        .execute(&state.db)
-        .await?;
+    // Decide what to do via feder-core's portable inbound logic; eunha executes
+    // the returned Actions against Postgres + delivery.
+    let (Ok(follow_id), Ok(actor_iri), Ok(object_iri)) = (
+        activity_uri.parse::<feder_vocab::Iri>(),
+        actor_uri.parse::<feder_vocab::Iri>(),
+        object_uri.parse::<feder_vocab::Iri>(),
+    ) else {
+        return Ok(());
+    };
+    let follow = feder_vocab::Follow::new(
+        follow_id,
+        feder_vocab::Reference::id(actor_iri),
+        feder_vocab::Reference::id(object_iri.clone()),
+    );
+    let accept_id = format!(
+        "https://{}/activities/{}",
+        instance.domain,
+        crate::snowflake::next_id()
+    );
+    let Ok(accept_iri) = accept_id.parse::<feder_vocab::Iri>() else {
+        return Ok(());
+    };
 
-        // Notify the local user about the incoming follow request
-        if let Some(ref f) = follower {
-            let acct = match &f.domain {
-                Some(d) => format!("{}@{}", f.username, d),
-                None => f.username.clone(),
-            };
-            crate::push::create_and_push(
-                state,
-                target.id,
-                follower_id,
-                "follow_request",
-                None,
-                format!("{} wants to follow you", f.display_name),
-                acct,
-                f.avatar_remote_url.clone().unwrap_or_default(),
-            )
-            .await;
-        }
-    } else {
-        sqlx::query!(
-            r#"INSERT INTO follows (account_id, target_account_id, uri)
-               VALUES ($1, $2, $3)
-               ON CONFLICT (account_id, target_account_id) DO UPDATE SET uri = EXCLUDED.uri"#,
-            follower_id,
-            target.id,
-            activity_uri,
-        )
-        .execute(&state.db)
-        .await?;
+    let actions = feder_core::inbound::on_follow(follow, &object_iri, target.locked, accept_iri);
 
-        // Notify the local user about their new follower
-        if let Some(ref f) = follower {
-            let acct = match &f.domain {
-                Some(d) => format!("{}@{}", f.username, d),
-                None => f.username.clone(),
-            };
-            crate::push::create_and_push(
-                state,
-                target.id,
-                follower_id,
-                "follow",
-                None,
-                format!("{} followed you", f.display_name),
-                acct,
-                f.avatar_remote_url.clone().unwrap_or_default(),
-            )
-            .await;
-        }
+    for action in actions {
+        match action {
+            feder_core::inbound::Action::RecordFollowRequest => {
+                sqlx::query!(
+                    r#"INSERT INTO follow_requests (account_id, target_account_id, uri)
+                       VALUES ($1, $2, $3)
+                       ON CONFLICT (account_id, target_account_id) DO UPDATE SET uri = EXCLUDED.uri"#,
+                    follower_id,
+                    target.id,
+                    activity_uri,
+                )
+                .execute(&state.db)
+                .await?;
 
-        // Send Accept back to the remote follower
-        let accept_private_key = target.private_key.filter(|s| !s.is_empty());
-        if accept_private_key.is_none() {
-            tracing::warn!(username = %target.username, "local account has no private key; cannot send Accept");
-        }
-        if let Some(private_key) = accept_private_key {
-            let follower_inbox = sqlx::query_scalar!(
-                "SELECT inbox_url FROM accounts WHERE id = $1",
-                follower_id,
-            )
-            .fetch_optional(&state.db)
-            .await?;
+                if let Some(ref f) = follower {
+                    let acct = match &f.domain {
+                        Some(d) => format!("{}@{}", f.username, d),
+                        None => f.username.clone(),
+                    };
+                    crate::push::create_and_push(
+                        state,
+                        target.id,
+                        follower_id,
+                        "follow_request",
+                        None,
+                        format!("{} wants to follow you", f.display_name),
+                        acct,
+                        f.avatar_remote_url.clone().unwrap_or_default(),
+                    )
+                    .await;
+                }
+            }
+            feder_core::inbound::Action::RecordFollow => {
+                sqlx::query!(
+                    r#"INSERT INTO follows (account_id, target_account_id, uri)
+                       VALUES ($1, $2, $3)
+                       ON CONFLICT (account_id, target_account_id) DO UPDATE SET uri = EXCLUDED.uri"#,
+                    follower_id,
+                    target.id,
+                    activity_uri,
+                )
+                .execute(&state.db)
+                .await?;
 
-            match follower_inbox.filter(|s| !s.is_empty()) {
-                None => {
+                if let Some(ref f) = follower {
+                    let acct = match &f.domain {
+                        Some(d) => format!("{}@{}", f.username, d),
+                        None => f.username.clone(),
+                    };
+                    crate::push::create_and_push(
+                        state,
+                        target.id,
+                        follower_id,
+                        "follow",
+                        None,
+                        format!("{} followed you", f.display_name),
+                        acct,
+                        f.avatar_remote_url.clone().unwrap_or_default(),
+                    )
+                    .await;
+                }
+            }
+            feder_core::inbound::Action::SendAccept(accept) => {
+                let Some(private_key) = target.private_key.clone().filter(|s| !s.is_empty()) else {
+                    tracing::warn!(username = %target.username, "local account has no private key; cannot send Accept");
+                    continue;
+                };
+                let follower_inbox = sqlx::query_scalar!(
+                    "SELECT inbox_url FROM accounts WHERE id = $1",
+                    follower_id,
+                )
+                .fetch_optional(&state.db)
+                .await?
+                .filter(|s| !s.is_empty());
+                let Some(inbox) = follower_inbox else {
                     tracing::warn!(actor_uri, "cannot send Accept: remote actor has no inbox URL");
-                }
-                Some(inbox) => {
-                    let actor_url =
-                        format!("https://{}/users/{}", instance.domain, target.username);
-                    let accept_id = format!(
-                        "https://{}/activities/{}",
-                        instance.domain,
-                        crate::snowflake::next_id()
-                    );
-                    let accept = crate::federation::activity::accept_follow(
-                        &accept_id,
-                        &actor_url,
-                        activity_uri,
-                        actor_uri,
-                        &actor_url,
-                    )?;
-                    let key_id = format!("{}#main-key", actor_url);
-                    let http = state.http.clone();
-                    tracing::debug!(inbox, actor_uri, "delivering Accept");
-                    tokio::spawn(async move {
-                        if let Err(e) = crate::federation::delivery::deliver(
-                            &http, &accept, &inbox, &key_id, &private_key,
-                        )
-                        .await
-                        {
-                            tracing::warn!(inbox, error = %e, "failed to deliver Accept");
-                        }
-                    });
-                }
+                    continue;
+                };
+                let activity = serde_json::to_value(&accept)
+                    .map_err(|e| crate::error::AppError::Internal(e.into()))?;
+                let actor_url = format!("https://{}/users/{}", instance.domain, target.username);
+                let key_id = format!("{actor_url}#main-key");
+                let http = state.http.clone();
+                tracing::debug!(inbox, actor_uri, "delivering Accept");
+                tokio::spawn(async move {
+                    if let Err(e) =
+                        crate::federation::delivery::deliver(&http, &activity, &inbox, &key_id, &private_key).await
+                    {
+                        tracing::warn!(inbox, error = %e, "failed to deliver Accept");
+                    }
+                });
             }
         }
     }
