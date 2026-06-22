@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO follow_requests (account_id, target_account_id, uri)\n                       VALUES ($1, $2, $3)\n                       ON CONFLICT (account_id, target_account_id) DO UPDATE SET uri = EXCLUDED.uri",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ac25e8d39694afe8d4fceba9c62bc38660a9d6773c3e9bcbd0f7a2acbfa8a595"
+}
