@@ -32,7 +32,7 @@ pub async fn list_invites(
     let rows = sqlx::query!(
         r#"SELECT id, code, expires_at, max_uses, uses, created_at
            FROM invites
-           WHERE user_id = $1
+           WHERE user_id = (SELECT id FROM users WHERE account_id = $1)
            ORDER BY created_at DESC"#,
         auth.account_id,
     )
@@ -82,7 +82,7 @@ pub async fn create_invite(
 
     let row = sqlx::query!(
         r#"INSERT INTO invites (code, user_id, max_uses, expires_at)
-           VALUES ($1, $2, $3, $4)
+           VALUES ($1, (SELECT id FROM users WHERE account_id = $2), $3, $4)
            RETURNING id, code, expires_at, max_uses, uses, created_at"#,
         code,
         auth.account_id,
@@ -111,7 +111,7 @@ pub async fn delete_invite(
 ) -> AppResult<StatusCode> {
     auth.require_scope("write:accounts")?;
     let deleted = sqlx::query!(
-        "DELETE FROM invites WHERE id = $1 AND user_id = $2",
+        "DELETE FROM invites WHERE id = $1 AND user_id = (SELECT id FROM users WHERE account_id = $2)",
         id,
         auth.account_id,
     )

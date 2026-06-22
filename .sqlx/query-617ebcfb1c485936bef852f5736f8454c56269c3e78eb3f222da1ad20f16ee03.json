@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, code, expires_at, max_uses, uses, created_at\n           FROM invites\n           WHERE user_id = $1\n           ORDER BY created_at DESC",
+  "query": "SELECT id, code, expires_at, max_uses, uses, created_at\n           FROM invites\n           WHERE user_id = (SELECT id FROM users WHERE account_id = $1)\n           ORDER BY created_at DESC",
   "describe": {
     "columns": [
       {
@@ -48,5 +48,5 @@
       false
     ]
   },
-  "hash": "4b47e0061179c5e34d9325d7b900645f91b61245deeeca5ba1575628369328a6"
+  "hash": "617ebcfb1c485936bef852f5736f8454c56269c3e78eb3f222da1ad20f16ee03"
 }

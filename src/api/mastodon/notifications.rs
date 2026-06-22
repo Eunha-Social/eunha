@@ -887,9 +887,10 @@ pub async fn get_notification_policy(
     .fetch_optional(&state.db)
     .await?;
 
+    // Mastodon's NotificationPolicy defaults for_private_mentions to :filter.
     let (nf_not_following, nf_not_followers, nf_new_accounts, nf_private_mentions, nf_limited_accounts) =
         policy.map(|p| (p.for_not_following != 0, p.for_not_followers != 0, p.for_new_accounts != 0, p.for_private_mentions != 0, p.for_limited_accounts != 0))
-        .unwrap_or((false, false, false, false, false));
+        .unwrap_or((false, false, false, true, false));
 
     let any_filter = nf_not_following || nf_not_followers || nf_new_accounts || nf_private_mentions || nf_limited_accounts;
 
@@ -986,8 +987,9 @@ pub async fn get_notification_policy_v1(
     .fetch_optional(&state.db)
     .await?;
 
+    // Mastodon's NotificationPolicy defaults for_private_mentions to :filter.
     let (filter_not_following, filter_not_followers, filter_new_accounts, filter_private_mentions) =
-        policy.map_or((false, false, false, false), |p| (
+        policy.map_or((false, false, false, true), |p| (
             p.for_not_following != 0,
             p.for_not_followers != 0,
             p.for_new_accounts != 0,

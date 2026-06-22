@@ -258,6 +258,22 @@ pub async fn create_and_push(
         return;
     }
 
+    // Don't notify if the recipient mutes the sender with hide_notifications.
+    let notifications_hidden = sqlx::query_scalar!(
+        r#"SELECT 1 FROM mutes
+           WHERE account_id = $1 AND target_account_id = $2 AND hide_notifications = true
+             AND (expires_at IS NULL OR expires_at > now())"#,
+        recipient_id, from_account_id,
+    )
+    .fetch_optional(&db)
+    .await
+    .ok()
+    .flatten()
+    .is_some();
+    if notifications_hidden {
+        return;
+    }
+
     // Don't notify if the recipient has muted the conversation
     if let Some(sid) = status_id {
         let conversation_muted = sqlx::query_scalar!(

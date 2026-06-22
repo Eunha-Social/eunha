@@ -195,9 +195,11 @@ pub async fn update_media(
     State(state): State<AppState>,
     Path(id): Path<i64>,
     Extension(auth): Extension<AuthenticatedUser>,
-    mut multipart: Multipart,
+    request: axum::extract::Request,
 ) -> AppResult<Json<MediaAttachment>> {
     auth.require_scope("write:media")?;
+    // Verify ownership before touching the body so a non-owner gets 404 even
+    // when the body format is unexpected.
     sqlx::query!(
         "SELECT id FROM media_attachments WHERE id = $1 AND account_id = $2 AND status_id IS NULL",
         id, auth.account_id,
@@ -209,17 +211,37 @@ pub async fn update_media(
     let mut description: Option<String> = None;
     let mut focus: Option<String> = None;
 
-    while let Some(field) = multipart.next_field().await.map_err(|e| AppError::Unprocessable(e.to_string()))? {
-        let name = field.name().unwrap_or("").to_string();
-        match name.as_str() {
-            "description" => {
-                description = Some(field.text().await.map_err(|e| AppError::Unprocessable(e.to_string()))?);
+    // Mastodon accepts both multipart/form-data and JSON bodies here.
+    let is_multipart = request
+        .headers()
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|ct| ct.starts_with("multipart/form-data"));
+
+    if is_multipart {
+        use axum::extract::FromRequest;
+        let mut multipart = Multipart::from_request(request, &state)
+            .await
+            .map_err(|e| AppError::Unprocessable(e.to_string()))?;
+        while let Some(field) = multipart.next_field().await.map_err(|e| AppError::Unprocessable(e.to_string()))? {
+            let name = field.name().unwrap_or("").to_string();
+            match name.as_str() {
+                "description" => {
+                    description = Some(field.text().await.map_err(|e| AppError::Unprocessable(e.to_string()))?);
+                }
+                "focus" => {
+                    focus = Some(field.text().await.map_err(|e| AppError::Unprocessable(e.to_string()))?);
+                }
+                _ => {}
             }
-            "focus" => {
-                focus = Some(field.text().await.map_err(|e| AppError::Unprocessable(e.to_string()))?);
-            }
-            _ => {}
         }
+    } else {
+        let bytes = axum::body::to_bytes(request.into_body(), 64 * 1024)
+            .await
+            .map_err(|e| AppError::Unprocessable(e.to_string()))?;
+        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or_else(|_| serde_json::json!({}));
+        description = body.get("description").and_then(|v| v.as_str()).map(str::to_owned);
+        focus = body.get("focus").and_then(|v| v.as_str()).map(str::to_owned);
     }
 
     if let Some(ref desc) = description {

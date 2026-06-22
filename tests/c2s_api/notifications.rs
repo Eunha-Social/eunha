@@ -1031,8 +1031,9 @@ async fn test_notification_filtered_field_set_when_keyword_matches() {
     let mention = notifs.iter().find(|n| n["type"].as_str() == Some("mention"));
     assert!(mention.is_some(), "alice should have a mention notification");
 
-    let filtered = mention.unwrap()["filtered"].as_array();
-    assert!(filtered.is_some(), "mention notification must have a `filtered` array");
+    // The embedded status carries the `filtered` array for the notifications context.
+    let filtered = mention.unwrap()["status"]["filtered"].as_array();
+    assert!(filtered.is_some(), "mention notification's status must have a `filtered` array");
     assert!(!filtered.unwrap().is_empty(), "`filtered` must be non-empty when keyword matches");
 }
 
