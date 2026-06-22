@@ -74,6 +74,12 @@ async fn test_quote_consent_handshake_between_instances() {
     // ── A: cross-seed bob + his status, then alice quotes it ───────────────────
     let (bob_in_a, _) = seed_remote_account(&a.db, "alice", &b.domain).await;
     let s_in_a = seed_remote_status(&a.db, bob_in_a, &s_uri).await;
+    // bob signs the Accept he later sends to A, so A must know bob's public key.
+    let (bob_priv, bob_pub) = eunha::crypto::generate_rsa_keypair().unwrap();
+    sqlx::query!("UPDATE accounts SET public_key = $2 WHERE id = $1", bob_in_a, bob_pub)
+        .execute(&a.db)
+        .await
+        .unwrap();
 
     let quote_post: Value = a
         .api
@@ -106,8 +112,13 @@ async fn test_quote_consent_handshake_between_instances() {
     // ── Relay the QuoteRequest to B's inbox ────────────────────────────────────
     // Cross-seed alice + her quote post on B so it needs no outbound fetch.
     let (alice_in_b, _) = seed_remote_account(&b.db, "alice-remote", &a.domain).await;
-    // Override the seeded uri to alice's real actor uri so resolution matches.
-    sqlx::query!("UPDATE accounts SET uri = $2, url = $2 WHERE id = $1", alice_in_b, alice_uri)
+    // Override the seeded uri to alice's real actor uri so resolution matches,
+    // and store alice's public key so B can verify her signed QuoteRequest.
+    let (alice_priv, alice_pub) = eunha::crypto::generate_rsa_keypair().unwrap();
+    sqlx::query!(
+        "UPDATE accounts SET uri = $2, url = $2, public_key = $3 WHERE id = $1",
+        alice_in_b, alice_uri, alice_pub,
+    )
         .execute(&b.db)
         .await
         .unwrap();
@@ -130,7 +141,10 @@ async fn test_quote_consent_handshake_between_instances() {
         "object": s_uri,
         "instrument": quote_post_uri,
     });
-    let resp = b.api.post_json("/inbox", None, &quote_request).await;
+    let resp = b
+        .api
+        .post_signed("/inbox", &quote_request, &format!("{alice_uri}#main-key"), &alice_priv)
+        .await;
     assert_eq!(resp.status(), StatusCode::ACCEPTED, "B should accept the QuoteRequest");
 
     // B recorded an accepted quote with an approval (authorization) URI.
@@ -167,7 +181,10 @@ async fn test_quote_consent_handshake_between_instances() {
         "object": activity_uri,
         "result": approval_uri,
     });
-    let resp = a.api.post_json("/inbox", None, &accept).await;
+    let resp = a
+        .api
+        .post_signed("/inbox", &accept, &format!("{bob_uri}#main-key"), &bob_priv)
+        .await;
     assert_eq!(resp.status(), StatusCode::ACCEPTED, "A should accept the Accept");
 
     // A's quote is now accepted and carries the approval URI from B.

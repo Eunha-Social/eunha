@@ -113,6 +113,42 @@ impl ApiClient {
         req.send().await.unwrap()
     }
 
+    /// POST an ActivityPub activity with a valid HTTP Signature, as a remote
+    /// server would. `key_id` is the signing actor's key (e.g.
+    /// `https://host/users/alice#main-key`) whose public key the receiving
+    /// instance must already know; `private_key_pem` is its private key.
+    pub async fn post_signed(
+        &self,
+        path: &str,
+        body: &serde_json::Value,
+        key_id: &str,
+        private_key_pem: &str,
+    ) -> reqwest::Response {
+        let body_bytes = serde_json::to_vec(body).unwrap();
+        // Sign against the public host (matching the Host header the server
+        // sees), not the loopback base_url.
+        let signing_url = format!("https://{}{}", self.host, path);
+        let signed = eunha::federation::signature::sign_request(
+            "post",
+            &signing_url,
+            &body_bytes,
+            key_id,
+            private_key_pem,
+        )
+        .expect("sign request");
+        self.http
+            .post(self.url(path))
+            .header("host", &self.host)
+            .header("date", signed.date)
+            .header("digest", signed.digest)
+            .header("signature", signed.signature)
+            .header("content-type", "application/activity+json")
+            .body(body_bytes)
+            .send()
+            .await
+            .unwrap()
+    }
+
     pub async fn post_form(
         &self,
         path: &str,

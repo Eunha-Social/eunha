@@ -5,7 +5,7 @@ use axum::{
 use serde_json::Value;
 
 use crate::{
-    error::AppResult,
+    error::{AppError, AppResult},
     middleware::ResolvedInstance,
     state::AppState,
 };
@@ -60,28 +60,30 @@ pub async fn shared_inbox(
         "received ActivityPub activity"
     );
 
-    // Verify HTTP Signature; log failures but don't reject yet.
-    if let Some(sig_header) = headers.get("signature") {
-        if let Ok(sig_val) = sig_header.to_str() {
-            if let Some(kid) = crate::federation::signature::key_id_from_header(sig_val) {
-                let actor_url = kid.split('#').next().unwrap_or(kid);
-                match fetch_public_key(&state, actor_url).await {
-                    Ok(pem) => {
-                        let hdr_vec = crate::federation::signature::headers_to_vec(&headers);
-                        let hdr_refs: Vec<(&str, &str)> =
-                            hdr_vec.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-                        if let Err(e) = crate::federation::signature::verify_request(
-                            "post", uri.path(), &hdr_refs, &body, &pem,
-                        ) {
-                            tracing::warn!(key_id = kid, error = %e, "HTTP Signature verification failed");
-                        }
-                    }
-                    Err(e) => {
-                        tracing::warn!(key_id = kid, error = %e, "could not fetch public key for verification");
-                    }
-                }
-            }
+    // The actor that the activity claims to be from. Used both to enforce the
+    // signature (the signing key must belong to this actor) and by handlers.
+    let actor_uri = activity
+        .get("actor")
+        .and_then(|a| {
+            a.as_str()
+                .or_else(|| a.get("id").and_then(|i| i.as_str()))
+        })
+        .unwrap_or("")
+        .to_string();
+
+    // Enforce the HTTP Signature. An activity with a missing or invalid
+    // signature is rejected, except `Delete` activities we cannot verify: the
+    // signing actor (or its key) may already be gone, and rejecting them would
+    // create backscatter, so we accept-and-ignore those (matching Mastodon).
+    if let Err(reason) =
+        verify_inbound_signature(&state, &headers, uri.path(), &body, &actor_uri).await
+    {
+        if activity_type == "Delete" {
+            tracing::debug!(actor = %actor_uri, %reason, "unverified Delete; accepting without processing");
+            return Ok(StatusCode::ACCEPTED);
         }
+        tracing::warn!(actor = %actor_uri, activity_type, %reason, "rejecting activity: HTTP Signature not verified");
+        return Err(AppError::Unauthorized);
     }
 
     let outcome = match activity_type {
@@ -105,6 +107,44 @@ pub async fn shared_inbox(
     tracing::debug!(activity_type, outcome, "ActivityPub activity processed");
 
     Ok(StatusCode::ACCEPTED)
+}
+
+/// Verify the HTTP Signature on an inbound activity. Returns `Ok(())` only when
+/// the request is signed by a key belonging to the same host as the claimed
+/// actor and the signature (and body digest) check out.
+async fn verify_inbound_signature(
+    state: &AppState,
+    headers: &axum::http::HeaderMap,
+    path: &str,
+    body: &[u8],
+    actor_uri: &str,
+) -> Result<(), String> {
+    let sig_val = headers
+        .get("signature")
+        .and_then(|h| h.to_str().ok())
+        .ok_or_else(|| "missing Signature header".to_string())?;
+
+    let kid = crate::federation::signature::key_id_from_header(sig_val)
+        .ok_or_else(|| "no keyId in Signature header".to_string())?;
+    let key_actor = kid.split('#').next().unwrap_or(kid);
+
+    // The signing key must belong to the same host as the activity's actor, so a
+    // valid signature from one server cannot authorize an activity attributed to
+    // an actor on another server.
+    if !actor_uri.is_empty() && !same_host(key_actor, actor_uri) {
+        return Err(format!(
+            "signing key host does not match actor ({key_actor} vs {actor_uri})"
+        ));
+    }
+
+    let pem = fetch_public_key(state, key_actor)
+        .await
+        .map_err(|e| format!("could not fetch public key: {e}"))?;
+
+    let hdr_vec = crate::federation::signature::headers_to_vec(headers);
+    let hdr_refs: Vec<(&str, &str)> = hdr_vec.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    crate::federation::signature::verify_request("post", path, &hdr_refs, body, &pem)
+        .map_err(|e| e.to_string())
 }
 
 async fn fetch_public_key(state: &AppState, actor_url: &str) -> anyhow::Result<String> {
