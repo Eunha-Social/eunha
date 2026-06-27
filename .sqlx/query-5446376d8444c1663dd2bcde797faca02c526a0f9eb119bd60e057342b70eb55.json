@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE accounts SET header_file_name = NULL, header_content_type = NULL, header_file_size = NULL, header_updated_at = NULL, updated_at = now() WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5446376d8444c1663dd2bcde797faca02c526a0f9eb119bd60e057342b70eb55"
+}
