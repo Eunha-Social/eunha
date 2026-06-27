@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT private_key, public_key FROM instance_actors WHERE domain = $1",
+  "query": "SELECT private_key, public_key FROM accounts WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -16,13 +16,13 @@
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Int8"
       ]
     },
     "nullable": [
-      false,
+      true,
       false
     ]
   },
-  "hash": "bc1a6a0d37c78562f501d71ef3d18bfb0b8c0df475dc408a2d84b94b30ba8d7c"
+  "hash": "672a08a07fa679dc8893277b860b5492f299c11284cab58d31fd1b8cd875c7ee"
 }

@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO accounts\n             (id, username, private_key, public_key, actor_type, locked, created_at, updated_at)\n           VALUES ($1, $2, $3, $4, 'Application', true, now(), now())\n           ON CONFLICT (id) DO UPDATE\n             SET username = EXCLUDED.username,\n                 private_key = CASE\n                     WHEN accounts.private_key IS NULL OR accounts.private_key = ''\n                     THEN EXCLUDED.private_key\n                     ELSE accounts.private_key\n                 END,\n                 public_key = CASE\n                     WHEN accounts.public_key = ''\n                     THEN EXCLUDED.public_key\n                     ELSE accounts.public_key\n                 END,\n                 actor_type = 'Application',\n                 locked = true,\n                 updated_at = now()\n           RETURNING private_key, public_key",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "private_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "public_key",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "f672d61c309f160774fa9d933dc89fda10a1a513178220ba49c9bd8309c83859"
+}
