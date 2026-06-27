@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT a.username, a.domain, a.uri AS account_uri, a.url AS \"url?\"\n           FROM mentions m JOIN accounts a ON a.id = m.account_id\n           WHERE m.status_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "username",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "domain",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "account_uri",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "url?",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "7047701017d37e016345f67e402c232b30a5c7e268b28f99ac069bf3def841f3"
+}

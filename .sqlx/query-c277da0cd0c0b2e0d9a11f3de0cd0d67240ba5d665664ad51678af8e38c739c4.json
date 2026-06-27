@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT t.name FROM statuses_tags st JOIN tags t ON t.id = st.tag_id\n           WHERE st.status_id = $1 ORDER BY t.name",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c277da0cd0c0b2e0d9a11f3de0cd0d67240ba5d665664ad51678af8e38c739c4"
+}

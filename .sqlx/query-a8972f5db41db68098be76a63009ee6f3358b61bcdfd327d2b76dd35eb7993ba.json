@@ -1,0 +1,112 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.id, s.account_id, s.text, s.spoiler_text, s.visibility, s.sensitive,\n                  s.created_at, s.edited_at, s.uri, s.url, s.in_reply_to_id, s.language,\n                  s.quote_approval_policy,\n                  a.username, a.uri AS account_uri,\n                  quoted_s.uri AS \"quote_uri?\"\n           FROM statuses s\n           JOIN accounts a ON a.id = s.account_id\n           LEFT JOIN quotes qr ON qr.status_id = s.id AND qr.state = 1\n           LEFT JOIN statuses quoted_s ON quoted_s.id = qr.quoted_status_id AND quoted_s.deleted_at IS NULL\n           WHERE s.id = $1 AND s.deleted_at IS NULL AND a.domain IS NULL\n             AND s.reblog_of_id IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "account_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "text",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "spoiler_text",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "visibility",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "sensitive",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "edited_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 8,
+        "name": "uri",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "in_reply_to_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "language",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "quote_approval_policy",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 13,
+        "name": "username",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "account_uri",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 15,
+        "name": "quote_uri?",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "a8972f5db41db68098be76a63009ee6f3358b61bcdfd327d2b76dd35eb7993ba"
+}

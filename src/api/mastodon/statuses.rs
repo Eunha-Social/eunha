@@ -665,74 +665,41 @@ pub async fn post_status(
         if let Some(private_key) = account.private_key.clone().filter(|s| !s.is_empty()) {
             let domain = &instance.domain;
             let actor_url = format!("https://{}/users/{}", domain, account.username);
-            let followers_url = format!("{}/followers", actor_url);
-
-            let mentioned_urls: Vec<String> = resolved.iter()
-                .filter_map(|(_, a)| a.url.clone())
-                .collect();
-
-            // to/cc per the fediverse addressing convention (portable logic in feder-core).
-            let (to_strs, cc_strs) = crate::db::models::vis::audience(
-                crate::db::models::vis::from_str(&visibility),
-                &followers_url,
-                &mentioned_urls,
-            );
-
-            let published = status.created_at.to_rfc3339();
-            let in_reply_to_uri: Option<String> = if let Some(parent_id) = in_reply_to_id {
-                sqlx::query_scalar!("SELECT uri FROM statuses WHERE id = $1", parent_id)
-                    .fetch_optional(&state.db)
-                    .await
-                    .ok()
-                    .flatten()
-                    .flatten()
-            } else {
-                None
-            };
-
-            let quoted_uri: Option<String> = if let Some(qid) = quote_of_id {
-                sqlx::query_scalar!("SELECT uri FROM statuses WHERE id = $1", qid)
-                    .fetch_optional(&state.db)
-                    .await
-                    .ok()
-                    .flatten()
-                    .flatten()
-            } else {
-                None
-            };
-
-            let to_refs: Vec<&str> = to_strs.iter().map(String::as_str).collect();
-            let cc_refs: Vec<&str> = cc_strs.iter().map(String::as_str).collect();
-            let note = crate::federation::activity::NoteParams {
-                id: &uri,
-                attributed_to: &actor_url,
-                content: &content,
-                summary: if status.spoiler_text.is_empty() { None } else { Some(status.spoiler_text.as_str()) },
-                sensitive,
-                in_reply_to: in_reply_to_uri.as_deref(),
-                to: &to_refs,
-                cc: &cc_refs,
-                published: &published,
-                url: &uri,
-                quote_url: quoted_uri.as_deref(),
-            };
-            let activity_id = format!("{}/activity", uri);
-            let activity = crate::federation::activity::create_note(&activity_id, &actor_url, note)?;
             let key_id = format!("{}#main-key", actor_url);
 
+            // Build the Create(Note) from the persisted status so the wire shape
+            // matches what we serve at the note's own URI (content, media
+            // attachments, and the mention/hashtag/emoji tag array).
+            let Some(bundle) =
+                crate::api::ap::note::build_note(&state, domain, status.id).await?
+            else {
+                return Err(AppError::Internal(anyhow::anyhow!(
+                    "failed to build Note for status {}",
+                    status.id
+                )));
+            };
+            let activity = bundle.into_create();
+
             // FEP-044f: ask a remote quoted author for consent to quote them.
-            if let (Some(qr_uri), Some(quoted_status_uri), Some(qid)) =
-                (&quote_request_activity_uri, &quoted_uri, quote_of_id)
-            {
-                if let Ok(Some(qa)) = sqlx::query!(
-                    "SELECT a.inbox_url, a.shared_inbox_url
-                     FROM statuses s JOIN accounts a ON a.id = s.account_id
-                     WHERE s.id = $1",
-                    qid,
-                )
-                .fetch_optional(&state.db)
-                .await
-                {
+            if let (Some(qr_uri), Some(qid)) = (&quote_request_activity_uri, quote_of_id) {
+                let quoted_uri: Option<String> =
+                    sqlx::query_scalar!("SELECT uri FROM statuses WHERE id = $1", qid)
+                        .fetch_optional(&state.db)
+                        .await
+                        .ok()
+                        .flatten()
+                        .flatten();
+                if let (Some(quoted_status_uri), Ok(Some(qa))) = (
+                    quoted_uri,
+                    sqlx::query!(
+                        "SELECT a.inbox_url, a.shared_inbox_url
+                         FROM statuses s JOIN accounts a ON a.id = s.account_id
+                         WHERE s.id = $1",
+                        qid,
+                    )
+                    .fetch_optional(&state.db)
+                    .await,
+                ) {
                     let qinbox = if !qa.shared_inbox_url.is_empty() {
                         qa.shared_inbox_url
                     } else {
@@ -742,7 +709,7 @@ pub async fn post_status(
                         if let Ok(qr) = crate::federation::consent::quote_request(
                             qr_uri,
                             &actor_url,
-                            quoted_status_uri,
+                            &quoted_status_uri,
                             &uri,
                         ) {
                             crate::federation::delivery::deliver_to_inboxes(

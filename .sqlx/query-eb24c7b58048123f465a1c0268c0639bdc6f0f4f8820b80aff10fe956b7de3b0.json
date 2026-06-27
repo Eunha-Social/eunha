@@ -1,0 +1,36 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT f.id, a.uri AS account_uri, a.username\n               FROM follows f JOIN accounts a ON a.id = f.account_id\n               WHERE f.target_account_id = $1 AND ($2::bigint IS NULL OR f.id < $2)\n               ORDER BY f.id DESC LIMIT $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "account_uri",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "username",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "eb24c7b58048123f465a1c0268c0639bdc6f0f4f8820b80aff10fe956b7de3b0"
+}

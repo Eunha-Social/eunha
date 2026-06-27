@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO user_roles (id, name, position, permissions, highlighted)\n           VALUES ($1, 'Admin', 100, 1, true)\n           RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4b528749afbf68b338aeacb2ec303a8eab753cb0df073dd69b4f69bc0fca4fcf"
+}

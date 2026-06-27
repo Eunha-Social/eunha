@@ -3153,6 +3153,7 @@ pub struct MoveAccountForm {
 
 pub async fn move_account(
     State(state): State<AppState>,
+    Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
     Extension(auth): Extension<AuthenticatedUser>,
     Json(form): Json<MoveAccountForm>,
 ) -> AppResult<Json<serde_json::Value>> {
@@ -3170,7 +3171,8 @@ pub async fn move_account(
         return Err(AppError::Unauthorized);
     }
 
-    // Look up target account by URI/acct handle
+    // Look up target account by URI/acct handle, fetching it from its origin
+    // server if we don't know it yet (so cross-instance migration works).
     let target_uri = form.acct.clone();
     let moved_account = sqlx::query_scalar!(
         "SELECT id FROM accounts WHERE uri = $1 OR (username = $1 AND domain IS NULL) LIMIT 1",
@@ -3178,13 +3180,62 @@ pub async fn move_account(
     )
     .fetch_optional(&state.db)
     .await?;
-    if let Some(moved_id) = moved_account {
-        sqlx::query!(
-            "UPDATE accounts SET moved_to_account_id = $1, updated_at = now() WHERE id = $2",
-            moved_id, auth.account_id,
-        )
-        .execute(&state.db)
+    let moved_account = match moved_account {
+        Some(id) => Some(id),
+        None if target_uri.starts_with("https://") => {
+            crate::api::ap::inbox::resolve_or_fetch_remote_account(&state, &target_uri)
+                .await
+                .ok()
+        }
+        None => None,
+    };
+
+    // If we can't resolve the target (e.g. an acct handle we haven't federated
+    // with yet), record nothing and return success — matching the prior lenient
+    // behaviour rather than failing the request.
+    let Some(moved_id) = moved_account else {
+        return Ok(Json(serde_json::json!({})));
+    };
+
+    // The new account must list this account as an alias (alsoKnownAs); Mastodon
+    // followers verify the same before honouring the Move.
+    let new_uri = sqlx::query_scalar!("SELECT uri FROM accounts WHERE id = $1", moved_id)
+        .fetch_one(&state.db)
         .await?;
+
+    sqlx::query!(
+        "UPDATE accounts SET moved_to_account_id = $1, updated_at = now() WHERE id = $2",
+        moved_id, auth.account_id,
+    )
+    .execute(&state.db)
+    .await?;
+
+    // Announce the Move to followers so they re-follow the new account.
+    let mover = sqlx::query!(
+        "SELECT username, uri, private_key FROM accounts WHERE id = $1",
+        auth.account_id,
+    )
+    .fetch_one(&state.db)
+    .await?;
+    if let (false, Some(private_key)) = (
+        new_uri.is_empty(),
+        mover.private_key.filter(|s| !s.is_empty()),
+    ) {
+        let actor_url = if mover.uri.is_empty() {
+            format!("https://{}/users/{}", instance.domain, mover.username)
+        } else {
+            mover.uri
+        };
+        let move_id = format!("{actor_url}#moves/{}", crate::snowflake::next_id());
+        let activity = crate::federation::activity::move_actor(&move_id, &actor_url, &actor_url, &new_uri);
+        let key_id = format!("{actor_url}#main-key");
+        crate::federation::delivery::fanout_to_followers(
+            &state,
+            activity,
+            auth.account_id,
+            key_id,
+            private_key,
+        );
     }
 
     Ok(Json(serde_json::json!({})))

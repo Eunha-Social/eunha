@@ -52,6 +52,16 @@ fn actor_uri(domain: &str, username: &str) -> String {
     format!("https://{domain}/users/{username}")
 }
 
+/// Prefer a stored actor URI; fall back to the derived local URI when empty
+/// (local accounts created before `uri` was populated).
+fn resolve_actor_uri(domain: &str, stored: String, username: &str) -> String {
+    if stored.is_empty() {
+        actor_uri(domain, username)
+    } else {
+        stored
+    }
+}
+
 /// A single accepted item, ready for FeaturedItem serialization.
 struct ItemRow {
     id: i64,
@@ -352,6 +362,207 @@ pub async fn get_quote_authorization(
         Json(body),
     )
         .into_response())
+}
+
+// ── followers / following / featured collections ──────────────────────────────
+
+#[derive(serde::Deserialize)]
+pub struct PageQuery {
+    pub page: Option<bool>,
+    pub max_id: Option<i64>,
+}
+
+/// Whether a relation collection (followers/following) is paged.
+enum Relation {
+    Followers,
+    Following,
+}
+
+/// GET /users/{username}/followers — an OrderedCollection of follower actor URIs.
+pub async fn get_followers(
+    State(state): State<AppState>,
+    Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
+    Path(username): Path<String>,
+    axum::extract::Query(q): axum::extract::Query<PageQuery>,
+) -> AppResult<Response> {
+    relation_collection(&state, &instance.domain, &username, Relation::Followers, q).await
+}
+
+/// GET /users/{username}/following — an OrderedCollection of followed actor URIs.
+pub async fn get_following(
+    State(state): State<AppState>,
+    Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
+    Path(username): Path<String>,
+    axum::extract::Query(q): axum::extract::Query<PageQuery>,
+) -> AppResult<Response> {
+    relation_collection(&state, &instance.domain, &username, Relation::Following, q).await
+}
+
+async fn relation_collection(
+    state: &AppState,
+    domain: &str,
+    username: &str,
+    rel: Relation,
+    q: PageQuery,
+) -> AppResult<Response> {
+    let account = sqlx::query!(
+        r#"SELECT id, hide_collections FROM accounts WHERE username = $1 AND domain IS NULL"#,
+        username,
+    )
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
+
+    let (rel_name, total): (&str, i64) = match rel {
+        Relation::Followers => (
+            "followers",
+            sqlx::query_scalar!(
+                "SELECT COUNT(*) FROM follows WHERE target_account_id = $1",
+                account.id,
+            )
+            .fetch_one(&state.db)
+            .await?
+            .unwrap_or(0),
+        ),
+        Relation::Following => (
+            "following",
+            sqlx::query_scalar!(
+                "SELECT COUNT(*) FROM follows WHERE account_id = $1",
+                account.id,
+            )
+            .fetch_one(&state.db)
+            .await?
+            .unwrap_or(0),
+        ),
+    };
+
+    let base = format!("{}/{rel_name}", actor_uri(domain, username));
+    let hidden = account.hide_collections.unwrap_or(false);
+
+    // Summary view: advertise the count, and a first page only when not hidden.
+    if q.page != Some(true) {
+        let mut body = json!({
+            "@context": "https://www.w3.org/ns/activitystreams",
+            "id": base,
+            "type": "OrderedCollection",
+            "totalItems": total,
+        });
+        if !hidden {
+            body["first"] = json!(format!("{base}?page=true"));
+        }
+        return Ok((StatusCode::OK, [(header::CONTENT_TYPE, CONTENT_TYPE)], Json(body)).into_response());
+    }
+
+    // Hidden collections expose only the count, never the membership.
+    if hidden {
+        let body = json!({
+            "@context": "https://www.w3.org/ns/activitystreams",
+            "id": format!("{base}?page=true"),
+            "type": "OrderedCollectionPage",
+            "partOf": base,
+            "totalItems": total,
+            "orderedItems": [],
+        });
+        return Ok((StatusCode::OK, [(header::CONTENT_TYPE, CONTENT_TYPE)], Json(body)).into_response());
+    }
+
+    const PAGE_SIZE: i64 = 40;
+    // (follow_id, resolved actor uri) pairs, newest follow first.
+    let rows: Vec<(i64, String)> = match rel {
+        Relation::Followers => sqlx::query!(
+            r#"SELECT f.id, a.uri AS account_uri, a.username
+               FROM follows f JOIN accounts a ON a.id = f.account_id
+               WHERE f.target_account_id = $1 AND ($2::bigint IS NULL OR f.id < $2)
+               ORDER BY f.id DESC LIMIT $3"#,
+            account.id,
+            q.max_id,
+            PAGE_SIZE,
+        )
+        .fetch_all(&state.db)
+        .await?
+        .into_iter()
+        .map(|r| (r.id, resolve_actor_uri(domain, r.account_uri, &r.username)))
+        .collect(),
+        Relation::Following => sqlx::query!(
+            r#"SELECT f.id, a.uri AS account_uri, a.username
+               FROM follows f JOIN accounts a ON a.id = f.target_account_id
+               WHERE f.account_id = $1 AND ($2::bigint IS NULL OR f.id < $2)
+               ORDER BY f.id DESC LIMIT $3"#,
+            account.id,
+            q.max_id,
+            PAGE_SIZE,
+        )
+        .fetch_all(&state.db)
+        .await?
+        .into_iter()
+        .map(|r| (r.id, resolve_actor_uri(domain, r.account_uri, &r.username)))
+        .collect(),
+    };
+
+    let items: Vec<String> = rows.iter().map(|(_, uri)| uri.clone()).collect();
+    let next = (rows.len() as i64 == PAGE_SIZE)
+        .then(|| rows.last().map(|(id, _)| format!("{base}?page=true&max_id={id}")))
+        .flatten();
+
+    let mut body = json!({
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "id": format!("{base}?page=true{}", q.max_id.map(|m| format!("&max_id={m}")).unwrap_or_default()),
+        "type": "OrderedCollectionPage",
+        "partOf": base,
+        "totalItems": total,
+        "orderedItems": items,
+    });
+    if let Some(next) = next {
+        body["next"] = json!(next);
+    }
+    Ok((StatusCode::OK, [(header::CONTENT_TYPE, CONTENT_TYPE)], Json(body)).into_response())
+}
+
+/// GET /users/{username}/collections/featured — an OrderedCollection of the
+/// account's pinned status URIs (Mastodon's `featured` collection).
+pub async fn get_featured(
+    State(state): State<AppState>,
+    Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
+    Path(username): Path<String>,
+) -> AppResult<Response> {
+    let account = sqlx::query!(
+        "SELECT id FROM accounts WHERE username = $1 AND domain IS NULL",
+        username,
+    )
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
+
+    // Pinned, publicly-visible statuses, newest pin first (mirrors Mastodon).
+    let rows = sqlx::query!(
+        r#"SELECT s.id, s.uri AS "uri?"
+           FROM status_pins p JOIN statuses s ON s.id = p.status_id
+           WHERE p.account_id = $1 AND s.deleted_at IS NULL AND s.visibility IN (0, 1)
+           ORDER BY p.id DESC"#,
+        account.id,
+    )
+    .fetch_all(&state.db)
+    .await?;
+
+    let actor = actor_uri(&instance.domain, &username);
+    let items: Vec<String> = rows
+        .iter()
+        .map(|r| {
+            r.uri
+                .clone()
+                .filter(|u| !u.is_empty())
+                .unwrap_or_else(|| format!("{actor}/statuses/{}", r.id))
+        })
+        .collect();
+
+    let body = json!({
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "id": format!("{actor}/collections/featured"),
+        "type": "OrderedCollection",
+        "totalItems": items.len(),
+        "orderedItems": items,
+    });
+    Ok((StatusCode::OK, [(header::CONTENT_TYPE, CONTENT_TYPE)], Json(body)).into_response())
 }
 
 // ── Activity builders (for outbound distribution to followers) ─────────────────

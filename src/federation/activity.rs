@@ -145,6 +145,21 @@ pub fn delete(id: &str, actor: &str, object: &str) -> anyhow::Result<Value> {
     ))
 }
 
+// ── Move ──────────────────────────────────────────────────────────────────────
+
+/// Build a `Move` activity for account migration. `object` is the old (moving)
+/// actor; `target` is the new account's actor URI.
+pub fn move_actor(id: &str, actor: &str, object: &str, target: &str) -> Value {
+    serde_json::json!({
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "id": id,
+        "type": "Move",
+        "actor": actor,
+        "object": object,
+        "target": target,
+    })
+}
+
 // ── Like ──────────────────────────────────────────────────────────────────────
 
 /// Build a `Like` activity (favourite).
@@ -175,71 +190,6 @@ pub fn announce(
 /// Build a `Block` activity.
 pub fn block(id: &str, actor: &str, object: &str) -> anyhow::Result<Value> {
     to_value(&vocab::Block::new(iri(id)?, actor_ref(actor)?, iri(object)?))
-}
-
-// ── Create(Note) ──────────────────────────────────────────────────────────────
-
-/// Parameters for a Note object inside a Create activity.
-pub struct NoteParams<'a> {
-    pub id: &'a str,
-    pub attributed_to: &'a str,
-    pub content: &'a str,
-    pub summary: Option<&'a str>,
-    pub sensitive: bool,
-    pub in_reply_to: Option<&'a str>,
-    pub to: &'a [&'a str],
-    pub cc: &'a [&'a str],
-    pub published: &'a str,
-    pub url: &'a str,
-    /// FEP-044f quote URI, if this is a quote post.
-    pub quote_url: Option<&'a str>,
-}
-
-/// Build a `Create(Note)` activity.
-///
-/// `activity_id` is the URI for the Create activity itself (typically the note
-/// URI + `/activity`).
-pub fn create_note(activity_id: &str, actor: &str, note: NoteParams<'_>) -> anyhow::Result<Value> {
-    let to = iris(note.to)?;
-    let cc = iris(note.cc)?;
-
-    let mut note_obj = vocab::Note::new(iri(note.id)?);
-    note_obj.context = None; // nested inside Create
-    note_obj.attributed_to = Some(actor_ref(note.attributed_to)?);
-    note_obj.content = Some(note.content.to_string());
-    note_obj.sensitive = Some(note.sensitive);
-    note_obj.summary = note.summary.map(str::to_string);
-    note_obj.in_reply_to = note.in_reply_to.map(iri).transpose()?;
-    note_obj.url = Some(iri(note.url)?);
-    note_obj.to = to.clone();
-    note_obj.cc = cc.clone();
-    note_obj.published = Some(note.published.to_string());
-
-    let mut create = vocab::Create::new(iri(activity_id)?, actor_ref(actor)?, Reference::object(note_obj));
-    create.to = to;
-    create.cc = cc;
-
-    let mut value = to_value(&create)?;
-
-    // FEP-044f quote: inject quote properties on the Note and extend @context.
-    // Kept out of feder-vocab so the shared crate stays a clean protocol vocabulary.
-    if let Some(quote) = note.quote_url {
-        if let Some(obj) = value.get_mut("object").and_then(Value::as_object_mut) {
-            obj.insert("quote".into(), Value::String(quote.to_string()));
-            obj.insert("quoteUrl".into(), Value::String(quote.to_string()));
-            obj.insert("_misskey_quote".into(), Value::String(quote.to_string()));
-        }
-        value["@context"] = serde_json::json!([
-            vocab::ACTIVITYSTREAMS_CONTEXT,
-            {
-                "quote": { "@id": "https://w3id.org/fep/044f#quote", "@type": "@id" },
-                "quoteUrl": "https://misskey-hub.net/ns#quoteUri",
-                "_misskey_quote": "https://misskey-hub.net/ns#quoteUri",
-            }
-        ]);
-    }
-
-    Ok(value)
 }
 
 #[cfg(test)]
@@ -326,74 +276,4 @@ mod tests {
         assert_eq!(v["object"], "https://b.test/notes/9");
     }
 
-    #[test]
-    fn create_note_plain() {
-        let v = create_note(
-            "https://a.test/notes/1/activity",
-            "https://a.test/u/alice",
-            NoteParams {
-                id: "https://a.test/notes/1",
-                attributed_to: "https://a.test/u/alice",
-                content: "<p>hi</p>",
-                summary: None,
-                sensitive: false,
-                in_reply_to: None,
-                to: &[AS_PUBLIC],
-                cc: &["https://a.test/u/alice/followers"],
-                published: "2026-06-21T00:00:00+00:00",
-                url: "https://a.test/@alice/1",
-                quote_url: None,
-            },
-        )
-        .unwrap();
-        assert_eq!(v["@context"], "https://www.w3.org/ns/activitystreams");
-        assert_eq!(v["type"], "Create");
-        assert_eq!(v["to"], json!([AS_PUBLIC]));
-        let note = &v["object"];
-        assert_eq!(note["type"], "Note");
-        assert!(note.get("@context").is_none());
-        assert_eq!(note["attributedTo"], "https://a.test/u/alice");
-        assert_eq!(note["content"], "<p>hi</p>");
-        assert_eq!(note["sensitive"], false);
-        assert_eq!(note["url"], "https://a.test/@alice/1");
-        assert_eq!(note["to"], json!([AS_PUBLIC]));
-        assert!(note.get("summary").is_none());
-        assert!(note.get("inReplyTo").is_none());
-    }
-
-    #[test]
-    fn create_note_quote_injects_fep044f_context() {
-        let v = create_note(
-            "https://a.test/notes/1/activity",
-            "https://a.test/u/alice",
-            NoteParams {
-                id: "https://a.test/notes/1",
-                attributed_to: "https://a.test/u/alice",
-                content: "<p>hi</p>",
-                summary: Some("cw"),
-                sensitive: true,
-                in_reply_to: Some("https://b.test/notes/2"),
-                to: &[AS_PUBLIC],
-                cc: &[],
-                published: "2026-06-21T00:00:00+00:00",
-                url: "https://a.test/@alice/1",
-                quote_url: Some("https://b.test/notes/3"),
-            },
-        )
-        .unwrap();
-        let note = &v["object"];
-        assert_eq!(note["summary"], "cw");
-        assert_eq!(note["sensitive"], true);
-        assert_eq!(note["inReplyTo"], "https://b.test/notes/2");
-        assert_eq!(note["quote"], "https://b.test/notes/3");
-        assert_eq!(note["quoteUrl"], "https://b.test/notes/3");
-        assert_eq!(note["_misskey_quote"], "https://b.test/notes/3");
-        // Extended JSON-LD context for the quote terms.
-        assert!(v["@context"].is_array());
-        assert_eq!(v["@context"][0], "https://www.w3.org/ns/activitystreams");
-        assert_eq!(
-            v["@context"][1]["quote"]["@id"],
-            "https://w3id.org/fep/044f#quote"
-        );
-    }
 }

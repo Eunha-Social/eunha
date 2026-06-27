@@ -50,16 +50,13 @@ pub async fn get_outbox(
         return Ok((StatusCode::OK, [(header::CONTENT_TYPE, CONTENT_TYPE)], Json(outbox)).into_response());
     }
 
-    let statuses = sqlx::query!(
-        r#"SELECT s.id, s.text, s.spoiler_text, s.visibility, s.sensitive,
-                  s.created_at, s.uri, s.url, s.in_reply_to_id,
-                  qr.quoted_status_id AS quote_of_id,
-                  quoted_s.uri AS quote_uri
+    // Only self-authored, public/unlisted, non-boost statuses appear in the outbox.
+    let status_ids: Vec<i64> = sqlx::query_scalar!(
+        r#"SELECT s.id
            FROM statuses s
-           LEFT JOIN quotes qr ON qr.status_id = s.id
-           LEFT JOIN statuses quoted_s ON quoted_s.id = qr.quoted_status_id AND quoted_s.deleted_at IS NULL
            WHERE s.account_id = $1
              AND s.deleted_at IS NULL
+             AND s.reblog_of_id IS NULL
              AND s.visibility IN (0, 1) /* vis::PUBLIC, vis::UNLISTED */
              AND ($2::bigint IS NULL OR s.id < $2)
              AND ($3::bigint IS NULL OR s.id > $3)
@@ -72,104 +69,15 @@ pub async fn get_outbox(
     .fetch_all(&state.db)
     .await?;
 
-    // Batch-fetch mentions for all statuses in this page
-    let status_ids: Vec<i64> = statuses.iter().map(|s| s.id).collect();
-    let mention_rows = if !status_ids.is_empty() {
-        sqlx::query!(
-            r#"SELECT m.status_id, a.username, a.domain, a.url
-               FROM mentions m
-               JOIN accounts a ON a.id = m.account_id
-               WHERE m.status_id = ANY($1::bigint[])"#,
-            &status_ids,
-        )
-        .fetch_all(&state.db)
-        .await
-        .unwrap_or_default()
-    } else {
-        vec![]
-    };
-    let mut mention_maps: std::collections::HashMap<i64, std::collections::HashMap<String, (String, String)>> =
-        std::collections::HashMap::new();
-    for m in &mention_rows {
-        let map = mention_maps.entry(m.status_id).or_default();
-        let key_short = m.username.to_lowercase();
-        let display = match &m.domain {
-            Some(d) => format!("{}@{}", m.username, d),
-            None => m.username.clone(),
-        };
-        let url = m.url.clone().unwrap_or_default();
-        map.entry(key_short.clone()).or_insert_with(|| (url.clone(), display.clone()));
-        if let Some(d) = &m.domain {
-            map.entry(format!("{}@{}", key_short, d)).or_insert_with(|| (url, display));
+    let mut items: Vec<Value> = Vec::with_capacity(status_ids.len());
+    for id in &status_ids {
+        if let Some(bundle) = super::note::build_note(&state, &instance.domain, *id).await? {
+            items.push(bundle.into_create());
         }
     }
 
-    use crate::api::mastodon::formatting::render_content;
-    let actor_url = format!("https://{}/users/{}", instance.domain, username);
-
-    let fep044f_context = json!({
-        "fep": "https://w3id.org/fep/044f#",
-        "quote": { "@id": "fep:quote", "@type": "@id" },
-        "quoteUrl": { "@id": "fep:quote", "@type": "@id" },
-    });
-
-    let items: Vec<Value> = statuses
-        .iter()
-        .map(|s| {
-            let note_url = s.url.clone().unwrap_or_else(|| {
-                format!("https://{}/users/{}/statuses/{}", instance.domain, username, s.id)
-            });
-            let empty_map = std::collections::HashMap::new();
-            let mention_map = mention_maps.get(&s.id).unwrap_or(&empty_map);
-            let content = render_content(&s.text, &instance.domain, mention_map);
-            let quote_uri = s.quote_uri.clone();
-            let always = if matches!(s.visibility, crate::db::models::vis::PUBLIC | crate::db::models::vis::UNLISTED) {
-                vec!["https://www.w3.org/ns/activitystreams#Public".to_string()]
-            } else {
-                vec![]
-            };
-            let with_approval: Vec<String> = vec![];
-            json!({
-                "@context": [
-                    "https://www.w3.org/ns/activitystreams",
-                    fep044f_context.clone(),
-                ],
-                "id": format!("{}/activity", note_url),
-                "type": "Create",
-                "actor": actor_url,
-                "published": s.created_at.to_rfc3339(),
-                "to": ["https://www.w3.org/ns/activitystreams#Public"],
-                "cc": [format!("{}/followers", actor_url)],
-                "object": {
-                    "id": note_url,
-                    "type": "Note",
-                    "summary": if s.spoiler_text.is_empty() { None } else { Some(&s.spoiler_text) },
-                    "inReplyTo": s.in_reply_to_id.map(|_| Value::Null),
-                    "published": s.created_at.to_rfc3339(),
-                    "url": note_url,
-                    "attributedTo": actor_url,
-                    "to": ["https://www.w3.org/ns/activitystreams#Public"],
-                    "cc": [format!("{}/followers", actor_url)],
-                    "sensitive": s.sensitive,
-                    "content": content,
-                    "contentMap": { "und": content },
-                    "attachment": [],
-                    "tag": [],
-                    "quote": quote_uri,
-                    "quoteUrl": s.quote_uri.clone(),
-                    "interactionPolicy": {
-                        "canQuote": {
-                            "automaticApproval": always,
-                            "manualApproval": with_approval,
-                        }
-                    }
-                }
-            })
-        })
-        .collect();
-
-    let first_id = statuses.first().map(|s| s.id);
-    let last_id = statuses.last().map(|s| s.id);
+    let first_id = status_ids.first().copied();
+    let last_id = status_ids.last().copied();
 
     let page = json!({
         "@context": "https://www.w3.org/ns/activitystreams",

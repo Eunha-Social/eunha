@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO statuses (id, account_id, text, visibility, created_at)\n         VALUES ($1, $2, 'test post 2023', 0, '2023-06-15T12:00:00Z'::timestamptz)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "437fe2c92fd52c034156b0d153ca83cb1afe2d7e7cc74f7a8e8fdcfc8371221b"
+}

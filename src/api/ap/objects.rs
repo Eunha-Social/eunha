@@ -52,6 +52,65 @@ pub async fn get_instance_actor(
         .into_response())
 }
 
+/// Serve a local status as a bare ActivityPub `Note` object at its canonical URI.
+pub async fn get_status(
+    State(state): State<AppState>,
+    Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
+    Path((username, id)): Path<(String, i64)>,
+) -> AppResult<Response> {
+    let bundle = status_bundle(&state, &instance.domain, &username, id).await?;
+    Ok((
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, CONTENT_TYPE)],
+        Json(bundle.into_note()),
+    )
+        .into_response())
+}
+
+/// Serve the `Create(Note)` wrapper at `{status}/activity`.
+pub async fn get_status_activity(
+    State(state): State<AppState>,
+    Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
+    Path((username, id)): Path<(String, i64)>,
+) -> AppResult<Response> {
+    let bundle = status_bundle(&state, &instance.domain, &username, id).await?;
+    Ok((
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, CONTENT_TYPE)],
+        Json(bundle.into_create()),
+    )
+        .into_response())
+}
+
+/// Load a status bundle, enforcing that it belongs to `username` and is publicly
+/// dereferenceable (public or unlisted). Private/direct posts are not served
+/// over unauthenticated AP GET.
+async fn status_bundle(
+    state: &AppState,
+    domain: &str,
+    username: &str,
+    id: i64,
+) -> AppResult<super::note::NoteBundle> {
+    let owner_ok = sqlx::query_scalar!(
+        r#"SELECT EXISTS(
+             SELECT 1 FROM statuses s JOIN accounts a ON a.id = s.account_id
+             WHERE s.id = $1 AND a.username = $2 AND a.domain IS NULL
+               AND s.deleted_at IS NULL AND s.visibility IN (0, 1)
+           )"#,
+        id,
+        username,
+    )
+    .fetch_one(&state.db)
+    .await?
+    .unwrap_or(false);
+    if !owner_ok {
+        return Err(AppError::NotFound);
+    }
+    super::note::build_note(state, domain, id)
+        .await?
+        .ok_or(AppError::NotFound)
+}
+
 pub async fn get_actor(
     State(state): State<AppState>,
     Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
@@ -69,6 +128,22 @@ pub async fn get_actor(
     let base = format!("https://{}", instance.domain);
     let actor_url = format!("{}/users/{}", base, username);
 
+    // Account migration metadata: aliases (alsoKnownAs) + movedTo target URI.
+    let also_known_as: Vec<String> = sqlx::query_scalar!(
+        "SELECT uri FROM account_aliases WHERE account_id = $1 ORDER BY created_at",
+        account.id,
+    )
+    .fetch_all(&state.db)
+    .await?;
+    let moved_to: Option<String> = if let Some(moved_id) = account.moved_to_account_id {
+        sqlx::query_scalar!("SELECT uri FROM accounts WHERE id = $1", moved_id)
+            .fetch_optional(&state.db)
+            .await?
+            .filter(|u| !u.is_empty())
+    } else {
+        None
+    };
+
     let has_avatar = account.avatar_file_name.as_ref().map_or(false, |s| !s.is_empty())
         || account.avatar_remote_url.as_ref().map_or(false, |s| !s.is_empty());
     let has_header = account.header_file_name.as_ref().map_or(false, |s| !s.is_empty())
@@ -82,6 +157,8 @@ pub async fn get_actor(
             "https://w3id.org/security/v1",
             {
                 "manuallyApprovesFollowers": "as:manuallyApprovesFollowers",
+                "alsoKnownAs": { "@id": "as:alsoKnownAs", "@type": "@id" },
+                "movedTo": { "@id": "as:movedTo", "@type": "@id" },
                 "toot": "http://joinmastodon.org/ns#",
                 "featured": { "@id": "toot:featured", "@type": "@id" },
                 "featuredCollections": { "@id": "toot:featuredCollections", "@type": "@id" },
@@ -118,6 +195,8 @@ pub async fn get_actor(
         "endpoints": {
             "sharedInbox": format!("{}/inbox", base),
         },
+        "alsoKnownAs": also_known_as,
+        "movedTo": moved_to,
     });
 
     Ok((
