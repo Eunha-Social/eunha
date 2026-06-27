@@ -1686,7 +1686,8 @@ async fn do_update_credentials(
     // default_quote_policy is in users.settings (YAML) in Mastodon's schema; not persisted here.
     let _ = &source_quote_policy;
 
-    sqlx::query!("UPDATE accounts SET updated_at = now() WHERE id = $1", auth.account_id)
+    sqlx::query("UPDATE accounts SET updated_at = now() WHERE id = $1")
+        .bind(auth.account_id)
         .execute(&state.db)
         .await?;
 
@@ -3677,10 +3678,10 @@ pub async fn delete_profile_avatar(
     Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
 ) -> AppResult<Json<super::types::Account>> {
     auth.require_scope("write:accounts")?;
-    sqlx::query!(
+    sqlx::query(
         "UPDATE accounts SET avatar_file_name = NULL, avatar_content_type = NULL, avatar_file_size = NULL, avatar_updated_at = NULL, updated_at = now() WHERE id = $1",
-        auth.account_id,
     )
+    .bind(auth.account_id)
     .execute(&state.db)
     .await?;
     let account = sqlx::query_as!(
@@ -3705,10 +3706,10 @@ pub async fn delete_profile_header(
     Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
 ) -> AppResult<Json<super::types::Account>> {
     auth.require_scope("write:accounts")?;
-    sqlx::query!(
+    sqlx::query(
         "UPDATE accounts SET header_file_name = NULL, header_content_type = NULL, header_file_size = NULL, header_updated_at = NULL, updated_at = now() WHERE id = $1",
-        auth.account_id,
     )
+    .bind(auth.account_id)
     .execute(&state.db)
     .await?;
     let account = sqlx::query_as!(
