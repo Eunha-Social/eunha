@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE activity_delivery_jobs\n                           SET attempts = $2,\n                               run_at = $3,\n                               locked_at = NULL,\n                               locked_by = NULL,\n                               last_error = $4,\n                               updated_at = now()\n                           WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4",
+        "Timestamptz",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2cd026f052a16124ea536c1f5337300c07a32aea54791b41c4225a8993e84c86"
+}

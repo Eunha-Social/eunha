@@ -5,7 +5,8 @@ use crate::state::AppState;
 /// Spawns all background tasks. Called once at startup.
 pub fn spawn(state: AppState) {
     tokio::spawn(run_scheduled_statuses(state.clone()));
-    tokio::spawn(run_poll_expiry(state));
+    tokio::spawn(run_poll_expiry(state.clone()));
+    tokio::spawn(crate::federation::delivery::run_delivery_queue(state));
 }
 
 // ── Scheduled status publisher ────────────────────────────────────────────

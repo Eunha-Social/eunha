@@ -302,15 +302,18 @@ async fn handle_follow(
                     .map_err(|e| crate::error::AppError::Internal(e.into()))?;
                 let actor_url = format!("https://{}/users/{}", instance.domain, target.username);
                 let key_id = format!("{actor_url}#main-key");
-                let http = state.http.clone();
-                tracing::debug!(inbox, actor_uri, "delivering Accept");
-                tokio::spawn(async move {
-                    if let Err(e) =
-                        crate::federation::delivery::deliver(&http, &activity, &inbox, &key_id, &private_key).await
-                    {
-                        tracing::warn!(inbox, error = %e, "failed to deliver Accept");
-                    }
-                });
+                tracing::debug!(inbox, actor_uri, "enqueueing Accept");
+                if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+                    &state,
+                    activity,
+                    vec![inbox],
+                    key_id,
+                    private_key,
+                )
+                .await
+                {
+                    tracing::warn!(error = %e, "failed to enqueue Accept");
+                }
             }
         }
     }
@@ -1893,13 +1896,17 @@ async fn handle_quote_request(
     if status.quote_approval_policy != 0 {
         let reject_id = format!("{actor_url}#rejects/quote_requests/{}", crate::snowflake::next_id());
         if let Ok(r) = crate::federation::consent::reject(&reject_id, &actor_url, &quoter.uri, req_id) {
-            crate::federation::delivery::deliver_to_inboxes(
-                state.http.clone(),
+            if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+                state,
                 r,
                 vec![inbox],
                 key_id,
                 private_key,
-            );
+            )
+            .await
+            {
+                tracing::warn!(error = %e, "failed to enqueue quote Reject");
+            }
         }
         return Ok(());
     }
@@ -1961,13 +1968,17 @@ async fn handle_quote_request(
         req_id,
         &authorization_uri,
     ) {
-        crate::federation::delivery::deliver_to_inboxes(
-            state.http.clone(),
+        if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+            state,
             accept,
             vec![inbox],
             key_id,
             private_key,
-        );
+        )
+        .await
+        {
+            tracing::warn!(error = %e, "failed to enqueue quote Accept");
+        }
     }
 
     Ok(())
@@ -2110,13 +2121,17 @@ async fn handle_feature_request(
             &authorization_uri,
         ) {
             let key_id = format!("{actor_url}#main-key");
-            crate::federation::delivery::deliver_to_inboxes(
-                state.http.clone(),
+            if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+                state,
                 accept,
                 vec![inbox],
                 key_id,
                 private_key,
-            );
+            )
+            .await
+            {
+                tracing::warn!(error = %e, "failed to enqueue feature Accept");
+            }
         }
     }
 

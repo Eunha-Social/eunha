@@ -712,13 +712,17 @@ pub async fn post_status(
                             &quoted_status_uri,
                             &uri,
                         ) {
-                            crate::federation::delivery::deliver_to_inboxes(
-                                state.http.clone(),
+                            if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+                                &state,
                                 qr,
                                 vec![qinbox],
                                 key_id.clone(),
                                 private_key.clone(),
-                            );
+                            )
+                            .await
+                            {
+                                tracing::warn!(error = %e, "failed to enqueue QuoteRequest");
+                            }
                         }
                     }
                 }
@@ -740,13 +744,17 @@ pub async fn post_status(
                 .collect();
 
             if visibility == "direct" {
-                crate::federation::delivery::deliver_to_inboxes(
-                    state.http.clone(),
+                if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+                    &state,
                     activity,
                     mention_inboxes,
                     key_id,
                     private_key,
-                );
+                )
+                .await
+                {
+                    tracing::warn!(error = %e, "failed to enqueue direct status delivery");
+                }
             } else {
                 // For public/unlisted replies, also deliver to the replied-to account's inbox
                 let mut extra_inboxes = mention_inboxes;
@@ -770,21 +778,29 @@ pub async fn post_status(
                     }
                 }
                 if !extra_inboxes.is_empty() {
-                    crate::federation::delivery::deliver_to_inboxes(
-                        state.http.clone(),
+                    if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+                        &state,
                         activity.clone(),
                         extra_inboxes,
                         key_id.clone(),
                         private_key.clone(),
-                    );
+                    )
+                    .await
+                    {
+                        tracing::warn!(error = %e, "failed to enqueue mentioned status delivery");
+                    }
                 }
-                crate::federation::delivery::fanout_to_followers(
+                if let Err(e) = crate::federation::delivery::fanout_to_followers(
                     &state,
                     activity,
                     account.id,
                     key_id,
                     private_key,
-                );
+                )
+                .await
+                {
+                    tracing::warn!(error = %e, "failed to enqueue follower status fanout");
+                }
             }
         }
     }
@@ -1324,13 +1340,17 @@ pub async fn delete_status(
             let delete_id = format!("https://{}/activities/{}", domain, crate::snowflake::next_id());
             let activity = crate::federation::activity::delete(&delete_id, &actor_url, status_uri)?;
             let key_id = format!("{}#main-key", actor_url);
-            crate::federation::delivery::fanout_to_followers(
+            if let Err(e) = crate::federation::delivery::fanout_to_followers(
                 &state,
                 activity,
                 account.id,
                 key_id,
                 private_key,
-            );
+            )
+            .await
+            {
+                tracing::warn!(error = %e, "failed to enqueue Delete fanout");
+            }
         }
     }
 
@@ -1402,12 +1422,17 @@ pub async fn favourite_status(
             } else {
                 account.inbox_url.clone()
             };
-            let http = state.http.clone();
-            tokio::spawn(async move {
-                if let Err(e) = crate::federation::delivery::deliver(&http, &like, &inbox, &key_id, &private_key).await {
-                    tracing::warn!(inbox, error = %e, "failed to deliver Like");
-                }
-            });
+            if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+                &state,
+                like,
+                vec![inbox],
+                key_id,
+                private_key,
+            )
+            .await
+            {
+                tracing::warn!(error = %e, "failed to enqueue Like delivery");
+            }
         }
     }
 
@@ -1460,12 +1485,17 @@ pub async fn unfavourite_status(
                 } else {
                     account.inbox_url.clone()
                 };
-                let http = state.http.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = crate::federation::delivery::deliver(&http, &undo, &inbox, &key_id, &private_key).await {
-                        tracing::warn!(inbox, error = %e, "failed to deliver Undo(Like)");
-                    }
-                });
+                if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+                    &state,
+                    undo,
+                    vec![inbox],
+                    key_id,
+                    private_key,
+                )
+                .await
+                {
+                    tracing::warn!(error = %e, "failed to enqueue Undo(Like) delivery");
+                }
             }
         }
     }
@@ -1636,20 +1666,24 @@ pub async fn reblog_status(
                     orig_acc.inbox_url.clone()
                 };
                 if !inbox.is_empty() {
-                    let http = state.http.clone();
-                    let ann = announce.clone();
-                    let kid = key_id.clone();
-                    let pk = private_key.clone();
-                    tokio::spawn(async move {
-                        if let Err(e) = crate::federation::delivery::deliver(&http, &ann, &inbox, &kid, &pk).await {
-                            tracing::warn!(inbox, error = %e, "failed to deliver Announce to original author");
-                        }
-                    });
+                    if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+                        &state,
+                        announce.clone(),
+                        vec![inbox],
+                        key_id.clone(),
+                        private_key.clone(),
+                    )
+                    .await
+                    {
+                        tracing::warn!(error = %e, "failed to enqueue Announce to original author");
+                    }
                 }
             }
         }
 
-        crate::federation::delivery::fanout_to_followers(&state, announce, boost_account.id, key_id, private_key);
+        if let Err(e) = crate::federation::delivery::fanout_to_followers(&state, announce, boost_account.id, key_id, private_key).await {
+            tracing::warn!(error = %e, "failed to enqueue Announce fanout");
+        }
     }
 
     Ok(Json(api_boost))
@@ -1984,20 +2018,24 @@ pub async fn unreblog_status(
                     if orig_acc.domain.is_some() {
                         let inbox = if !orig_acc.shared_inbox_url.is_empty() { orig_acc.shared_inbox_url } else { orig_acc.inbox_url };
                         if !inbox.is_empty() {
-                            let http = state.http.clone();
-                            let u = undo.clone();
-                            let kid = key_id.clone();
-                            let pk = private_key.clone();
-                            tokio::spawn(async move {
-                                if let Err(e) = crate::federation::delivery::deliver(&http, &u, &inbox, &kid, &pk).await {
-                                    tracing::warn!(inbox, error = %e, "failed to deliver Undo(Announce) to original author");
-                                }
-                            });
+                            if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+                                &state,
+                                undo.clone(),
+                                vec![inbox],
+                                key_id.clone(),
+                                private_key.clone(),
+                            )
+                            .await
+                            {
+                                tracing::warn!(error = %e, "failed to enqueue Undo(Announce) to original author");
+                            }
                         }
                     }
                 }
 
-                crate::federation::delivery::fanout_to_followers(&state, undo, auth.account_id, key_id, private_key);
+                if let Err(e) = crate::federation::delivery::fanout_to_followers(&state, undo, auth.account_id, key_id, private_key).await {
+                    tracing::warn!(error = %e, "failed to enqueue Undo(Announce) fanout");
+                }
             }
         }
     }

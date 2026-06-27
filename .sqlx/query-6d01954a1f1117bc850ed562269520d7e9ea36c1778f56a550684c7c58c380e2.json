@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO activity_delivery_jobs\n                 (activity, inbox_url, key_id, private_key_pem, created_at, updated_at)\n               VALUES ($1, $2, $3, $4, now(), now())",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6d01954a1f1117bc850ed562269520d7e9ea36c1778f56a550684c7c58c380e2"
+}

@@ -640,13 +640,17 @@ async fn add_item(state: &AppState, collection_id: i64, account_id: i64) -> AppR
                         &collection_uri,
                     ) {
                         let key_id = format!("{actor_url}#main-key");
-                        crate::federation::delivery::deliver_to_inboxes(
-                            state.http.clone(),
+                        if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+                            state,
                             req,
                             vec![inbox],
                             key_id,
                             pk,
-                        );
+                        )
+                        .await
+                        {
+                            tracing::warn!(error = %e, "failed to enqueue feature request");
+                        }
                     }
                 }
             }
@@ -699,7 +703,11 @@ async fn distribute_collection(
             body,
         )
     };
-    crate::federation::delivery::fanout_to_followers(state, activity, owner_account_id, key_id, pk);
+    if let Err(e) =
+        crate::federation::delivery::fanout_to_followers(state, activity, owner_account_id, key_id, pk).await
+    {
+        tracing::warn!(error = %e, "failed to enqueue collection fanout");
+    }
 }
 
 /// Distribute a `Remove` (collection deleted) to the owner's followers.
@@ -714,7 +722,11 @@ async fn distribute_collection_removal(
     };
     let key_id = format!("https://{domain}/users/{username}#main-key");
     let activity = ap_coll::remove_collection_activity(domain, &username, collection_id);
-    crate::federation::delivery::fanout_to_followers(state, activity, owner_account_id, key_id, pk);
+    if let Err(e) =
+        crate::federation::delivery::fanout_to_followers(state, activity, owner_account_id, key_id, pk).await
+    {
+        tracing::warn!(error = %e, "failed to enqueue collection removal fanout");
+    }
 }
 
 async fn refresh_item_count(state: &AppState, collection_id: i64) -> AppResult<()> {

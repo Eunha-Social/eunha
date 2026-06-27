@@ -785,51 +785,51 @@ pub async fn follow_account(
             let key_id = format!("{}#main-key", actor_url);
             let follow_activity =
                 crate::federation::activity::follow(&follow_uri, &actor_url, &target.uri)?;
-            let inbox = target.inbox_url.clone();
+            let inbox = if !target.shared_inbox_url.is_empty() {
+                target.shared_inbox_url.clone()
+            } else {
+                target.inbox_url.clone()
+            };
             let target_uri = target.uri.clone();
-            // Re-fetch actor if inbox URL is missing (stale cache), then deliver.
-            let state2 = state.clone();
-            tokio::spawn(async move {
-                let inbox = if inbox.is_empty() {
-                    tracing::warn!(target_uri, "inbox URL missing; re-fetching actor profile");
-                    match crate::api::ap::inbox::resolve_or_fetch_remote_account(&state2, &target_uri).await {
-                        Err(e) => {
-                            tracing::warn!(target_uri, error = %e, "failed to re-fetch actor; dropping Follow");
-                            return;
-                        }
-                        Ok(_) => {
-                            let row = sqlx::query!(
-                                r#"SELECT CASE WHEN shared_inbox_url <> '' THEN shared_inbox_url ELSE inbox_url END AS inbox
-                                   FROM accounts WHERE uri = $1"#,
-                                target_uri,
-                            )
-                            .fetch_optional(&state2.db)
-                            .await
-                            .ok()
-                            .flatten()
-                            .and_then(|r| r.inbox)
-                            .filter(|s| !s.is_empty());
-                            match row {
-                                Some(i) => i,
-                                None => {
-                                    tracing::warn!(target_uri, "still no inbox URL after re-fetch; dropping Follow");
-                                    return;
-                                }
-                            }
-                        }
+            let inbox = if inbox.is_empty() {
+                tracing::warn!(target_uri, "inbox URL missing; re-fetching actor profile");
+                match crate::api::ap::inbox::resolve_or_fetch_remote_account(&state, &target_uri).await {
+                    Err(e) => {
+                        tracing::warn!(target_uri, error = %e, "failed to re-fetch actor; dropping Follow");
+                        None
                     }
-                } else {
-                    inbox
-                };
-                tracing::debug!(inbox, target_uri, "delivering Follow");
-                if let Err(e) = crate::federation::delivery::deliver(
-                    &state2.http, &follow_activity, &inbox, &key_id, &private_key,
+                    Ok(_) => {
+                        sqlx::query!(
+                            r#"SELECT CASE WHEN shared_inbox_url <> '' THEN shared_inbox_url ELSE inbox_url END AS inbox
+                               FROM accounts WHERE uri = $1"#,
+                            target_uri,
+                        )
+                        .fetch_optional(&state.db)
+                        .await
+                        .ok()
+                        .flatten()
+                        .and_then(|r| r.inbox)
+                        .filter(|s| !s.is_empty())
+                    }
+                }
+            } else {
+                Some(inbox)
+            };
+            if let Some(inbox) = inbox {
+                if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+                    &state,
+                    follow_activity,
+                    vec![inbox],
+                    key_id,
+                    private_key,
                 )
                 .await
                 {
-                    tracing::warn!(inbox, error = %e, "failed to deliver Follow");
+                    tracing::warn!(error = %e, "failed to enqueue Follow");
                 }
-            });
+            } else {
+                tracing::warn!(target_uri, "still no inbox URL after re-fetch; dropping Follow");
+            }
         }
 
         return build_relationship(&state, auth.account_id, target_id).await.map(Json);
@@ -958,17 +958,23 @@ pub async fn unfollow_account(
             let undo = crate::federation::activity::undo_follow(
                 &undo_id, &actor_url, &follow_uri, &actor_url, &target.uri,
             )?;
-            let inbox = target.inbox_url.clone();
+            let inbox = if !target.shared_inbox_url.is_empty() {
+                target.shared_inbox_url.clone()
+            } else {
+                target.inbox_url.clone()
+            };
             if !inbox.is_empty() {
-                let http = state.http.clone();
-                tokio::spawn(async move {
-                    if let Err(e) =
-                        crate::federation::delivery::deliver(&http, &undo, &inbox, &key_id, &private_key)
-                            .await
-                    {
-                        tracing::warn!(inbox, error = %e, "failed to deliver Undo(Follow)");
-                    }
-                });
+                if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+                    &state,
+                    undo,
+                    vec![inbox],
+                    key_id,
+                    private_key,
+                )
+                .await
+                {
+                    tracing::warn!(error = %e, "failed to enqueue Undo(Follow)");
+                }
             }
         }
     }
@@ -1713,7 +1719,11 @@ async fn distribute_account_update(state: &AppState, domain: &str, account: &Acc
         return;
     };
     let key_id = format!("{}#main-key", actor_url);
-    crate::federation::delivery::fanout_to_followers(state, activity, account.id, key_id, private_key);
+    if let Err(e) =
+        crate::federation::delivery::fanout_to_followers(state, activity, account.id, key_id, private_key).await
+    {
+        tracing::warn!(error = %e, "failed to enqueue account Update fanout");
+    }
 }
 
 pub async fn update_credentials(
@@ -1947,12 +1957,17 @@ pub async fn block_account(
                     let key_id = format!("{}#main-key", actor_url);
                     let inbox = if !target.shared_inbox_url.is_empty() { target.shared_inbox_url } else { target.inbox_url };
                     if !inbox.is_empty() {
-                        let http = state.http.clone();
-                        tokio::spawn(async move {
-                            if let Err(e) = crate::federation::delivery::deliver(&http, &block_act, &inbox, &key_id, &private_key).await {
-                                tracing::warn!(inbox, error = %e, "failed to deliver Block");
-                            }
-                        });
+                        if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+                            &state,
+                            block_act,
+                            vec![inbox],
+                            key_id,
+                            private_key,
+                        )
+                        .await
+                        {
+                            tracing::warn!(error = %e, "failed to enqueue Block");
+                        }
                     }
                 }
             }
@@ -1999,12 +2014,17 @@ pub async fn unblock_account(
                     let key_id = format!("{}#main-key", actor_url);
                     let inbox = if !target.shared_inbox_url.is_empty() { target.shared_inbox_url } else { target.inbox_url };
                     if !inbox.is_empty() {
-                        let http = state.http.clone();
-                        tokio::spawn(async move {
-                            if let Err(e) = crate::federation::delivery::deliver(&http, &undo, &inbox, &key_id, &private_key).await {
-                                tracing::warn!(inbox, error = %e, "failed to deliver Undo(Block)");
-                            }
-                        });
+                        if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+                            &state,
+                            undo,
+                            vec![inbox],
+                            key_id,
+                            private_key,
+                        )
+                        .await
+                        {
+                            tracing::warn!(error = %e, "failed to enqueue Undo(Block)");
+                        }
                     }
                 }
             }
@@ -2302,17 +2322,18 @@ pub async fn authorize_follow_request(
                     if inbox.is_empty() {
                         tracing::warn!(requester_uri = %requester.uri, "cannot deliver Accept: remote actor has no inbox URL");
                     } else {
-                        let http = state.http.clone();
-                        tracing::debug!(inbox, requester_uri = %requester.uri, "delivering Accept");
-                        tokio::spawn(async move {
-                            if let Err(e) = crate::federation::delivery::deliver(
-                                &http, &activity, &inbox, &key_id, &private_key,
-                            )
-                            .await
-                            {
-                                tracing::warn!(inbox, error = %e, "failed to deliver Accept");
-                            }
-                        });
+                        tracing::debug!(inbox, requester_uri = %requester.uri, "enqueueing Accept");
+                        if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+                            &state,
+                            activity,
+                            vec![inbox],
+                            key_id,
+                            private_key,
+                        )
+                        .await
+                        {
+                            tracing::warn!(error = %e, "failed to enqueue Accept");
+                        }
                     }
                 }
             }
@@ -2373,16 +2394,17 @@ pub async fn reject_follow_request(
                     )?;
                     let inbox = requester.inbox_url.clone();
                     if !inbox.is_empty() {
-                        let http = state.http.clone();
-                        tokio::spawn(async move {
-                            if let Err(e) = crate::federation::delivery::deliver(
-                                &http, &activity, &inbox, &key_id, &private_key,
-                            )
-                            .await
-                            {
-                                tracing::warn!(inbox, error = %e, "failed to deliver Reject");
-                            }
-                        });
+                        if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+                            &state,
+                            activity,
+                            vec![inbox],
+                            key_id,
+                            private_key,
+                        )
+                        .await
+                        {
+                            tracing::warn!(error = %e, "failed to enqueue Reject");
+                        }
                     }
                 }
             }
@@ -3258,13 +3280,17 @@ pub async fn move_account(
         let move_id = format!("{actor_url}#moves/{}", crate::snowflake::next_id());
         let activity = crate::federation::activity::move_actor(&move_id, &actor_url, &actor_url, &new_uri);
         let key_id = format!("{actor_url}#main-key");
-        crate::federation::delivery::fanout_to_followers(
+        if let Err(e) = crate::federation::delivery::fanout_to_followers(
             &state,
             activity,
             auth.account_id,
             key_id,
             private_key,
-        );
+        )
+        .await
+        {
+            tracing::warn!(error = %e, "failed to enqueue Move fanout");
+        }
     }
 
     Ok(Json(serde_json::json!({})))
