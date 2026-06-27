@@ -32,6 +32,28 @@ async fn test_get_private_status_non_follower() {
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
+/// GET a private status as a mentioned non-follower -> 200, matching Mastodon.
+#[tokio::test]
+async fn test_get_private_status_mentioned_non_follower() {
+    let ctx = TestContext::new("prv-mentioned").await;
+
+    let status: Value = ctx.api.post_json(
+        "/api/v1/statuses",
+        Some(&ctx.alice_token),
+        &json!({
+            "status": "@bob alice private mention",
+            "visibility": "private",
+        }),
+    ).await.json().await.unwrap();
+    let id = status["id"].as_str().unwrap();
+
+    let resp = ctx
+        .api
+        .get(&format!("/api/v1/statuses/{id}"), Some(&ctx.bob_token))
+        .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
 /// GET a private status as an accepted follower → 200.
 #[tokio::test]
 async fn test_get_private_status_accepted_follower() {
@@ -2241,6 +2263,29 @@ async fn test_batch_get_statuses_skips_invisible() {
     assert!(ids.contains(&pub_id), "public status should be in batch result");
 }
 
+/// GET /api/v1/statuses?id[]=... includes private statuses mentioning the viewer.
+#[tokio::test]
+async fn test_batch_get_statuses_shows_private_to_mentioned() {
+    let ctx = TestContext::new("batch-private-mention").await;
+
+    let prv: Value = ctx.api.post_json(
+        "/api/v1/statuses",
+        Some(&ctx.alice_token),
+        &json!({
+            "status": "@bob private batch test",
+            "visibility": "private"
+        }),
+    ).await.json().await.unwrap();
+    let prv_id = prv["id"].as_str().unwrap();
+
+    let statuses: Vec<Value> = ctx.api.get(
+        &format!("/api/v1/statuses?id[]={prv_id}"),
+        Some(&ctx.bob_token),
+    ).await.json().await.unwrap();
+    let ids: Vec<&str> = statuses.iter().filter_map(|s| s["id"].as_str()).collect();
+    assert!(ids.contains(&prv_id), "mentioned recipient should see private status in batch");
+}
+
 /// GET /api/v1/statuses?id[]=... shows a direct status to the mentioned recipient.
 #[tokio::test]
 async fn test_batch_get_statuses_shows_direct_to_mentioned() {
@@ -2931,6 +2976,42 @@ async fn test_context_shows_private_status_to_follower() {
     assert!(
         descendant_ids.contains(&private_id),
         "private reply should appear in context for a follower",
+    );
+}
+
+/// Private statuses in a thread context are visible to mentioned non-followers.
+#[tokio::test]
+async fn test_context_shows_private_status_to_mentioned_non_follower() {
+    let ctx = TestContext::new("ctx-prv-mentioned").await;
+
+    let public_s = ctx.api.post_status(&ctx.bob_token, "public root", "public").await;
+    let public_id = public_s["id"].as_str().unwrap();
+
+    let private_reply: Value = ctx.api.post_json(
+        "/api/v1/statuses",
+        Some(&ctx.alice_token),
+        &json!({
+            "status": "@bob private reply",
+            "visibility": "private",
+            "in_reply_to_id": public_id,
+        }),
+    ).await.json().await.unwrap();
+    let private_id = private_reply["id"].as_str().unwrap();
+
+    let context: Value = ctx.api.get(
+        &format!("/api/v1/statuses/{public_id}/context"),
+        Some(&ctx.bob_token),
+    ).await.json().await.unwrap();
+
+    let descendant_ids: Vec<&str> = context["descendants"]
+        .as_array().unwrap()
+        .iter()
+        .filter_map(|s| s["id"].as_str())
+        .collect();
+
+    assert!(
+        descendant_ids.contains(&private_id),
+        "private reply should appear in context for mentioned non-follower",
     );
 }
 

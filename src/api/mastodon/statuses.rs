@@ -962,15 +962,20 @@ pub async fn get_statuses_batch(
         std::collections::HashSet::new()
     };
 
-    // Batch mention check for direct statuses
-    let direct_ids: Vec<i64> = statuses.iter()
-        .filter(|s| s.visibility == crate::db::models::vis::DIRECT && viewer_id != Some(s.account_id))
+    // Batch mention check for statuses whose visibility can be granted by mention.
+    let mention_checked_ids: Vec<i64> = statuses.iter()
+        .filter(|s| {
+            matches!(
+                s.visibility,
+                crate::db::models::vis::PRIVATE | crate::db::models::vis::DIRECT
+            ) && viewer_id != Some(s.account_id)
+        })
         .map(|s| s.id)
         .collect();
-    let mentioned_status_ids: std::collections::HashSet<i64> = if let (Some(vid), false) = (viewer_id, direct_ids.is_empty()) {
+    let mentioned_status_ids: std::collections::HashSet<i64> = if let (Some(vid), false) = (viewer_id, mention_checked_ids.is_empty()) {
         sqlx::query_scalar!(
             "SELECT status_id FROM mentions WHERE account_id = $1 AND status_id = ANY($2::bigint[])",
-            vid, &direct_ids,
+            vid, &mention_checked_ids,
         )
         .fetch_all(&state.db)
         .await?
@@ -986,7 +991,11 @@ pub async fn get_statuses_batch(
                 return false;
             }
             match s.visibility {
-                crate::db::models::vis::PRIVATE => viewer_id == Some(s.account_id) || followed_ids.contains(&s.account_id),
+                crate::db::models::vis::PRIVATE => {
+                    viewer_id == Some(s.account_id)
+                        || followed_ids.contains(&s.account_id)
+                        || mentioned_status_ids.contains(&s.id)
+                }
                 crate::db::models::vis::DIRECT => viewer_id == Some(s.account_id) || mentioned_status_ids.contains(&s.id),
                 _ => true,
             }
@@ -1119,7 +1128,18 @@ pub async fn get_status(
             } else {
                 false
             };
-            if !is_author && !is_follower {
+            let is_mentioned = if let Some(vid) = viewer_id {
+                sqlx::query_scalar!(
+                    "SELECT 1 as e FROM mentions WHERE status_id = $1 AND account_id = $2",
+                    id, vid,
+                )
+                .fetch_optional(&state.db)
+                .await?
+                .is_some()
+            } else {
+                false
+            };
+            if !is_author && !is_follower && !is_mentioned {
                 return Err(AppError::NotFound);
             }
         }
@@ -2818,7 +2838,14 @@ async fn check_status_visible(
             .fetch_optional(&state.db)
             .await?
             .is_some();
-            if !is_follower {
+            let is_mentioned = sqlx::query_scalar!(
+                "SELECT 1 as e FROM mentions WHERE status_id = $1 AND account_id = $2",
+                status.id, viewer_id,
+            )
+            .fetch_optional(&state.db)
+            .await?
+            .is_some();
+            if !is_follower && !is_mentioned {
                 return Err(AppError::NotFound);
             }
         }
