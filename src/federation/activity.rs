@@ -160,6 +160,13 @@ pub fn move_actor(id: &str, actor: &str, object: &str, target: &str) -> Value {
     })
 }
 
+/// Build an `Update(Person)` activity for local actor/profile changes.
+pub fn update_actor(id: &str, actor: &str, object: Value) -> anyhow::Result<Value> {
+    let mut update = vocab::Update::new(iri(id)?, actor_ref(actor)?, object);
+    update.to = vocab::References::one(iri(AS_PUBLIC)?);
+    to_value(&update)
+}
+
 // ── Like ──────────────────────────────────────────────────────────────────────
 
 /// Build a `Like` activity (favourite).
@@ -256,6 +263,25 @@ mod tests {
             v["object"],
             json!({ "type": "Tombstone", "id": "https://a.test/notes/1" })
         );
+    }
+
+    #[test]
+    fn update_actor_embeds_public_actor_object() {
+        let v = update_actor(
+            "https://a.test/u/alice#updates/1",
+            "https://a.test/u/alice",
+            json!({
+                "id": "https://a.test/u/alice",
+                "type": "Person",
+                "inbox": "https://a.test/u/alice/inbox",
+            }),
+        )
+        .unwrap();
+        assert_eq!(v["type"], "Update");
+        assert_eq!(v["to"], AS_PUBLIC);
+        assert_eq!(v["actor"], "https://a.test/u/alice");
+        assert_eq!(v["object"]["type"], "Person");
+        assert_eq!(v["object"]["id"], "https://a.test/u/alice");
     }
 
     #[test]

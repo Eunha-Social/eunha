@@ -1860,7 +1860,7 @@ dependencies = [
 [[package]]
 name = "feder-core"
 version = "0.1.0"
-source = "git+https://github.com/limeburst/feder.git#7928f75bbb2421b170e5d15eb48adf9ea495b80e"
+source = "git+https://github.com/limeburst/feder.git#540c00a33ed0a204c97b457e5d66a2ba1a36bfbd"
 dependencies = [
  "feder-vocab",
 ]
@@ -1868,7 +1868,7 @@ dependencies = [
 [[package]]
 name = "feder-runtime"
 version = "0.1.0"
-source = "git+https://github.com/limeburst/feder.git#7928f75bbb2421b170e5d15eb48adf9ea495b80e"
+source = "git+https://github.com/limeburst/feder.git#540c00a33ed0a204c97b457e5d66a2ba1a36bfbd"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -1883,7 +1883,7 @@ dependencies = [
 [[package]]
 name = "feder-vocab"
 version = "0.1.0"
-source = "git+https://github.com/limeburst/feder.git#7928f75bbb2421b170e5d15eb48adf9ea495b80e"
+source = "git+https://github.com/limeburst/feder.git#540c00a33ed0a204c97b457e5d66a2ba1a36bfbd"
 dependencies = [
  "iri-string",
  "serde",
@@ -3847,7 +3847,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.59.0",
 ]

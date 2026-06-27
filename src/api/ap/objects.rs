@@ -4,7 +4,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use serde_json::json;
+use serde_json::{json, Value};
 
 use crate::{
     error::{AppError, AppResult},
@@ -125,8 +125,23 @@ pub async fn get_actor(
     .await?
     .ok_or(AppError::NotFound)?;
 
-    let base = format!("https://{}", instance.domain);
-    let actor_url = format!("{}/users/{}", base, username);
+    let actor = actor_json(&state, &instance.domain, &account).await?;
+
+    Ok((
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, CONTENT_TYPE)],
+        Json(actor),
+    )
+        .into_response())
+}
+
+pub async fn actor_json(
+    state: &AppState,
+    domain: &str,
+    account: &crate::db::models::Account,
+) -> AppResult<Value> {
+    let base = format!("https://{}", domain);
+    let actor_url = format!("{}/users/{}", base, account.username);
 
     // Account migration metadata: aliases (alsoKnownAs) + movedTo target URI.
     let also_known_as: Vec<String> = sqlx::query_scalar!(
@@ -144,9 +159,18 @@ pub async fn get_actor(
         None
     };
 
-    let has_avatar = account.avatar_file_name.as_ref().map_or(false, |s| !s.is_empty())
-        || account.avatar_remote_url.as_ref().map_or(false, |s| !s.is_empty());
-    let has_header = account.header_file_name.as_ref().map_or(false, |s| !s.is_empty())
+    let has_avatar = account
+        .avatar_file_name
+        .as_ref()
+        .map_or(false, |s| !s.is_empty())
+        || account
+            .avatar_remote_url
+            .as_ref()
+            .map_or(false, |s| !s.is_empty());
+    let has_header = account
+        .header_file_name
+        .as_ref()
+        .map_or(false, |s| !s.is_empty())
         || account.header_remote_url.is_empty() == false;
     let avatar_url = crate::api::mastodon::convert::account_avatar_url_for(&account);
     let header_url = crate::api::mastodon::convert::account_header_url_for(&account);
@@ -199,10 +223,5 @@ pub async fn get_actor(
         "movedTo": moved_to,
     });
 
-    Ok((
-        StatusCode::OK,
-        [(header::CONTENT_TYPE, CONTENT_TYPE)],
-        Json(actor),
-    )
-        .into_response())
+    Ok(actor)
 }

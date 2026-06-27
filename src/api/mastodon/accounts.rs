@@ -1686,7 +1686,34 @@ async fn do_update_credentials(
     // default_quote_policy is in users.settings (YAML) in Mastodon's schema; not persisted here.
     let _ = &source_quote_policy;
 
+    sqlx::query!("UPDATE accounts SET updated_at = now() WHERE id = $1", auth.account_id)
+        .execute(&state.db)
+        .await?;
+
     fetch_account(state, auth.account_id).await
+}
+
+async fn distribute_account_update(state: &AppState, domain: &str, account: &Account) {
+    let Some(private_key) = account.private_key.clone().filter(|s| !s.is_empty()) else {
+        return;
+    };
+    if account.domain.is_some() {
+        return;
+    }
+    let actor_url = if account.uri.is_empty() {
+        format!("https://{}/users/{}", domain, account.username)
+    } else {
+        account.uri.clone()
+    };
+    let Ok(actor) = crate::api::ap::objects::actor_json(state, domain, account).await else {
+        return;
+    };
+    let update_id = format!("{}#updates/{}", actor_url, account.updated_at.timestamp());
+    let Ok(activity) = crate::federation::activity::update_actor(&update_id, &actor_url, actor) else {
+        return;
+    };
+    let key_id = format!("{}#main-key", actor_url);
+    crate::federation::delivery::fanout_to_followers(state, activity, account.id, key_id, private_key);
 }
 
 pub async fn update_credentials(
@@ -1697,6 +1724,7 @@ pub async fn update_credentials(
 ) -> AppResult<Json<ApiAccount>> {
     auth.require_scope("write:accounts")?;
     let account = do_update_credentials(&state, &auth, &instance.domain, multipart).await?;
+    distribute_account_update(&state, &instance.domain, &account).await;
     build_credential_account_response(&state, &auth, account).await
 }
 
@@ -1710,6 +1738,7 @@ pub async fn patch_profile(
 ) -> AppResult<Json<super::types::Profile>> {
     auth.require_scope("write:accounts")?;
     let account = do_update_credentials(&state, &auth, &instance.domain, multipart).await?;
+    distribute_account_update(&state, &instance.domain, &account).await;
 
     let domain = &instance.domain;
     let featured_tag_rows = sqlx::query!(
@@ -3645,10 +3674,11 @@ async fn build_profile(
 pub async fn delete_profile_avatar(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedUser>,
+    Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
 ) -> AppResult<Json<super::types::Account>> {
     auth.require_scope("write:accounts")?;
     sqlx::query!(
-        "UPDATE accounts SET avatar_file_name = NULL, avatar_content_type = NULL, avatar_file_size = NULL, avatar_updated_at = NULL WHERE id = $1",
+        "UPDATE accounts SET avatar_file_name = NULL, avatar_content_type = NULL, avatar_file_size = NULL, avatar_updated_at = NULL, updated_at = now() WHERE id = $1",
         auth.account_id,
     )
     .execute(&state.db)
@@ -3660,6 +3690,7 @@ pub async fn delete_profile_avatar(
     )
     .fetch_one(&state.db)
     .await?;
+    distribute_account_update(&state, &instance.domain, &account).await;
     let mut api = account_from_db(&account);
     api.emojis = fetch_account_emojis(&state, &account).await;
     api.roles = fetch_account_roles(&state, account.id).await;
@@ -3671,10 +3702,11 @@ pub async fn delete_profile_avatar(
 pub async fn delete_profile_header(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedUser>,
+    Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
 ) -> AppResult<Json<super::types::Account>> {
     auth.require_scope("write:accounts")?;
     sqlx::query!(
-        "UPDATE accounts SET header_file_name = NULL, header_content_type = NULL, header_file_size = NULL, header_updated_at = NULL WHERE id = $1",
+        "UPDATE accounts SET header_file_name = NULL, header_content_type = NULL, header_file_size = NULL, header_updated_at = NULL, updated_at = now() WHERE id = $1",
         auth.account_id,
     )
     .execute(&state.db)
@@ -3686,6 +3718,7 @@ pub async fn delete_profile_header(
     )
     .fetch_one(&state.db)
     .await?;
+    distribute_account_update(&state, &instance.domain, &account).await;
     let mut api = account_from_db(&account);
     api.emojis = fetch_account_emojis(&state, &account).await;
     api.roles = fetch_account_roles(&state, account.id).await;
