@@ -1,12 +1,14 @@
 CREATE SCHEMA IF NOT EXISTS eunha;
 
 CREATE TABLE eunha.activity_delivery_jobs (
-    id              BIGSERIAL PRIMARY KEY,
-    activity        JSONB NOT NULL,
-    inbox_url       TEXT NOT NULL,
-    key_id          TEXT NOT NULL,
-    private_key_pem TEXT NOT NULL,
-    attempts        INTEGER NOT NULL DEFAULT 0,
+    id               BIGSERIAL PRIMARY KEY,
+    activity         JSONB NOT NULL,
+    inbox_url        TEXT NOT NULL,
+    key_id           TEXT NOT NULL,
+    -- Signing account; its private key is loaded from `accounts` at send time
+    -- rather than copied into every job row.
+    actor_account_id BIGINT,
+    attempts         INTEGER NOT NULL DEFAULT 0,
     max_attempts    INTEGER NOT NULL DEFAULT 12,
     run_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     locked_at       TIMESTAMPTZ,
