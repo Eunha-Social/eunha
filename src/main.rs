@@ -22,17 +22,11 @@ async fn main() -> anyhow::Result<()> {
 
     let state = state::AppState::new(db, config.clone()).await?;
     eunha::background::spawn(state.clone());
-    let app = eunha::with_rate_limit(build_app(state));
+    let app = build_app(state);
 
     let listener = tokio::net::TcpListener::bind(&config.bind_address).await?;
     tracing::info!("listening on {}", config.bind_address);
-    // ConnectInfo lets the rate limiter fall back to the peer address when no
-    // forwarding header is present.
-    axum::serve(
-        listener,
-        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-    )
-    .await?;
+    axum::serve(listener, app).await?;
 
     Ok(())
 }
