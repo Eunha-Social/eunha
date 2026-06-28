@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.account_id, s.visibility, a.username, a.uri AS account_uri,\n                  a.private_key, p.updated_at AS poll_updated_at\n           FROM statuses s\n           JOIN accounts a ON a.id = s.account_id\n           JOIN polls p ON p.status_id = s.id\n           WHERE s.id = $1\n             AND s.deleted_at IS NULL\n             AND s.reblog_of_id IS NULL\n             AND a.domain IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "account_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "visibility",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 2,
+        "name": "username",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "account_uri",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "private_key",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "poll_updated_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "f50c71800949f77c7b6988a9c8445de02b64fd6da655c6056571edfa3bcc658d"
+}

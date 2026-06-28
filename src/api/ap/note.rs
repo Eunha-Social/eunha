@@ -20,6 +20,7 @@ pub fn note_context() -> Value {
         {
             "sensitive": "as:sensitive",
             "toot": "http://joinmastodon.org/ns#",
+            "votersCount": "toot:votersCount",
             "blurhash": "toot:blurhash",
             "Hashtag": "as:Hashtag",
             "Emoji": "toot:Emoji",
@@ -224,6 +225,64 @@ pub async fn build_note(
         "attachment": attachment,
         "tag": tag,
     });
+
+    // Mastodon serializes statuses with polls as ActivityPub Questions. The
+    // options expose tallies only once results are visible.
+    if let Some(poll) = sqlx::query_as!(
+        models::Poll,
+        "SELECT * FROM polls WHERE status_id = $1",
+        s.id,
+    )
+    .fetch_optional(&state.db)
+    .await?
+    {
+        let expired = poll.expires_at.map_or(false, |t| t <= chrono::Utc::now().naive_utc());
+        let show_totals = expired || !poll.hide_totals;
+        let counts = sqlx::query!(
+            "SELECT choice, COUNT(*)::bigint AS \"count!\" FROM poll_votes WHERE poll_id = $1 GROUP BY choice",
+            poll.id,
+        )
+        .fetch_all(&state.db)
+        .await?;
+        let mut tallies = vec![0_i64; poll.options.len()];
+        for row in counts {
+            if let Some(slot) = tallies.get_mut(row.choice as usize) {
+                *slot = row.count;
+            }
+        }
+        let options: Vec<Value> = poll
+            .options
+            .iter()
+            .enumerate()
+            .map(|(idx, option)| {
+                json!({
+                    "type": "Note",
+                    "name": option,
+                    "replies": {
+                        "type": "Collection",
+                        "totalItems": if show_totals { json!(tallies[idx]) } else { Value::Null },
+                    },
+                })
+            })
+            .collect();
+
+        note["type"] = json!("Question");
+        if poll.multiple {
+            note["anyOf"] = json!(options);
+        } else {
+            note["oneOf"] = json!(options);
+        }
+        if let Some(expires_at) = poll.expires_at {
+            let timestamp = expires_at.and_utc().to_rfc3339();
+            note["endTime"] = json!(timestamp);
+            if expired {
+                note["closed"] = json!(timestamp);
+            }
+        }
+        if let Some(voters_count) = poll.voters_count {
+            note["votersCount"] = json!(voters_count);
+        }
+    }
 
     if let Some(lang) = s.language.as_deref().filter(|l| !l.is_empty()) {
         note["contentMap"] = json!({ lang: note["content"].clone() });

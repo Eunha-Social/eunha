@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT\n             CASE WHEN a.shared_inbox_url IS NOT NULL AND a.shared_inbox_url <> ''\n                  THEN a.shared_inbox_url\n                  ELSE a.inbox_url\n             END AS inbox\n           FROM mentions m\n           JOIN accounts a ON a.id = m.account_id\n           WHERE m.status_id = $1\n             AND a.domain IS NOT NULL\n             AND a.inbox_url <> ''",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "inbox",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "fbf867e951064960e7734885ef381e7dc0d1ddc9643d85e98e8ae4c5dd6eed94"
+}

@@ -516,10 +516,12 @@ pub async fn post_status(
         let expires_at = poll_form.expires_in.map(|secs| chrono::Utc::now().naive_utc() + chrono::Duration::seconds(secs));
         let poll_options: Vec<String> = poll_form.options.clone();
         sqlx::query!(
-            r#"INSERT INTO polls (status_id, account_id, options, multiple, expires_at)
-               VALUES ($1, $2, $3, $4, $5)"#,
+            r#"INSERT INTO polls
+                 (status_id, account_id, options, multiple, hide_totals, expires_at, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, $5, $6, now(), now())"#,
             status.id, account.id, &poll_options as &[String],
             poll_form.multiple.unwrap_or(false),
+            poll_form.hide_totals.unwrap_or(false),
             expires_at,
         )
         .execute(&state.db)
@@ -2541,6 +2543,10 @@ pub async fn edit_status(
         }
     }
 
+    if let Err(e) = federate_status_update(&state, id, &account, &updated_status).await {
+        tracing::warn!(status_id = id, error = %e, "failed to enqueue ActivityPub status update");
+    }
+
     Ok(Json(api_status))
 }
 
@@ -2932,6 +2938,95 @@ async fn fetch_account(state: &AppState, id: i64) -> AppResult<Account> {
         .fetch_optional(&state.db)
         .await?
         .ok_or(AppError::NotFound)
+}
+
+async fn federate_status_update(
+    state: &AppState,
+    status_id: i64,
+    account: &Account,
+    status: &DbStatus,
+) -> anyhow::Result<()> {
+    if account.domain.is_some() || status.reblog_of_id.is_some() {
+        return Ok(());
+    }
+    if !matches!(
+        status.visibility,
+        crate::db::models::vis::PUBLIC
+            | crate::db::models::vis::UNLISTED
+            | crate::db::models::vis::PRIVATE
+            | crate::db::models::vis::DIRECT
+    ) {
+        return Ok(());
+    }
+
+    let Some(private_key) = account.private_key.clone().filter(|s| !s.is_empty()) else {
+        return Ok(());
+    };
+
+    let bundle = match crate::api::ap::note::build_note(state, &state.instance.domain, status_id).await? {
+        Some(bundle) => bundle,
+        None => return Ok(()),
+    };
+
+    let updated_at = status
+        .edited_at
+        .unwrap_or_else(|| chrono::Utc::now().naive_utc())
+        .and_utc();
+    let update_id = format!("{}#updates/{}", bundle.note_uri, updated_at.timestamp());
+    let activity = serde_json::json!({
+        "@context": crate::api::ap::note::note_context(),
+        "id": update_id,
+        "type": "Update",
+        "actor": bundle.actor_url,
+        "published": updated_at.to_rfc3339(),
+        "to": bundle.to,
+        "cc": bundle.cc,
+        "object": bundle.note,
+    });
+    let key_id = format!("https://{}/users/{}#main-key", state.instance.domain, account.username);
+
+    let mention_inboxes: Vec<String> = sqlx::query!(
+        r#"SELECT DISTINCT
+             CASE WHEN a.shared_inbox_url IS NOT NULL AND a.shared_inbox_url <> ''
+                  THEN a.shared_inbox_url
+                  ELSE a.inbox_url
+             END AS inbox
+           FROM mentions m
+           JOIN accounts a ON a.id = m.account_id
+           WHERE m.status_id = $1
+             AND a.domain IS NOT NULL
+             AND a.inbox_url <> ''"#,
+        status_id,
+    )
+    .fetch_all(&state.db)
+    .await?
+    .into_iter()
+    .filter_map(|r| r.inbox)
+    .collect();
+
+    if !mention_inboxes.is_empty() {
+        crate::federation::delivery::deliver_to_inboxes(
+            state,
+            activity.clone(),
+            mention_inboxes,
+            key_id.clone(),
+            private_key.clone(),
+        )
+        .await?;
+    }
+
+    if status.visibility != crate::db::models::vis::DIRECT {
+        crate::federation::delivery::fanout_to_followers(
+            state,
+            activity,
+            account.id,
+            key_id,
+            private_key,
+        )
+        .await?;
+    }
+
+    Ok(())
 }
 
 /// Batch-fetch viewer context for a list of status IDs in 5 queries.

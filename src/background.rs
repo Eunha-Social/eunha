@@ -175,14 +175,17 @@ async fn publish_one(
             if options.len() >= 2 {
                 let expires_in = poll.get("expires_in").and_then(|v| v.as_i64());
                 let multiple = poll.get("multiple").and_then(|v| v.as_bool()).unwrap_or(false);
+                let hide_totals = poll.get("hide_totals").and_then(|v| v.as_bool()).unwrap_or(false);
                 let expires_at = expires_in.map(|s| chrono::Utc::now().naive_utc() + chrono::Duration::seconds(s));
                 let opts: Vec<String> = options.iter()
                     .filter_map(|o| o.as_str())
                     .map(|o| o.to_string())
                     .collect();
                 sqlx::query!(
-                    "INSERT INTO polls (status_id, account_id, options, multiple, expires_at) VALUES ($1,$2,$3,$4,$5)",
-                    status.id, account.id, &opts as &[String], multiple, expires_at,
+                    r#"INSERT INTO polls
+                         (status_id, account_id, options, multiple, hide_totals, expires_at, created_at, updated_at)
+                       VALUES ($1,$2,$3,$4,$5,$6,now(),now())"#,
+                    status.id, account.id, &opts as &[String], multiple, hide_totals, expires_at,
                 )
                 .execute(&state.db)
                 .await?;
@@ -294,6 +297,10 @@ async fn notify_expired_polls(state: &AppState) -> anyhow::Result<()> {
     .await?;
 
     for poll in expired {
+        if let Err(e) = crate::api::mastodon::polls::federate_poll_update(state, poll.status_id).await {
+            tracing::warn!(poll_id = poll.id, error = %e, "failed to enqueue expired poll ActivityPub update");
+        }
+
         // Collect recipients: poll author + all voters
         let mut recipients: Vec<i64> = vec![poll.account_id];
         let voters = sqlx::query_scalar!(

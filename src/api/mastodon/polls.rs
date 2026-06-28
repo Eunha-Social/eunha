@@ -75,35 +75,51 @@ pub async fn vote_poll(
     .await?
     .unwrap_or(true);
 
+    let mut created_votes: Vec<(i64, i32)> = Vec::new();
     for choice in &form.choices {
         if *choice < 0 || *choice >= option_count {
             return Err(AppError::Unprocessable("Invalid choice index".into()));
         }
-        sqlx::query!(
-            "INSERT INTO poll_votes (poll_id, account_id, choice) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+        if let Some(vote) = sqlx::query!(
+            r#"INSERT INTO poll_votes (poll_id, account_id, choice, created_at, updated_at)
+               VALUES ($1, $2, $3, now(), now())
+               ON CONFLICT DO NOTHING
+               RETURNING id, choice"#,
             id, auth.account_id, choice,
         )
-        .execute(&state.db)
-        .await?;
+        .fetch_optional(&state.db)
+        .await?
+        {
+            created_votes.push((vote.id, vote.choice));
+        }
     }
 
     // Recount votes_count; increment voters_count for multi-choice if this is a new voter.
     sqlx::query!(
-        "UPDATE polls SET votes_count = (SELECT COUNT(*) FROM poll_votes WHERE poll_id = $1) WHERE id = $1",
+        "UPDATE polls SET votes_count = (SELECT COUNT(*) FROM poll_votes WHERE poll_id = $1), updated_at = now() WHERE id = $1",
         id,
     )
     .execute(&state.db)
     .await?;
     if poll.multiple && was_first_vote {
         sqlx::query!(
-            "UPDATE polls SET voters_count = COALESCE(voters_count, 0) + 1 WHERE id = $1",
+            "UPDATE polls SET voters_count = COALESCE(voters_count, 0) + 1, updated_at = now() WHERE id = $1",
             id,
         )
         .execute(&state.db)
         .await?;
     }
 
+    if let Err(e) = federate_poll_votes(&state, &poll, auth.account_id, &created_votes).await {
+        tracing::warn!(poll_id = id, error = %e, "failed to enqueue ActivityPub poll vote");
+    }
+
     let poll = fetch_poll(&state, id).await?;
+    if !poll.hide_totals {
+        if let Err(e) = federate_poll_update(&state, poll.status_id).await {
+            tracing::warn!(poll_id = id, error = %e, "failed to enqueue ActivityPub poll update");
+        }
+    }
     poll_from_db(&state, &poll, Some(auth.account_id)).await.map(Json)
 }
 
@@ -117,7 +133,196 @@ async fn fetch_poll(state: &AppState, id: i64) -> AppResult<models::Poll> {
     )
     .fetch_optional(&state.db)
     .await?
-    .ok_or(AppError::NotFound)
+        .ok_or(AppError::NotFound)
+}
+
+async fn federate_poll_votes(
+    state: &AppState,
+    poll: &models::Poll,
+    voter_id: i64,
+    votes: &[(i64, i32)],
+) -> anyhow::Result<()> {
+    if votes.is_empty() {
+        return Ok(());
+    }
+
+    let voter = sqlx::query!(
+        "SELECT username, private_key FROM accounts WHERE id = $1 AND domain IS NULL",
+        voter_id,
+    )
+    .fetch_optional(&state.db)
+    .await?;
+    let Some(voter) = voter else { return Ok(()); };
+    let Some(private_key) = voter.private_key.filter(|s| !s.is_empty()) else {
+        return Ok(());
+    };
+
+    let remote = sqlx::query!(
+        r#"SELECT owner.uri AS owner_uri, owner.inbox_url, owner.shared_inbox_url,
+                  s.uri AS "status_uri?"
+           FROM accounts owner
+           JOIN statuses s ON s.id = $1
+           WHERE owner.id = $2 AND owner.domain IS NOT NULL"#,
+        poll.status_id,
+        poll.account_id,
+    )
+    .fetch_optional(&state.db)
+    .await?;
+    let Some(remote) = remote else { return Ok(()); };
+    let Some(status_uri) = remote.status_uri.filter(|s| !s.is_empty()) else {
+        return Ok(());
+    };
+
+    let inbox = if !remote.shared_inbox_url.is_empty() {
+        remote.shared_inbox_url
+    } else {
+        remote.inbox_url
+    };
+    if inbox.is_empty() {
+        return Ok(());
+    }
+
+    let actor = format!("https://{}/users/{}", state.instance.domain, voter.username);
+    let key_id = format!("{actor}#main-key");
+    let owner_uri = remote.owner_uri;
+
+    for (vote_id, choice) in votes {
+        let Some(option_name) = poll.options.get(*choice as usize) else {
+            continue;
+        };
+        let vote_uri = format!("{actor}#votes/{vote_id}");
+        sqlx::query!(
+            "UPDATE poll_votes SET uri = $2, updated_at = now() WHERE id = $1",
+            vote_id,
+            vote_uri,
+        )
+        .execute(&state.db)
+        .await?;
+
+        let activity = serde_json::json!({
+            "@context": "https://www.w3.org/ns/activitystreams",
+            "id": format!("{vote_uri}/activity"),
+            "type": "Create",
+            "actor": actor,
+            "to": owner_uri,
+            "object": {
+                "id": vote_uri,
+                "type": "Note",
+                "name": option_name,
+                "attributedTo": actor,
+                "inReplyTo": status_uri,
+                "to": owner_uri,
+            }
+        });
+
+        crate::federation::delivery::deliver_to_inboxes(
+            state,
+            activity,
+            vec![inbox.clone()],
+            key_id.clone(),
+            private_key.clone(),
+        )
+        .await?;
+    }
+
+    Ok(())
+}
+
+pub(crate) async fn federate_poll_update(state: &AppState, status_id: i64) -> anyhow::Result<()> {
+    let status = sqlx::query!(
+        r#"SELECT s.account_id, s.visibility, a.username, a.uri AS account_uri,
+                  a.private_key, p.updated_at AS poll_updated_at
+           FROM statuses s
+           JOIN accounts a ON a.id = s.account_id
+           JOIN polls p ON p.status_id = s.id
+           WHERE s.id = $1
+             AND s.deleted_at IS NULL
+             AND s.reblog_of_id IS NULL
+             AND a.domain IS NULL"#,
+        status_id,
+    )
+    .fetch_optional(&state.db)
+    .await?;
+    let Some(status) = status else { return Ok(()); };
+    let Some(private_key) = status.private_key.filter(|s| !s.is_empty()) else {
+        return Ok(());
+    };
+
+    let Some(bundle) = crate::api::ap::note::build_note(state, &state.instance.domain, status_id).await? else {
+        return Ok(());
+    };
+    let update_id = format!(
+        "{}#updates/{}",
+        bundle.note_uri,
+        status.poll_updated_at.and_utc().timestamp(),
+    );
+    let activity = serde_json::json!({
+        "@context": crate::api::ap::note::note_context(),
+        "id": update_id,
+        "type": "Update",
+        "actor": bundle.actor_url,
+        "to": bundle.to,
+        "cc": bundle.cc,
+        "object": bundle.note,
+    });
+    let actor_url = if status.account_uri.is_empty() {
+        format!("https://{}/users/{}", state.instance.domain, status.username)
+    } else {
+        status.account_uri
+    };
+    let key_id = format!("{actor_url}#main-key");
+
+    let mut inboxes: Vec<String> = sqlx::query!(
+        r#"SELECT DISTINCT inbox FROM (
+             SELECT CASE WHEN a.shared_inbox_url IS NOT NULL AND a.shared_inbox_url <> ''
+                         THEN a.shared_inbox_url ELSE a.inbox_url END AS inbox
+               FROM mentions m
+               JOIN accounts a ON a.id = m.account_id
+              WHERE m.status_id = $1 AND a.domain IS NOT NULL AND a.inbox_url <> ''
+             UNION
+             SELECT CASE WHEN a.shared_inbox_url IS NOT NULL AND a.shared_inbox_url <> ''
+                         THEN a.shared_inbox_url ELSE a.inbox_url END AS inbox
+               FROM statuses b
+               JOIN accounts a ON a.id = b.account_id
+              WHERE b.reblog_of_id = $1 AND b.deleted_at IS NULL AND a.domain IS NOT NULL AND a.inbox_url <> ''
+             UNION
+             SELECT CASE WHEN a.shared_inbox_url IS NOT NULL AND a.shared_inbox_url <> ''
+                         THEN a.shared_inbox_url ELSE a.inbox_url END AS inbox
+               FROM poll_votes pv
+               JOIN polls p ON p.id = pv.poll_id
+               JOIN accounts a ON a.id = pv.account_id
+              WHERE p.status_id = $1 AND a.domain IS NOT NULL AND a.inbox_url <> ''
+           ) recipients
+           WHERE inbox IS NOT NULL AND inbox <> ''"#,
+        status_id,
+    )
+    .fetch_all(&state.db)
+    .await?
+    .into_iter()
+    .filter_map(|r| r.inbox)
+    .collect();
+
+    if status.visibility != crate::db::models::vis::DIRECT {
+        let follower_inboxes = sqlx::query!(
+            r#"SELECT DISTINCT
+                 CASE WHEN a.shared_inbox_url IS NOT NULL AND a.shared_inbox_url <> ''
+                      THEN a.shared_inbox_url
+                      ELSE a.inbox_url
+                 END AS inbox
+               FROM follows f
+               JOIN accounts a ON a.id = f.account_id
+               WHERE f.target_account_id = $1
+                 AND a.domain IS NOT NULL
+                 AND a.inbox_url <> ''"#,
+            status.account_id,
+        )
+        .fetch_all(&state.db)
+        .await?;
+        inboxes.extend(follower_inboxes.into_iter().filter_map(|r| r.inbox));
+    }
+
+    crate::federation::delivery::deliver_to_inboxes(state, activity, inboxes, key_id, private_key).await?;
+    Ok(())
 }
 
 async fn poll_from_db(state: &AppState, poll: &models::Poll, viewer_id: Option<i64>) -> AppResult<Poll> {

@@ -143,8 +143,16 @@ async fn verify_inbound_signature(
 
     let hdr_vec = crate::federation::signature::headers_to_vec(headers);
     let hdr_refs: Vec<(&str, &str)> = hdr_vec.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
-    crate::federation::signature::verify_request("post", path, &hdr_refs, body, &pem)
-        .map_err(|e| e.to_string())
+    match crate::federation::signature::verify_request("post", path, &hdr_refs, body, &pem) {
+        Ok(()) => Ok(()),
+        Err(first_err) => {
+            let refreshed_pem = refresh_public_key(state, key_actor)
+                .await
+                .map_err(|e| format!("could not refresh public key: {e}"))?;
+            crate::federation::signature::verify_request("post", path, &hdr_refs, body, &refreshed_pem)
+                .map_err(|e| format!("{first_err}; after key refresh: {e}"))
+        }
+    }
 }
 
 async fn fetch_public_key(state: &AppState, actor_url: &str) -> anyhow::Result<String> {
@@ -158,14 +166,31 @@ async fn fetch_public_key(state: &AppState, actor_url: &str) -> anyhow::Result<S
         return Ok(pem);
     }
 
+    refresh_public_key(state, actor_url).await
+}
+
+async fn refresh_public_key(state: &AppState, actor_url: &str) -> anyhow::Result<String> {
     let actor = crate::federation::fetch::signed_get_json(state, actor_url).await?;
-    let pem = actor
+    let pem = public_key_from_actor(&actor)?;
+
+    sqlx::query!(
+        "UPDATE accounts SET public_key = $2, updated_at = now() WHERE uri = $1 AND domain IS NOT NULL",
+        actor_url,
+        pem,
+    )
+    .execute(&state.db)
+    .await?;
+
+    Ok(pem)
+}
+
+fn public_key_from_actor(actor: &Value) -> anyhow::Result<String> {
+    Ok(actor
         .get("publicKey")
         .and_then(|k| k.get("publicKeyPem"))
         .and_then(|p| p.as_str())
         .ok_or_else(|| anyhow::anyhow!("no publicKeyPem"))?
-        .to_string();
-    Ok(pem)
+        .to_string())
 }
 
 async fn handle_follow(
@@ -400,6 +425,12 @@ async fn handle_create(
 ) -> AppResult<()> {
     let object = match activity.get("object") {
         Some(o) if o.is_object() => o,
+        Some(o) if o.is_string() => {
+            if let Some(uri) = o.as_str() {
+                let _ = fetch_remote_status(state, uri).await?;
+            }
+            return Ok(());
+        }
         _ => return Ok(()),
     };
     let obj_type = object.get("type").and_then(|t| t.as_str()).unwrap_or("");
@@ -475,6 +506,18 @@ async fn handle_create(
     let in_reply_to_id = in_reply_to_row.as_ref().map(|r| r.id);
     let in_reply_to_account_id = in_reply_to_row.as_ref().map(|r| r.account_id);
     let in_reply_to_local = in_reply_to_row.as_ref().is_some_and(|r| r.is_local);
+
+    // Mastodon serializes poll votes as Create(Note) where the Note's
+    // `inReplyTo` is the poll status and `name` is the selected option. Store
+    // these as poll_votes instead of creating a visible status.
+    if let (Some(parent_id), Some(choice_name)) = (
+        in_reply_to_id,
+        object.get("name").and_then(|v| v.as_str()).filter(|s| !s.is_empty()),
+    ) {
+        if handle_poll_vote_note(state, account_id, parent_id, choice_name, note_uri).await? {
+            return Ok(());
+        }
+    }
 
     // Acceptance filter: only process if related to local activity (mirrors Mastodon's
     // related_to_local_activity? / addresses_local_accounts? checks).
@@ -948,17 +991,15 @@ async fn handle_create(
         }
     }
 
-    // Thread resolution: spawn a fetch if parent is not in our DB
+    // Thread resolution: store the unknown parent if it is dereferenceable.
     if let (Some(uri), None) = (in_reply_to_uri, in_reply_to_id) {
-        let http = state.http.clone();
+        let state = state.clone();
         let uri = uri.to_owned();
         tokio::spawn(async move {
             tracing::debug!(uri, "fetching unknown parent status for thread resolution");
-            let _ = http
-                .get(&uri)
-                .header("Accept", "application/activity+json, application/ld+json")
-                .send()
-                .await;
+            if let Err(e) = fetch_remote_status(&state, &uri).await {
+                tracing::debug!(uri, error = %e, "failed to store fetched parent status");
+            }
         });
     }
 
@@ -1090,18 +1131,20 @@ async fn handle_announce(
         Err(_) => return Ok(()),
     };
 
-    // Find the boosted status in our database
-    let original = sqlx::query!(
+    // Find the boosted status in our database, fetching URI-only boosted
+    // objects on demand like Mastodon's dereferencer path.
+    let mut original_id = sqlx::query_scalar!(
         "SELECT id FROM statuses WHERE uri = $1 AND deleted_at IS NULL",
         boosted_uri,
     )
     .fetch_optional(&state.db)
     .await?;
 
-    let Some(original) = original else {
-        // We don't have this status locally; skip
-        return Ok(());
-    };
+    if original_id.is_none() {
+        original_id = fetch_remote_status(state, boosted_uri).await?;
+    }
+
+    let Some(original_id) = original_id else { return Ok(()); };
 
     let published = activity
         .get("published")
@@ -1118,7 +1161,7 @@ async fn handle_announce(
            ON CONFLICT (uri) WHERE uri IS NOT NULL AND uri != '' DO NOTHING"#,
         boost_id,
         booster_id,
-        original.id,
+        original_id,
         crate::db::models::vis::PUBLIC,
         announce_uri,
         published,
@@ -1134,7 +1177,7 @@ async fn handle_announce(
              SET reblogs_count = (SELECT COUNT(*) FROM statuses
                                   WHERE reblog_of_id = $1 AND deleted_at IS NULL),
                  updated_at = now()"#,
-        original.id,
+        original_id,
     )
     .execute(&state.db)
     .await;
@@ -1150,25 +1193,25 @@ async fn handle_like(
     let actor_uri = activity.get("actor").and_then(|a| a.as_str()).unwrap_or("");
     let object_uri = activity.get("object").and_then(|o| o.as_str()).unwrap_or("");
 
-    let Some(status) = sqlx::query!("SELECT id FROM statuses WHERE uri = $1", object_uri)
+    let mut status_id = sqlx::query_scalar!("SELECT id FROM statuses WHERE uri = $1", object_uri)
         .fetch_optional(&state.db)
-        .await?
-    else {
-        return Ok(());
-    };
+        .await?;
 
-    let Some(account_id) =
-        sqlx::query_scalar!("SELECT id FROM accounts WHERE uri = $1", actor_uri)
-            .fetch_optional(&state.db)
-            .await?
-    else {
-        return Ok(());
+    if status_id.is_none() {
+        status_id = fetch_remote_status(state, object_uri).await?;
+    }
+
+    let Some(status_id) = status_id else { return Ok(()); };
+
+    let account_id = match resolve_or_fetch_remote_account(state, actor_uri).await {
+        Ok(id) => id,
+        Err(_) => return Ok(()),
     };
 
     sqlx::query!(
         "INSERT INTO favourites (account_id, status_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
         account_id,
-        status.id
+        status_id
     )
     .execute(&state.db)
     .await?;
@@ -1179,7 +1222,7 @@ async fn handle_like(
            ON CONFLICT (status_id) DO UPDATE
              SET favourites_count = (SELECT COUNT(*) FROM favourites WHERE status_id = $1),
                  updated_at = now()"#,
-        status.id
+        status_id
     )
     .execute(&state.db)
     .await?;
@@ -1362,8 +1405,17 @@ async fn handle_update(
     _instance: &crate::config::InstanceConfig,
     activity: &Value,
 ) -> AppResult<()> {
+    let fetched_object;
     let object = match activity.get("object") {
         Some(o) if o.is_object() => o,
+        Some(o) if o.is_string() => {
+            let Some(uri) = o.as_str() else { return Ok(()); };
+            fetched_object = match crate::federation::fetch::signed_get_json(state, uri).await {
+                Ok(v) => v,
+                Err(_) => return Ok(()),
+            };
+            &fetched_object
+        }
         _ => return Ok(()),
     };
 
@@ -1457,6 +1509,11 @@ async fn handle_update(
             .fetch_optional(&state.db)
             .await?;
 
+            if updated.is_none() {
+                let _ = fetch_remote_status(state, note_uri).await?;
+                return Ok(());
+            }
+
             let Some(row) = updated else { return Ok(()); };
 
             // Replace media attachments
@@ -1517,11 +1574,181 @@ async fn handle_update(
                         .execute(&state.db).await;
                 }
             }
+
+            sync_remote_poll(state, row.id, row.account_id, object).await?;
         }
         _ => {}
     }
 
     Ok(())
+}
+
+async fn sync_remote_poll(
+    state: &AppState,
+    status_id: i64,
+    account_id: i64,
+    object: &Value,
+) -> AppResult<()> {
+    let Some(items) = object
+        .get("oneOf")
+        .or_else(|| object.get("anyOf"))
+        .and_then(|v| v.as_array())
+    else {
+        return Ok(());
+    };
+
+    let multiple = object.get("anyOf").is_some();
+    let options: Vec<String> = items
+        .iter()
+        .filter_map(|item| item.get("name").and_then(|v| v.as_str()).map(str::to_owned))
+        .collect();
+    if options.is_empty() {
+        return Ok(());
+    }
+
+    let cached_tallies: Vec<i64> = items
+        .iter()
+        .map(|item| {
+            item.get("replies")
+                .and_then(|r| r.get("totalItems"))
+                .and_then(|v| v.as_i64())
+                .unwrap_or(0)
+        })
+        .collect();
+    let votes_count: i64 = cached_tallies.iter().sum();
+    let expires_at = object
+        .get("endTime")
+        .and_then(|v| v.as_str())
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|t| t.with_timezone(&chrono::Utc).naive_utc());
+
+    if let Some(poll_id) = sqlx::query_scalar!(
+        "SELECT id FROM polls WHERE status_id = $1",
+        status_id,
+    )
+    .fetch_optional(&state.db)
+    .await?
+    {
+        sqlx::query!(
+            r#"UPDATE polls
+               SET options = $2,
+                   cached_tallies = $3,
+                   votes_count = $4,
+                   multiple = $5,
+                   expires_at = $6,
+                   updated_at = now()
+               WHERE id = $1"#,
+            poll_id,
+            &options as &[String],
+            &cached_tallies as &[i64],
+            votes_count,
+            multiple,
+            expires_at,
+        )
+        .execute(&state.db)
+        .await?;
+    } else {
+        let poll_id = crate::snowflake::next_id();
+        if let Some(inserted_poll_id) = sqlx::query_scalar!(
+            r#"INSERT INTO polls
+                 (id, status_id, account_id, options, cached_tallies, votes_count,
+                  multiple, expires_at, created_at, updated_at)
+               SELECT $1,$2,$3,$4,$5,$6,$7,$8,now(),now()
+               WHERE NOT EXISTS (SELECT 1 FROM polls WHERE status_id = $2)
+               RETURNING id"#,
+            poll_id,
+            status_id,
+            account_id,
+            &options as &[String],
+            &cached_tallies as &[i64],
+            votes_count,
+            multiple,
+            expires_at,
+        )
+        .fetch_optional(&state.db)
+        .await?
+        {
+            sqlx::query!(
+                "UPDATE statuses SET poll_id = $1 WHERE id = $2",
+                inserted_poll_id,
+                status_id,
+            )
+            .execute(&state.db)
+            .await?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_poll_vote_note(
+    state: &AppState,
+    voter_id: i64,
+    status_id: i64,
+    choice_name: &str,
+    vote_uri: &str,
+) -> AppResult<bool> {
+    let Some(poll) = sqlx::query!(
+        "SELECT id, options, multiple, expires_at FROM polls WHERE status_id = $1",
+        status_id,
+    )
+    .fetch_optional(&state.db)
+    .await?
+    else {
+        return Ok(false);
+    };
+
+    if poll.expires_at.map(|e| e < chrono::Utc::now().naive_utc()).unwrap_or(false) {
+        return Ok(true);
+    }
+
+    let Some(choice) = poll.options.iter().position(|option| option == choice_name) else {
+        return Ok(true);
+    };
+    let choice = choice as i32;
+
+    let already_voted = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM poll_votes WHERE poll_id = $1 AND account_id = $2)",
+        poll.id,
+        voter_id,
+    )
+    .fetch_one(&state.db)
+    .await?
+    .unwrap_or(false);
+
+    if !poll.multiple && already_voted {
+        return Ok(true);
+    }
+
+    sqlx::query!(
+        r#"INSERT INTO poll_votes (account_id, poll_id, choice, uri, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, now(), now())
+           ON CONFLICT DO NOTHING"#,
+        voter_id,
+        poll.id,
+        choice,
+        vote_uri,
+    )
+    .execute(&state.db)
+    .await?;
+
+    sqlx::query!(
+        "UPDATE polls SET votes_count = (SELECT COUNT(*) FROM poll_votes WHERE poll_id = $1), updated_at = now() WHERE id = $1",
+        poll.id,
+    )
+    .execute(&state.db)
+    .await?;
+
+    if poll.multiple && !already_voted {
+        sqlx::query!(
+            "UPDATE polls SET voters_count = COALESCE(voters_count, 0) + 1, updated_at = now() WHERE id = $1",
+            poll.id,
+        )
+        .execute(&state.db)
+        .await?;
+    }
+
+    Ok(true)
 }
 
 async fn handle_block(
@@ -2151,7 +2378,7 @@ pub async fn fetch_remote_status(state: &AppState, uri: &str) -> AppResult<Optio
 
 /// Largest depth to which `fetch_remote_status` follows references (in-reply-to
 /// and quoted posts), to avoid unbounded fetch chains.
-const MAX_FETCH_DEPTH: u8 = 1;
+const MAX_FETCH_DEPTH: u8 = 2;
 
 async fn fetch_remote_status_depth(state: &AppState, uri: &str, depth: u8) -> AppResult<Option<i64>> {
     if uri.is_empty() {
@@ -2167,9 +2394,26 @@ async fn fetch_remote_status_depth(state: &AppState, uri: &str, depth: u8) -> Ap
         return Ok(Some(id));
     }
 
-    let object: Value = match crate::federation::fetch::signed_get_json(state, uri).await {
+    let fetched: Value = match crate::federation::fetch::signed_get_json(state, uri).await {
         Ok(v) => v,
         Err(_) => return Ok(None),
+    };
+
+    let nested_fetched;
+    let object = match fetched.get("type").and_then(|t| t.as_str()).unwrap_or("") {
+        "Create" | "Update" => match fetched.get("object") {
+            Some(o) if o.is_object() => o,
+            Some(o) if o.is_string() => {
+                let Some(object_uri) = o.as_str() else { return Ok(None); };
+                nested_fetched = match crate::federation::fetch::signed_get_json(state, object_uri).await {
+                    Ok(v) => v,
+                    Err(_) => return Ok(None),
+                };
+                &nested_fetched
+            }
+            _ => return Ok(None),
+        },
+        _ => &fetched,
     };
 
     // Only store Note-like objects.
@@ -2340,6 +2584,8 @@ async fn fetch_remote_status_depth(state: &AppState, uri: &str, depth: u8) -> Ap
         .execute(&state.db)
         .await;
     }
+
+    sync_remote_poll(state, new_id, account_id, object).await?;
 
     Ok(Some(new_id))
 }
