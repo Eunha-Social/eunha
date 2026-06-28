@@ -1,23 +1,24 @@
 //! ActivityPub activity delivery to remote inboxes.
 
+use futures::StreamExt as _;
 use serde_json::Value;
 use std::time::Duration;
 
 use crate::state::AppState;
 
-/// Maximum number of delivery attempts (1 initial + retries) for a transient
-/// failure before giving up.
-const MAX_ATTEMPTS: u32 = 4;
-/// Base backoff; doubled on each retry (0.5s, 1s, 2s …).
-const BASE_BACKOFF: Duration = Duration::from_millis(500);
 const DELIVERY_QUEUE_BATCH: i64 = 50;
+/// How many inboxes to deliver to concurrently within a batch. A few slow or
+/// dead inboxes must not stall delivery to healthy servers.
+const DELIVERY_QUEUE_CONCURRENCY: usize = 16;
 const DELIVERY_QUEUE_IDLE: Duration = Duration::from_secs(2);
 const DELIVERY_QUEUE_ERROR_IDLE: Duration = Duration::from_secs(10);
 
 /// Deliver an activity to a single remote inbox, signed with the given key.
 ///
-/// Transient failures (network errors, timeouts, HTTP 429/5xx) are retried with
-/// exponential backoff; permanent failures (most 4xx) return immediately.
+/// This is a single attempt: retries are owned by the durable delivery queue,
+/// which re-schedules transient failures with exponential backoff via `run_at`.
+/// Keeping this non-blocking lets the queue worker fan out concurrently instead
+/// of sleeping on a failing inbox.
 pub async fn deliver(
     http: &reqwest::Client,
     activity: &Value,
@@ -27,31 +28,7 @@ pub async fn deliver(
 ) -> anyhow::Result<()> {
     let body = serde_json::to_vec(activity)?;
     tracing::debug!(inbox = inbox_url, "delivering ActivityPub activity");
-
-    let mut attempt = 0;
-    loop {
-        attempt += 1;
-        match feder_runtime::delivery::deliver(http, &body, inbox_url, key_id, private_key_pem).await
-        {
-            Ok(()) => {
-                tracing::debug!(inbox = inbox_url, attempt, "federation delivery succeeded");
-                return Ok(());
-            }
-            Err(e) => {
-                let retriable = is_retriable(&e);
-                if !retriable || attempt >= MAX_ATTEMPTS {
-                    tracing::warn!(
-                        inbox = inbox_url, attempt, retriable, error = %e,
-                        "federation delivery failed; giving up"
-                    );
-                    return Err(e);
-                }
-                let backoff = BASE_BACKOFF * 2u32.pow(attempt - 1);
-                tracing::debug!(inbox = inbox_url, attempt, ?backoff, error = %e, "delivery failed; retrying");
-                tokio::time::sleep(backoff).await;
-            }
-        }
-    }
+    feder_runtime::delivery::deliver(http, &body, inbox_url, key_id, private_key_pem).await
 }
 
 /// Classify a delivery error as transient (worth retrying). feder-runtime
@@ -174,9 +151,20 @@ async fn enqueue_to_inboxes(
     key_id: String,
     private_key_pem: String,
 ) -> anyhow::Result<u64> {
+    // Never deliver to domains we've defederated (admin domain block at suspend
+    // severity), even for direct sends like consent replies and mentions.
+    let suspended = crate::federation::moderation::suspended_domains(state).await;
     let mut inboxes = inboxes
         .into_iter()
         .filter(|s| !s.is_empty())
+        .filter(|inbox| {
+            if crate::federation::moderation::inbox_suspended(inbox, &suspended) {
+                tracing::debug!(inbox, "skipping delivery to suspended domain");
+                false
+            } else {
+                true
+            }
+        })
         .collect::<Vec<_>>();
     inboxes.sort();
     inboxes.dedup();
@@ -241,85 +229,114 @@ async fn run_delivery_queue_batch(state: &AppState, worker_id: &str) -> anyhow::
     .await?;
 
     let count = jobs.len();
-    for job in jobs {
-        let result = deliver(
-            &state.http,
-            &job.activity,
-            &job.inbox_url,
-            &job.key_id,
-            &job.private_key_pem,
-        )
+
+    // Deliver to the picked inboxes concurrently. Each job records its own
+    // outcome; a single slow or dead inbox no longer blocks the rest of the
+    // batch, and a failed DB update on one job is logged rather than aborting
+    // the others.
+    futures::stream::iter(jobs)
+        .for_each_concurrent(DELIVERY_QUEUE_CONCURRENCY, |job| async move {
+            let result = deliver(
+                &state.http,
+                &job.activity,
+                &job.inbox_url,
+                &job.key_id,
+                &job.private_key_pem,
+            )
+            .await;
+            if let Err(e) = record_job_outcome(
+                state,
+                job.id,
+                &job.inbox_url,
+                job.attempts,
+                job.max_attempts,
+                result,
+            )
+            .await
+            {
+                tracing::error!(id = job.id, error = %e, "failed to record delivery job outcome");
+            }
+        })
         .await;
 
-        match result {
-            Ok(()) => {
-                sqlx::query!(
-                    r#"UPDATE eunha.activity_delivery_jobs
-                       SET delivered_at = now(),
-                           locked_at = NULL,
-                           locked_by = NULL,
-                           updated_at = now()
-                       WHERE id = $1"#,
-                    job.id,
-                )
-                .execute(&state.db)
-                .await?;
-            }
-            Err(e) => {
-                if is_gone(&e) {
-                    mark_domain_unavailable(state, &job.inbox_url).await;
-                }
-                let next_attempts = job.attempts + 1;
-                let terminal = !is_retriable(&e) || next_attempts >= job.max_attempts;
-                let error = e.to_string();
-                if terminal {
-                    sqlx::query!(
-                        r#"UPDATE eunha.activity_delivery_jobs
-                           SET attempts = $2,
-                               failed_at = now(),
-                               locked_at = NULL,
-                               locked_by = NULL,
-                               last_error = $3,
-                               updated_at = now()
-                           WHERE id = $1"#,
-                        job.id,
-                        next_attempts,
-                        error,
-                    )
-                    .execute(&state.db)
-                    .await?;
-                    tracing::warn!(
-                        id = job.id,
-                        inbox = job.inbox_url,
-                        attempts = next_attempts,
-                        error = %error,
-                        "ActivityPub delivery job failed permanently"
-                    );
-                } else {
-                    let backoff_secs = queue_backoff_seconds(next_attempts);
-                    let run_at = chrono::Utc::now() + chrono::Duration::seconds(backoff_secs);
-                    sqlx::query!(
-                        r#"UPDATE eunha.activity_delivery_jobs
-                           SET attempts = $2,
-                               run_at = $3,
-                               locked_at = NULL,
-                               locked_by = NULL,
-                               last_error = $4,
-                               updated_at = now()
-                           WHERE id = $1"#,
-                        job.id,
-                        next_attempts,
-                        run_at,
-                        error,
-                    )
-                    .execute(&state.db)
-                    .await?;
-                }
-            }
-        }
-    }
-
     Ok(count)
+}
+
+/// Persist the result of a single delivery attempt: mark delivered, re-schedule
+/// with backoff, or mark permanently failed.
+async fn record_job_outcome(
+    state: &AppState,
+    id: i64,
+    inbox_url: &str,
+    attempts: i32,
+    max_attempts: i32,
+    result: anyhow::Result<()>,
+) -> anyhow::Result<()> {
+    let Err(e) = result else {
+        sqlx::query!(
+            r#"UPDATE eunha.activity_delivery_jobs
+               SET delivered_at = now(),
+                   locked_at = NULL,
+                   locked_by = NULL,
+                   updated_at = now()
+               WHERE id = $1"#,
+            id,
+        )
+        .execute(&state.db)
+        .await?;
+        return Ok(());
+    };
+
+    if is_gone(&e) {
+        mark_domain_unavailable(state, inbox_url).await;
+    }
+    let next_attempts = attempts + 1;
+    let terminal = !is_retriable(&e) || next_attempts >= max_attempts;
+    let error = e.to_string();
+    if terminal {
+        sqlx::query!(
+            r#"UPDATE eunha.activity_delivery_jobs
+               SET attempts = $2,
+                   failed_at = now(),
+                   locked_at = NULL,
+                   locked_by = NULL,
+                   last_error = $3,
+                   updated_at = now()
+               WHERE id = $1"#,
+            id,
+            next_attempts,
+            error,
+        )
+        .execute(&state.db)
+        .await?;
+        tracing::warn!(
+            id,
+            inbox = inbox_url,
+            attempts = next_attempts,
+            error = %error,
+            "ActivityPub delivery job failed permanently"
+        );
+    } else {
+        let backoff_secs = queue_backoff_seconds(next_attempts);
+        let run_at = chrono::Utc::now() + chrono::Duration::seconds(backoff_secs);
+        sqlx::query!(
+            r#"UPDATE eunha.activity_delivery_jobs
+               SET attempts = $2,
+                   run_at = $3,
+                   locked_at = NULL,
+                   locked_by = NULL,
+                   last_error = $4,
+                   updated_at = now()
+               WHERE id = $1"#,
+            id,
+            next_attempts,
+            run_at,
+            error,
+        )
+        .execute(&state.db)
+        .await?;
+    }
+    Ok(())
 }
 
 fn queue_backoff_seconds(attempts: i32) -> i64 {

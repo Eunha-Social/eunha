@@ -71,6 +71,14 @@ pub async fn shared_inbox(
         .unwrap_or("")
         .to_string();
 
+    // Drop activities from domains we've defederated (admin domain block at
+    // suspend severity). Mastodon silently discards these with HTTP 202 to avoid
+    // backscatter, so we do the same rather than returning an error.
+    if crate::federation::moderation::actor_is_suspended(&state, &actor_uri).await {
+        tracing::debug!(actor = %actor_uri, activity_type, "dropping activity from suspended domain");
+        return Ok(StatusCode::ACCEPTED);
+    }
+
     // Enforce the HTTP Signature. An activity with a missing or invalid
     // signature is rejected, except `Delete` activities we cannot verify: the
     // signing actor (or its key) may already be gone, and rejecting them would
@@ -638,12 +646,18 @@ async fn handle_create(
         .await;
     }
 
-    // Media attachments
-    let attachments: Vec<Value> = object
-        .get("attachment")
-        .and_then(|a| a.as_array())
-        .cloned()
-        .unwrap_or_default();
+    // Media attachments. Domains blocked with `reject_media` (or fully
+    // suspended) federate text but not media, so skip storing attachments.
+    let attachments: Vec<Value> =
+        if crate::federation::moderation::actor_media_rejected(state, actor_uri).await {
+            Vec::new()
+        } else {
+            object
+                .get("attachment")
+                .and_then(|a| a.as_array())
+                .cloned()
+                .unwrap_or_default()
+        };
     let mut media_ids: Vec<i64> = Vec::new();
     for att in &attachments {
         let att_type_str = att.get("type").and_then(|v| v.as_str()).unwrap_or("");
