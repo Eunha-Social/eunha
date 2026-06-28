@@ -90,8 +90,8 @@ pub async fn set_markers(
         let id_int: i64 = id.parse().unwrap_or(0);
 
         sqlx::query!(
-            r#"INSERT INTO markers (user_id, timeline, last_read_id, lock_version, updated_at)
-               VALUES ($1, $2, $3, 1, now())
+            r#"INSERT INTO markers (user_id, timeline, last_read_id, lock_version, updated_at, created_at)
+               VALUES ($1, $2, $3, 1, now(), now())
                ON CONFLICT (user_id, timeline) DO UPDATE
                  SET last_read_id = EXCLUDED.last_read_id,
                      lock_version = markers.lock_version + 1,

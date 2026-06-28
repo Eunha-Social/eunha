@@ -225,8 +225,8 @@ pub async fn issue_token(
     let created_at = chrono::Utc::now();
 
     sqlx::query!(
-        r#"INSERT INTO oauth_access_tokens (application_id, resource_owner_id, token, scopes)
-           VALUES ($1, $2, $3, $4)"#,
+        r#"INSERT INTO oauth_access_tokens (application_id, resource_owner_id, token, scopes, created_at)
+           VALUES ($1, $2, $3, $4, now())"#,
         app.id,
         user_id,
         token_str,
@@ -462,8 +462,8 @@ pub async fn elk_oauth_callback(
 
     let token_str = generate_token(64);
     let db_ok = sqlx::query!(
-        r#"INSERT INTO oauth_access_tokens (application_id, resource_owner_id, token, scopes)
-           VALUES ($1, $2, $3, $4)"#,
+        r#"INSERT INTO oauth_access_tokens (application_id, resource_owner_id, token, scopes, created_at)
+           VALUES ($1, $2, $3, $4, now())"#,
         app.id,
         code_row.resource_owner_id,
         token_str,
@@ -658,8 +658,8 @@ async fn do_authorize(
 
     sqlx::query!(
         r#"INSERT INTO oauth_access_grants
-             (application_id, resource_owner_id, token, redirect_uri, scopes, expires_in)
-           VALUES ($1, $2, $3, $4, $5, 600)"#,
+             (application_id, resource_owner_id, token, redirect_uri, scopes, expires_in, created_at)
+           VALUES ($1, $2, $3, $4, $5, 600, now())"#,
         app.id,
         user.id,
         code,

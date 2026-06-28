@@ -87,7 +87,7 @@ pub async fn feature_tag(
     .await?;
 
     let tag_id = sqlx::query_scalar!(
-        r#"INSERT INTO tags (name) VALUES ($1)
+        r#"INSERT INTO tags (name, created_at, updated_at) VALUES ($1, now(), now())
            ON CONFLICT ((lower(name))) DO UPDATE SET name = EXCLUDED.name
            RETURNING id"#,
         name,
@@ -96,8 +96,8 @@ pub async fn feature_tag(
     .await?;
 
     let row = sqlx::query!(
-        r#"INSERT INTO featured_tags (account_id, tag_id, name)
-           VALUES ($1, $2, $3)
+        r#"INSERT INTO featured_tags (account_id, tag_id, name, created_at, updated_at)
+           VALUES ($1, $2, $3, now(), now())
            ON CONFLICT (account_id, tag_id) DO UPDATE SET name = EXCLUDED.name
            RETURNING id, statuses_count, last_status_at"#,
         auth.account_id,
@@ -153,7 +153,7 @@ pub async fn feature_tag_by_name(
     let name = name.trim_start_matches('#');
 
     let tag_id = sqlx::query_scalar!(
-        r#"INSERT INTO tags (name) VALUES ($1)
+        r#"INSERT INTO tags (name, created_at, updated_at) VALUES ($1, now(), now())
            ON CONFLICT ((lower(name))) DO UPDATE SET name = EXCLUDED.name
            RETURNING id"#,
         name,
@@ -162,8 +162,8 @@ pub async fn feature_tag_by_name(
     .await?;
 
     sqlx::query!(
-        r#"INSERT INTO featured_tags (account_id, tag_id, name)
-           VALUES ($1, $2, $3)
+        r#"INSERT INTO featured_tags (account_id, tag_id, name, created_at, updated_at)
+           VALUES ($1, $2, $3, now(), now())
            ON CONFLICT (account_id, tag_id) DO UPDATE SET name = EXCLUDED.name"#,
         auth.account_id,
         tag_id,

@@ -319,8 +319,8 @@ pub async fn create_and_push(
 
     let activity_type_val: Option<&str> = if status_id.is_some() { Some("Status") } else { None };
     let row = sqlx::query!(
-        r#"INSERT INTO notifications (account_id, from_account_id, "type", activity_type, activity_id)
-           VALUES ($1, $2, $3, $4, $5)
+        r#"INSERT INTO notifications (account_id, from_account_id, "type", activity_type, activity_id, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, now(), now())
            RETURNING id"#,
         recipient_id,
         from_account_id,
@@ -397,8 +397,8 @@ pub async fn notify_admins(
 
         let row = if let Some(rid) = report_id {
             sqlx::query_scalar!(
-                r#"INSERT INTO notifications (account_id, from_account_id, "type", activity_id, activity_type)
-                   VALUES ($1, $2, $3, $4, 'Report')
+                r#"INSERT INTO notifications (account_id, from_account_id, "type", activity_id, activity_type, created_at, updated_at)
+                   VALUES ($1, $2, $3, $4, 'Report', now(), now())
                    RETURNING id"#,
                 admin_id, from_account_id, notification_type, rid,
             )
@@ -406,8 +406,8 @@ pub async fn notify_admins(
             .await
         } else {
             sqlx::query_scalar!(
-                r#"INSERT INTO notifications (account_id, from_account_id, "type")
-                   VALUES ($1, $2, $3)
+                r#"INSERT INTO notifications (account_id, from_account_id, "type", created_at, updated_at)
+                   VALUES ($1, $2, $3, now(), now())
                    RETURNING id"#,
                 admin_id, from_account_id, notification_type,
             )
@@ -652,8 +652,8 @@ async fn route_to_request(
 ) {
     let _ = sqlx::query!(
         r#"INSERT INTO notification_requests
-               (account_id, from_account_id, last_status_id, notifications_count)
-           VALUES ($1, $2, $3, 1)
+               (account_id, from_account_id, last_status_id, notifications_count, created_at, updated_at)
+           VALUES ($1, $2, $3, 1, now(), now())
            ON CONFLICT (account_id, from_account_id) DO UPDATE
              SET notifications_count = notification_requests.notifications_count + 1,
                  last_status_id = COALESCE($3, notification_requests.last_status_id),

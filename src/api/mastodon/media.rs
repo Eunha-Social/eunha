@@ -75,8 +75,8 @@ pub async fn upload_media(
     let attachment = sqlx::query_as!(
         crate::db::models::MediaAttachment,
         r#"INSERT INTO media_attachments
-             (id, account_id, "type", file_file_name, file_content_type, file_file_size, thumbnail_file_name, description, file_meta, blurhash)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+             (id, account_id, "type", file_file_name, file_content_type, file_file_size, thumbnail_file_name, description, file_meta, blurhash, created_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now(), now())
            RETURNING *"#,
         media_id,
         auth.account_id,

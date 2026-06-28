@@ -33,8 +33,8 @@ async fn test_signature_actor_host_mismatch_rejected() {
     let (priv_pem, pub_pem) = eunha::crypto::generate_rsa_keypair().unwrap();
     let attacker_uri = "https://attacker.invalid/users/eve";
     sqlx::query!(
-        r#"INSERT INTO accounts (id, username, domain, display_name, note, url, uri, public_key, inbox_url, outbox_url)
-           VALUES ($1, 'eve', 'attacker.invalid', 'eve', '', $2::text, $2::text, $3, $2::text||'/inbox', $2::text||'/outbox')"#,
+        r#"INSERT INTO accounts (id, username, domain, display_name, note, url, uri, public_key, inbox_url, outbox_url, created_at, updated_at)
+           VALUES ($1, 'eve', 'attacker.invalid', 'eve', '', $2::text, $2::text, $3, $2::text||'/inbox', $2::text||'/outbox', now(), now())"#,
         eunha::snowflake::next_id(),
         attacker_uri,
         pub_pem,

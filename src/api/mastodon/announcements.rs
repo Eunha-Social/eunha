@@ -135,7 +135,7 @@ pub async fn dismiss_announcement(
     }
 
     sqlx::query!(
-        "INSERT INTO announcement_mutes (announcement_id, account_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        "INSERT INTO announcement_mutes (announcement_id, account_id, created_at, updated_at) VALUES ($1, $2, now(), now()) ON CONFLICT DO NOTHING",
         id, auth.account_id,
     )
     .execute(&state.db)
@@ -162,8 +162,8 @@ pub async fn add_reaction(
     .await?;
 
     sqlx::query!(
-        r#"INSERT INTO announcement_reactions (announcement_id, account_id, name, custom_emoji_id)
-           VALUES ($1, $2, $3, $4)
+        r#"INSERT INTO announcement_reactions (announcement_id, account_id, name, custom_emoji_id, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, now(), now())
            ON CONFLICT (announcement_id, account_id, name) DO NOTHING"#,
         id, auth.account_id, name, custom_emoji_id,
     )

@@ -537,8 +537,10 @@ pub async fn seed_account_and_token(
     let account_id = sqlx::query_scalar!(
         r#"INSERT INTO accounts
              (id, username, display_name, note,
-              url, uri, public_key, inbox_url, outbox_url, shared_inbox_url, discoverable)
-           VALUES ($1,$2,$2,'', $3,$4::text,'test-public-key',$4::text||'/inbox',$4::text||'/outbox',''::text, true)
+              url, uri, public_key, inbox_url, outbox_url, shared_inbox_url, discoverable,
+              created_at, updated_at)
+           VALUES ($1,$2,$2,'', $3,$4::text,'test-public-key',$4::text||'/inbox',$4::text||'/outbox',''::text, true,
+                   now(), now())
            RETURNING id"#,
         eunha::snowflake::next_id(),
         username,
@@ -552,8 +554,8 @@ pub async fn seed_account_and_token(
     let encrypted_password = hash_password("testpassword123");
     let user_id: i64 = sqlx::query_scalar!(
         r#"INSERT INTO users
-             (account_id, email, encrypted_password, confirmed_at, approved)
-           VALUES ($1,$2,$3,now(),true)
+             (account_id, email, encrypted_password, confirmed_at, approved, created_at, updated_at)
+           VALUES ($1,$2,$3,now(),true,now(),now())
            RETURNING id"#,
         account_id,
         email,
@@ -575,7 +577,7 @@ pub async fn seed_account_and_token(
 
     let token = Uuid::new_v4().to_string().replace("-", "");
     sqlx::query!(
-        "INSERT INTO oauth_access_tokens (application_id, resource_owner_id, token, scopes) VALUES ($1,$2,$3,'read write follow push')",
+        "INSERT INTO oauth_access_tokens (application_id, resource_owner_id, token, scopes, created_at) VALUES ($1,$2,$3,'read write follow push', now())",
         app_id,
         user_id,
         token,
@@ -599,8 +601,8 @@ pub fn hash_password(password: &str) -> String {
 /// (eunha treats role position >= 100 as administrator).
 pub async fn make_admin(db: &PgPool, account_id: i64) {
     let role_id = sqlx::query_scalar!(
-        r#"INSERT INTO user_roles (id, name, position, permissions, highlighted)
-           VALUES ($1, 'Admin', 100, 1, true)
+        r#"INSERT INTO user_roles (id, name, position, permissions, highlighted, created_at, updated_at)
+           VALUES ($1, 'Admin', 100, 1, true, now(), now())
            RETURNING id"#,
         eunha::snowflake::next_id(),
     )
@@ -641,7 +643,7 @@ pub async fn seed_token_with_scopes(db: &PgPool, account_id: i64, scopes: &str) 
 
     let token = Uuid::new_v4().to_string().replace("-", "");
     sqlx::query!(
-        "INSERT INTO oauth_access_tokens (application_id, resource_owner_id, token, scopes) VALUES ($1,$2,$3,$4)",
+        "INSERT INTO oauth_access_tokens (application_id, resource_owner_id, token, scopes, created_at) VALUES ($1,$2,$3,$4, now())",
         app_id,
         user_id,
         token,

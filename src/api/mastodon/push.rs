@@ -154,8 +154,8 @@ pub async fn create_subscription(
     } else {
         let row = sqlx::query!(
             r#"INSERT INTO web_push_subscriptions
-                 (access_token_id, endpoint, key_p256dh, key_auth, data, standard, user_id)
-               VALUES ($1, $2, $3, $4, $5, $6, $7)
+                 (access_token_id, endpoint, key_p256dh, key_auth, data, standard, user_id, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, now(), now())
                RETURNING id, standard, data as "data: serde_json::Value""#,
             auth.token_id,
             body.subscription.endpoint,

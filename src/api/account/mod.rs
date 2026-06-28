@@ -222,7 +222,7 @@ pub async fn login_post(
         _ => {
             let t = generate_token(64);
             if sqlx::query!(
-                "INSERT INTO oauth_access_tokens (resource_owner_id, token, scopes) VALUES ($1, $2, 'read write follow push')",
+                "INSERT INTO oauth_access_tokens (resource_owner_id, token, scopes, created_at) VALUES ($1, $2, 'read write follow push', now())",
                 row.id,
                 t,
             )

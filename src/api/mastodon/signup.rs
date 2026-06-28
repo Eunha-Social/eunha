@@ -225,8 +225,8 @@ pub async fn confirm_email(
     let account_id = match sqlx::query_scalar!(
         r#"INSERT INTO accounts
              (id, username, url, uri, private_key, public_key,
-              inbox_url, outbox_url, shared_inbox_url)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+              inbox_url, outbox_url, shared_inbox_url, created_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now(), now())
            RETURNING id"#,
         new_account_id,
         pending.username, url, uri, private_key, public_key,
@@ -243,11 +243,11 @@ pub async fn confirm_email(
         r#"INSERT INTO users
              (account_id, email, encrypted_password,
               confirmed_at, invite_id, approved,
-              locale, created_by_application_id)
+              locale, created_by_application_id, created_at, updated_at)
            VALUES ($1,$2,$3,
                    now(), $4,
                    NOT $5::boolean,
-                   $6, $7)
+                   $6, $7, now(), now())
            RETURNING id"#,
         account_id, pending.email,
         pending.password_hash, pending.invite_id, needs_approval,
@@ -282,8 +282,8 @@ pub async fn confirm_email(
                 let code = api_generate_token();
                 if sqlx::query!(
                     r#"INSERT INTO oauth_access_grants
-                         (application_id, resource_owner_id, token, redirect_uri, scopes, expires_in)
-                       VALUES ($1, $2, $3, $4, $5, 600)"#,
+                         (application_id, resource_owner_id, token, redirect_uri, scopes, expires_in, created_at)
+                       VALUES ($1, $2, $3, $4, $5, 600, now())"#,
                     app_id, user_id, code, redirect_uri, app.scopes,
                 ).execute(&state.db).await.is_ok() {
                     let sep = if redirect_uri.contains('?') { '&' } else { '?' };

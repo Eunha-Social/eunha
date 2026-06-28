@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO custom_filter_keywords (custom_filter_id, keyword, whole_word, created_at, updated_at) VALUES ($1, $2, $3, now(), now()) RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d82e3b10206a229f7edd1f4955c920747f412c4aab353e6c9729afd3c28f5699"
+}

@@ -19,8 +19,8 @@ async fn seed_remote_account(db: &PgPool, username: &str, domain: &str) -> (i64,
     let id = sqlx::query_scalar!(
         r#"INSERT INTO accounts
              (id, username, domain, display_name, note, url, uri, public_key,
-              inbox_url, outbox_url, shared_inbox_url, discoverable)
-           VALUES ($1,$2,$3,$2,'',$4::text,$4::text,'remote-key',$5,$4::text||'/outbox',''::text,true)
+              inbox_url, outbox_url, shared_inbox_url, discoverable, created_at, updated_at)
+           VALUES ($1,$2,$3,$2,'',$4::text,$4::text,'remote-key',$5,$4::text||'/outbox',''::text,true, now(), now())
            RETURNING id"#,
         eunha::snowflake::next_id(),
         username,
@@ -37,8 +37,8 @@ async fn seed_remote_account(db: &PgPool, username: &str, domain: &str) -> (i64,
 /// Insert a remote status into `db`, returning its local id.
 async fn seed_remote_status(db: &PgPool, account_id: i64, uri: &str) -> i64 {
     sqlx::query_scalar!(
-        r#"INSERT INTO statuses (id, account_id, text, visibility, uri, created_at)
-           VALUES ($1, $2, 'remote post', 0, $3, now())
+        r#"INSERT INTO statuses (id, account_id, text, visibility, uri, created_at, updated_at)
+           VALUES ($1, $2, 'remote post', 0, $3, now(), now())
            RETURNING id"#,
         eunha::snowflake::next_id(),
         account_id,

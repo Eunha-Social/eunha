@@ -91,8 +91,8 @@ pub async fn file_report(
     let category_int = crate::db::models::report_category::from_str(&category);
 
     let report = sqlx::query!(
-        r#"INSERT INTO reports (account_id, target_account_id, status_ids, comment, forwarded, category, rule_ids)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
+        r#"INSERT INTO reports (account_id, target_account_id, status_ids, comment, forwarded, category, rule_ids, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, now(), now())
            RETURNING id, created_at"#,
         auth.account_id,
         form.account_id,

@@ -1615,8 +1615,8 @@ pub async fn create_domain_block(
     require_admin(&state, auth.account_id).await?;
     let severity = crate::db::models::domain_severity::from_str(form.severity.as_deref().unwrap_or("silence"));
     let row = sqlx::query!(
-        r#"INSERT INTO domain_blocks (domain, severity, reject_media, reject_reports, private_comment, public_comment, obfuscate)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)
+        r#"INSERT INTO domain_blocks (domain, severity, reject_media, reject_reports, private_comment, public_comment, obfuscate, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, now(), now())
            ON CONFLICT (domain) DO UPDATE SET severity = $2, reject_media = $3, reject_reports = $4,
              private_comment = $5, public_comment = $6, obfuscate = $7, updated_at = now()
            RETURNING id, domain, reject_media, reject_reports, private_comment, public_comment, obfuscate, created_at,
@@ -1769,7 +1769,7 @@ pub async fn create_domain_allow(
 ) -> AppResult<Json<AdminDomainAllow>> {
     require_admin(&state, auth.account_id).await?;
     let row = sqlx::query!(
-        r#"INSERT INTO domain_allows (domain) VALUES ($1)
+        r#"INSERT INTO domain_allows (domain, created_at, updated_at) VALUES ($1, now(), now())
            ON CONFLICT (domain) DO UPDATE SET updated_at = now()
            RETURNING id, domain, created_at"#,
         form.domain,
@@ -1876,8 +1876,8 @@ pub async fn create_ip_block(
     let expires_at = form.expires_in
         .map(|secs| chrono::Utc::now().naive_utc() + chrono::Duration::seconds(secs));
     let r = sqlx::query!(
-        r#"INSERT INTO ip_blocks (ip, severity, comment, expires_at)
-           VALUES ($1::text::inet, $2, $3, $4)
+        r#"INSERT INTO ip_blocks (ip, severity, comment, expires_at, created_at, updated_at)
+           VALUES ($1::text::inet, $2, $3, $4, now(), now())
            ON CONFLICT (ip) DO UPDATE SET severity = $2, comment = $3, expires_at = $4, updated_at = now()
            RETURNING id, host(ip) as "ip!", comment, expires_at, created_at,
                      CASE severity WHEN 0 THEN 'noop' WHEN 1 THEN 'sign_up_requires_approval' WHEN 2 THEN 'sign_up_block' WHEN 3 THEN 'block' ELSE 'noop' END AS "severity!""#,
@@ -2008,7 +2008,7 @@ pub async fn create_email_domain_block(
 ) -> AppResult<Json<AdminEmailDomainBlock>> {
     require_admin(&state, auth.account_id).await?;
     let r = sqlx::query!(
-        r#"INSERT INTO email_domain_blocks (domain) VALUES ($1)
+        r#"INSERT INTO email_domain_blocks (domain, created_at, updated_at) VALUES ($1, now(), now())
            ON CONFLICT (domain) DO UPDATE SET updated_at = now()
            RETURNING id, domain, created_at, allow_with_approval"#,
         form.domain,
@@ -2357,7 +2357,7 @@ pub async fn create_canonical_email_block(
         return Err(AppError::Unprocessable("email or canonical_email_hash required".into()));
     };
     let row = sqlx::query!(
-        "INSERT INTO canonical_email_blocks (canonical_email_hash) VALUES ($1) ON CONFLICT (canonical_email_hash) DO UPDATE SET canonical_email_hash = EXCLUDED.canonical_email_hash RETURNING id, canonical_email_hash, created_at",
+        "INSERT INTO canonical_email_blocks (canonical_email_hash, created_at, updated_at) VALUES ($1, now(), now()) ON CONFLICT (canonical_email_hash) DO UPDATE SET canonical_email_hash = EXCLUDED.canonical_email_hash RETURNING id, canonical_email_hash, created_at",
         hash,
     )
     .fetch_one(&state.db)

@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO status_edits (status_id, account_id, text, spoiler_text, sensitive, created_at, updated_at)\n           VALUES ($1, $2, $3, $4, $5, now(), now())",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6346e451efc85cbd7aec8875bd0c36ebc549ff4d66fba807f1f2c36540e1227d"
+}

@@ -48,8 +48,8 @@ async fn test_annual_report_lifecycle() {
     let alice_id: i64 = ctx.alice_id.parse().unwrap();
     let status_id = eunha::snowflake::next_id();
     sqlx::query!(
-        "INSERT INTO statuses (id, account_id, text, visibility, created_at)
-         VALUES ($1, $2, 'test post 2023', 0, '2023-06-15T12:00:00Z'::timestamptz)",
+        "INSERT INTO statuses (id, account_id, text, visibility, created_at, updated_at)
+         VALUES ($1, $2, 'test post 2023', 0, '2023-06-15T12:00:00Z'::timestamptz, now())",
         status_id, alice_id,
     ).execute(&ctx.db).await.unwrap();
 
@@ -120,8 +120,8 @@ async fn test_annual_report_data_structure() {
     for i in 0..5 {
         let sid = eunha::snowflake::next_id();
         sqlx::query!(
-            "INSERT INTO statuses (id, account_id, text, visibility, created_at)
-             VALUES ($1, $2, $3, 0, '2022-03-01T12:00:00Z'::timestamptz)",
+            "INSERT INTO statuses (id, account_id, text, visibility, created_at, updated_at)
+             VALUES ($1, $2, $3, 0, '2022-03-01T12:00:00Z'::timestamptz, now())",
             sid, alice_id,
             format!("post number {i}"),
         ).execute(&ctx.db).await.unwrap();

@@ -173,11 +173,11 @@ pub async fn create_filter_v2(
     auth.require_scope("write:filters")?;
     let action = crate::db::models::filter_action::from_str(form.filter_action.as_deref().unwrap_or("warn"));
     let filter_id = sqlx::query_scalar!(
-        r#"INSERT INTO custom_filters (account_id, phrase, context, action, expires_at)
+        r#"INSERT INTO custom_filters (account_id, phrase, context, action, expires_at, created_at, updated_at)
            VALUES ($1, $2, $3, $4,
                   CASE WHEN $5::bigint IS NULL THEN NULL
                        ELSE now() + ($5 * interval '1 second')
-                  END)
+                  END, now(), now())
            RETURNING id"#,
         auth.account_id,
         form.title,
@@ -195,7 +195,7 @@ pub async fn create_filter_v2(
             }
             if let Some(keyword) = kw.keyword {
                 sqlx::query!(
-                    "INSERT INTO custom_filter_keywords (custom_filter_id, keyword, whole_word) VALUES ($1, $2, $3)",
+                    "INSERT INTO custom_filter_keywords (custom_filter_id, keyword, whole_word, created_at, updated_at) VALUES ($1, $2, $3, now(), now())",
                     filter_id,
                     keyword,
                     kw.whole_word.unwrap_or(false),
@@ -274,7 +274,7 @@ pub async fn update_filter_v2(
                     if let Some(keyword) = kw.keyword {
                         if kw.destroy != Some(true) {
                             sqlx::query!(
-                                "INSERT INTO custom_filter_keywords (custom_filter_id, keyword, whole_word) VALUES ($1, $2, $3)",
+                                "INSERT INTO custom_filter_keywords (custom_filter_id, keyword, whole_word, created_at, updated_at) VALUES ($1, $2, $3, now(), now())",
                                 id,
                                 keyword,
                                 kw.whole_word.unwrap_or(false),
@@ -379,7 +379,7 @@ pub async fn create_filter_keyword(
     }
 
     let kid = sqlx::query_scalar!(
-        "INSERT INTO custom_filter_keywords (custom_filter_id, keyword, whole_word) VALUES ($1, $2, $3) RETURNING id",
+        "INSERT INTO custom_filter_keywords (custom_filter_id, keyword, whole_word, created_at, updated_at) VALUES ($1, $2, $3, now(), now()) RETURNING id",
         id,
         form.keyword,
         form.whole_word.unwrap_or(false),
@@ -539,7 +539,7 @@ pub async fn add_filter_status(
     let status_id: i64 = form.status_id.parse().map_err(|_| AppError::NotFound)?;
 
     let row_id = sqlx::query_scalar!(
-        "INSERT INTO custom_filter_statuses (custom_filter_id, status_id) VALUES ($1, $2) RETURNING id",
+        "INSERT INTO custom_filter_statuses (custom_filter_id, status_id, created_at, updated_at) VALUES ($1, $2, now(), now()) RETURNING id",
         id, status_id,
     )
     .fetch_one(&state.db)
@@ -690,11 +690,11 @@ pub async fn create_filter_v1(
         if form.irreversible == Some(true) { "hide" } else { "warn" }
     );
     let filter_id = sqlx::query_scalar!(
-        r#"INSERT INTO custom_filters (account_id, phrase, context, action, expires_at)
+        r#"INSERT INTO custom_filters (account_id, phrase, context, action, expires_at, created_at, updated_at)
            VALUES ($1, $2, $3, $4,
                   CASE WHEN $5::bigint IS NULL THEN NULL
                        ELSE now() + ($5 * interval '1 second')
-                  END)
+                  END, now(), now())
            RETURNING id"#,
         auth.account_id,
         form.phrase,
@@ -707,7 +707,7 @@ pub async fn create_filter_v1(
 
     let whole_word = form.whole_word.unwrap_or(false);
     let keyword_id = sqlx::query_scalar!(
-        "INSERT INTO custom_filter_keywords (custom_filter_id, keyword, whole_word) VALUES ($1, $2, $3) RETURNING id",
+        "INSERT INTO custom_filter_keywords (custom_filter_id, keyword, whole_word, created_at, updated_at) VALUES ($1, $2, $3, now(), now()) RETURNING id",
         filter_id, form.phrase, whole_word,
     )
     .fetch_one(&state.db)

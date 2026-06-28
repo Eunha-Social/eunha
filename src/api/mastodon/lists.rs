@@ -77,8 +77,8 @@ pub async fn create_list(
     let replies_policy_int = models::replies::from_str(replies_policy);
     let list = sqlx::query_as!(
         models::List,
-        r#"INSERT INTO lists (account_id, title, replies_policy, exclusive)
-           VALUES ($1, $2, $3, $4)
+        r#"INSERT INTO lists (account_id, title, replies_policy, exclusive, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, now(), now())
            RETURNING *"#,
         auth.account_id,
         form.title,

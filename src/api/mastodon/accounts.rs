@@ -760,8 +760,8 @@ pub async fn follow_account(
             crate::snowflake::next_id()
         );
         sqlx::query!(
-            r#"INSERT INTO follow_requests (account_id, target_account_id, show_reblogs, notify, languages, uri)
-               VALUES ($1, $2, $3, $4, $5, $6)
+            r#"INSERT INTO follow_requests (account_id, target_account_id, show_reblogs, notify, languages, uri, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, $5, $6, now(), now())
                ON CONFLICT (account_id, target_account_id) DO UPDATE SET uri = EXCLUDED.uri"#,
             auth.account_id,
             target_id,
@@ -836,8 +836,8 @@ pub async fn follow_account(
 
     if target.locked {
         sqlx::query!(
-            r#"INSERT INTO follow_requests (account_id, target_account_id, show_reblogs, notify, languages)
-               VALUES ($1, $2, $3, $4, $5)"#,
+            r#"INSERT INTO follow_requests (account_id, target_account_id, show_reblogs, notify, languages, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, $5, now(), now())"#,
             auth.account_id, target_id, show_reblogs, notify, &languages,
         )
         .execute(&state.db)
@@ -851,21 +851,21 @@ pub async fn follow_account(
     }
 
     sqlx::query!(
-        r#"INSERT INTO follows (account_id, target_account_id, show_reblogs, notify, languages)
-           VALUES ($1, $2, $3, $4, $5)"#,
+        r#"INSERT INTO follows (account_id, target_account_id, show_reblogs, notify, languages, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, now(), now())"#,
         auth.account_id, target_id, show_reblogs, notify, &languages,
     )
     .execute(&state.db)
     .await?;
 
     sqlx::query!(
-        "INSERT INTO account_stats (account_id, followers_count) VALUES ($1, 1) ON CONFLICT (account_id) DO UPDATE SET followers_count = account_stats.followers_count + 1, updated_at = now()",
+        "INSERT INTO account_stats (account_id, followers_count, created_at, updated_at) VALUES ($1, 1, now(), now()) ON CONFLICT (account_id) DO UPDATE SET followers_count = account_stats.followers_count + 1, updated_at = now()",
         target_id
     )
     .execute(&state.db)
     .await?;
     sqlx::query!(
-        "INSERT INTO account_stats (account_id, following_count) VALUES ($1, 1) ON CONFLICT (account_id) DO UPDATE SET following_count = account_stats.following_count + 1, updated_at = now()",
+        "INSERT INTO account_stats (account_id, following_count, created_at, updated_at) VALUES ($1, 1, now(), now()) ON CONFLICT (account_id) DO UPDATE SET following_count = account_stats.following_count + 1, updated_at = now()",
         auth.account_id
     )
     .execute(&state.db)
@@ -1596,20 +1596,20 @@ async fn do_update_credentials(
             .await?;
             for row in &pending {
                 let _ = sqlx::query!(
-                    r#"INSERT INTO follows (account_id, target_account_id)
-                       VALUES ($1, $2) ON CONFLICT DO NOTHING"#,
+                    r#"INSERT INTO follows (account_id, target_account_id, created_at, updated_at)
+                       VALUES ($1, $2, now(), now()) ON CONFLICT DO NOTHING"#,
                     row.account_id, auth.account_id
                 )
                 .execute(&state.db)
                 .await;
                 let _ = sqlx::query!(
-                    "INSERT INTO account_stats (account_id, followers_count) VALUES ($1, 1) ON CONFLICT (account_id) DO UPDATE SET followers_count = account_stats.followers_count + 1, updated_at = now()",
+                    "INSERT INTO account_stats (account_id, followers_count, created_at, updated_at) VALUES ($1, 1, now(), now()) ON CONFLICT (account_id) DO UPDATE SET followers_count = account_stats.followers_count + 1, updated_at = now()",
                     auth.account_id
                 )
                 .execute(&state.db)
                 .await;
                 let _ = sqlx::query!(
-                    "INSERT INTO account_stats (account_id, following_count) VALUES ($1, 1) ON CONFLICT (account_id) DO UPDATE SET following_count = account_stats.following_count + 1, updated_at = now()",
+                    "INSERT INTO account_stats (account_id, following_count, created_at, updated_at) VALUES ($1, 1, now(), now()) ON CONFLICT (account_id) DO UPDATE SET following_count = account_stats.following_count + 1, updated_at = now()",
                     row.account_id
                 )
                 .execute(&state.db)
@@ -1863,8 +1863,8 @@ pub async fn mute_account(
         .map(|d| chrono::Utc::now().naive_utc() + chrono::Duration::seconds(d));
 
     sqlx::query!(
-        r#"INSERT INTO mutes (account_id, target_account_id, hide_notifications, expires_at)
-           VALUES ($1, $2, $3, $4)
+        r#"INSERT INTO mutes (account_id, target_account_id, hide_notifications, expires_at, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, now(), now())
            ON CONFLICT (account_id, target_account_id)
            DO UPDATE SET hide_notifications = EXCLUDED.hide_notifications,
                          expires_at = EXCLUDED.expires_at"#,
@@ -1903,7 +1903,7 @@ pub async fn block_account(
 ) -> AppResult<Json<Relationship>> {
     auth.require_scope("write:blocks")?;
     sqlx::query!(
-        r#"INSERT INTO blocks (account_id, target_account_id) VALUES ($1, $2)
+        r#"INSERT INTO blocks (account_id, target_account_id, created_at, updated_at) VALUES ($1, $2, now(), now())
            ON CONFLICT (account_id, target_account_id) DO NOTHING"#,
         auth.account_id, target_id
     )
@@ -2261,21 +2261,21 @@ pub async fn authorize_follow_request(
 
     if let Some(deleted_row) = deleted {
         sqlx::query!(
-            r#"INSERT INTO follows (account_id, target_account_id)
-               VALUES ($1, $2) ON CONFLICT DO NOTHING"#,
+            r#"INSERT INTO follows (account_id, target_account_id, created_at, updated_at)
+               VALUES ($1, $2, now(), now()) ON CONFLICT DO NOTHING"#,
             requester_id, auth.account_id
         )
         .execute(&state.db)
         .await?;
         sqlx::query!(
-            "INSERT INTO account_stats (account_id, followers_count) VALUES ($1, 1) ON CONFLICT (account_id) DO UPDATE SET followers_count = account_stats.followers_count + 1, updated_at = now()",
+            "INSERT INTO account_stats (account_id, followers_count, created_at, updated_at) VALUES ($1, 1, now(), now()) ON CONFLICT (account_id) DO UPDATE SET followers_count = account_stats.followers_count + 1, updated_at = now()",
             auth.account_id
         )
         .execute(&state.db)
         .await?;
 
         sqlx::query!(
-            "INSERT INTO account_stats (account_id, following_count) VALUES ($1, 1) ON CONFLICT (account_id) DO UPDATE SET following_count = account_stats.following_count + 1, updated_at = now()",
+            "INSERT INTO account_stats (account_id, following_count, created_at, updated_at) VALUES ($1, 1, now(), now()) ON CONFLICT (account_id) DO UPDATE SET following_count = account_stats.following_count + 1, updated_at = now()",
             requester_id
         )
         .execute(&state.db)
@@ -3127,8 +3127,8 @@ pub async fn dismiss_suggestion(
 ) -> AppResult<Json<serde_json::Value>> {
     auth.require_scope("write:accounts")?;
     sqlx::query!(
-        r#"INSERT INTO follow_recommendation_mutes (account_id, target_account_id)
-           VALUES ($1, $2) ON CONFLICT DO NOTHING"#,
+        r#"INSERT INTO follow_recommendation_mutes (account_id, target_account_id, created_at, updated_at)
+           VALUES ($1, $2, now(), now()) ON CONFLICT DO NOTHING"#,
         auth.account_id, account_id,
     )
     .execute(&state.db)
@@ -3326,7 +3326,7 @@ pub async fn create_alias(
 ) -> AppResult<Json<AccountAlias>> {
     auth.require_scope("write:accounts")?;
     let r = sqlx::query!(
-        r#"INSERT INTO account_aliases (account_id, uri) VALUES ($1, $2)
+        r#"INSERT INTO account_aliases (account_id, uri, created_at, updated_at) VALUES ($1, $2, now(), now())
            ON CONFLICT (account_id, uri) DO UPDATE SET updated_at = now()
            RETURNING id, account_id, uri, created_at"#,
         auth.account_id, form.acct,
@@ -3380,8 +3380,8 @@ pub async fn set_account_note(
         .await?;
     } else {
         sqlx::query!(
-            r#"INSERT INTO account_notes (account_id, target_account_id, comment)
-               VALUES ($1, $2, $3)
+            r#"INSERT INTO account_notes (account_id, target_account_id, comment, created_at, updated_at)
+               VALUES ($1, $2, $3, now(), now())
                ON CONFLICT (account_id, target_account_id)
                DO UPDATE SET comment = EXCLUDED.comment, updated_at = now()"#,
             auth.account_id, target_id, comment,
@@ -3436,7 +3436,7 @@ pub async fn endorse_account(
 ) -> AppResult<Json<Relationship>> {
     auth.require_scope("write:accounts")?;
     sqlx::query!(
-        "INSERT INTO account_pins (account_id, target_account_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        "INSERT INTO account_pins (account_id, target_account_id, created_at, updated_at) VALUES ($1, $2, now(), now()) ON CONFLICT DO NOTHING",
         auth.account_id, target_id,
     )
     .execute(&state.db)

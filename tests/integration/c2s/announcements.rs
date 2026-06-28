@@ -7,8 +7,8 @@ use crate::helpers::TestContext;
 /// Insert a published announcement directly for testing.
 async fn seed_announcement(db: &PgPool, text: &str) -> i64 {
     sqlx::query_scalar!(
-        r#"INSERT INTO announcements (text, published, published_at)
-           VALUES ($1, true, now())
+        r#"INSERT INTO announcements (text, published, published_at, created_at, updated_at)
+           VALUES ($1, true, now(), now(), now())
            RETURNING id"#,
         text,
     )

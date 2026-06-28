@@ -312,8 +312,8 @@ async fn handle_follow(
         match action {
             feder_core::inbound::Action::RecordFollowRequest => {
                 sqlx::query!(
-                    r#"INSERT INTO follow_requests (account_id, target_account_id, uri)
-                       VALUES ($1, $2, $3)
+                    r#"INSERT INTO follow_requests (account_id, target_account_id, uri, created_at, updated_at)
+                       VALUES ($1, $2, $3, now(), now())
                        ON CONFLICT (account_id, target_account_id) DO UPDATE SET uri = EXCLUDED.uri"#,
                     follower_id,
                     target.id,
@@ -342,8 +342,8 @@ async fn handle_follow(
             }
             feder_core::inbound::Action::RecordFollow => {
                 sqlx::query!(
-                    r#"INSERT INTO follows (account_id, target_account_id, uri)
-                       VALUES ($1, $2, $3)
+                    r#"INSERT INTO follows (account_id, target_account_id, uri, created_at, updated_at)
+                       VALUES ($1, $2, $3, now(), now())
                        ON CONFLICT (account_id, target_account_id) DO UPDATE SET uri = EXCLUDED.uri"#,
                     follower_id,
                     target.id,
@@ -664,8 +664,8 @@ async fn handle_create(
         r#"INSERT INTO statuses
              (id, account_id, text, spoiler_text, visibility, sensitive,
               uri, url, in_reply_to_id, in_reply_to_account_id, reply,
-              language, created_at, edited_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+              language, created_at, edited_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, now())
            ON CONFLICT (uri) WHERE uri IS NOT NULL AND uri != '' DO NOTHING
            RETURNING id"#,
         status_id,
@@ -692,7 +692,7 @@ async fn handle_create(
 
     if let Some(qid) = quote_of_id {
         let _ = sqlx::query!(
-            "INSERT INTO quotes (status_id, quoted_status_id, state) VALUES ($1, $2, 1) ON CONFLICT DO NOTHING",
+            "INSERT INTO quotes (status_id, quoted_status_id, state, created_at, updated_at) VALUES ($1, $2, 1, now(), now()) ON CONFLICT DO NOTHING",
             inserted_id,
             qid,
         )
@@ -759,8 +759,8 @@ async fn handle_create(
         match sqlx::query_scalar!(
             r#"INSERT INTO media_attachments
                  (id, account_id, status_id, remote_url, description, blurhash,
-                  type, thumbnail_remote_url, file_content_type, file_meta)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+                  type, thumbnail_remote_url, file_content_type, file_meta, created_at, updated_at)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now(), now())
                RETURNING id"#,
             media_id,
             account_id,
@@ -848,7 +848,7 @@ async fn handle_create(
             Err(_) => continue,
         };
         let _ = sqlx::query!(
-            "INSERT INTO mentions (status_id, account_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+            "INSERT INTO mentions (status_id, account_id, created_at, updated_at) VALUES ($1,$2, now(), now()) ON CONFLICT DO NOTHING",
             inserted_id,
             mentioned_id,
         )
@@ -1224,8 +1224,8 @@ async fn handle_announce(
     let boost_id = crate::snowflake::next_id();
     sqlx::query!(
         r#"INSERT INTO statuses
-             (id, account_id, reblog_of_id, visibility, uri, url, created_at)
-           VALUES ($1, $2, $3, $4, $5, $5, $6)
+             (id, account_id, reblog_of_id, visibility, uri, url, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $5, $6, now())
            ON CONFLICT (uri) WHERE uri IS NOT NULL AND uri != '' DO NOTHING"#,
         boost_id,
         booster_id,
@@ -1277,7 +1277,7 @@ async fn handle_like(
     };
 
     sqlx::query!(
-        "INSERT INTO favourites (account_id, status_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+        "INSERT INTO favourites (account_id, status_id, created_at, updated_at) VALUES ($1,$2, now(), now()) ON CONFLICT DO NOTHING",
         account_id,
         status_id
     )
@@ -1324,8 +1324,8 @@ async fn handle_accept_reject(
             .await?;
             if let Some(row) = promoted {
                 sqlx::query!(
-                    r#"INSERT INTO follows (account_id, target_account_id, uri)
-                       VALUES ($1, $2, $3) ON CONFLICT DO NOTHING"#,
+                    r#"INSERT INTO follows (account_id, target_account_id, uri, created_at, updated_at)
+                       VALUES ($1, $2, $3, now(), now()) ON CONFLICT DO NOTHING"#,
                     row.account_id,
                     row.target_account_id,
                     uri
@@ -1611,7 +1611,7 @@ async fn handle_update(
                 let file_content_type = if media_type_str.is_empty() { None } else { Some(media_type_str.to_owned()) };
                 let media_id = crate::snowflake::next_id();
                 if let Ok(id) = sqlx::query_scalar!(
-                    r#"INSERT INTO media_attachments (id, account_id, status_id, remote_url, description, blurhash, type, thumbnail_remote_url, file_content_type) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id"#,
+                    r#"INSERT INTO media_attachments (id, account_id, status_id, remote_url, description, blurhash, type, thumbnail_remote_url, file_content_type, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now(), now()) RETURNING id"#,
                     media_id, row.account_id, row.id, remote_url, description, blurhash, att_type, thumbnail_remote_url, file_content_type,
                 ).fetch_one(&state.db).await { media_ids.push(id); }
             }
@@ -1836,7 +1836,7 @@ async fn handle_block(
     let blocker_id = resolve_or_fetch_remote_account(state, actor_uri).await?;
 
     sqlx::query!(
-        "INSERT INTO blocks (account_id, target_account_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+        "INSERT INTO blocks (account_id, target_account_id, created_at, updated_at) VALUES ($1,$2, now(), now()) ON CONFLICT DO NOTHING",
         blocker_id, target_id,
     ).execute(&state.db).await?;
 
@@ -2547,8 +2547,8 @@ async fn fetch_remote_status_depth(state: &AppState, uri: &str, depth: u8) -> Ap
         r#"INSERT INTO statuses
              (id, account_id, text, spoiler_text, visibility, sensitive,
               uri, url, in_reply_to_id, in_reply_to_account_id, reply,
-              language, created_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+              language, created_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, now())
            ON CONFLICT (uri) WHERE uri IS NOT NULL AND uri != '' DO NOTHING
            RETURNING id"#,
         status_id,
@@ -2636,8 +2636,8 @@ async fn fetch_remote_status_depth(state: &AppState, uri: &str, depth: u8) -> Ap
         let file_content_type = (!media_type_str.is_empty()).then(|| media_type_str.to_owned());
         let _ = sqlx::query!(
             r#"INSERT INTO media_attachments
-                 (id, account_id, status_id, remote_url, description, blurhash, type, file_content_type)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8)"#,
+                 (id, account_id, status_id, remote_url, description, blurhash, type, file_content_type, created_at, updated_at)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now(), now())"#,
             crate::snowflake::next_id(),
             account_id,
             new_id,
@@ -2763,8 +2763,8 @@ pub async fn resolve_or_fetch_remote_account(
         r#"INSERT INTO accounts
              (id, username, domain, display_name, note, url, uri,
               inbox_url, outbox_url, shared_inbox_url, public_key,
-              avatar_remote_url, header_remote_url)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+              avatar_remote_url, header_remote_url, created_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, now(), now())
            RETURNING id"#,
         new_id,
         username,

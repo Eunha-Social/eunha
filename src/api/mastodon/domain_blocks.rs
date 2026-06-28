@@ -73,7 +73,7 @@ pub async fn block_domain(
     auth.require_scope("write:blocks")?;
     let domain = form.domain.to_lowercase();
     sqlx::query!(
-        r#"INSERT INTO account_domain_blocks (account_id, domain) VALUES ($1, $2)
+        r#"INSERT INTO account_domain_blocks (account_id, domain, created_at, updated_at) VALUES ($1, $2, now(), now())
            ON CONFLICT (account_id, domain) DO NOTHING"#,
         auth.account_id,
         domain,

@@ -447,8 +447,8 @@ pub async fn generate_annual_report(
 
     // Upsert the report
     sqlx::query!(
-        "INSERT INTO generated_annual_reports (account_id, year, data, schema_version)
-         VALUES ($1, $2, $3, $4)
+        "INSERT INTO generated_annual_reports (account_id, year, data, schema_version, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, now(), now())
          ON CONFLICT (account_id, year) DO UPDATE
          SET data = $3, schema_version = $4, updated_at = NOW()",
         auth.account_id, year, data, SCHEMA_VERSION,

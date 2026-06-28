@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO custom_filters (account_id, phrase, context, action, expires_at, created_at, updated_at)\n           VALUES ($1, $2, $3, $4,\n                  CASE WHEN $5::bigint IS NULL THEN NULL\n                       ELSE now() + ($5 * interval '1 second')\n                  END, now(), now())\n           RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "VarcharArray",
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "bd792e0c704626a1ca358b9ca21ebe2834cc224aae1368cb3880833c4043dc0d"
+}

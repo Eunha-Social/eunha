@@ -278,8 +278,8 @@ pub async fn post_status(
         r#"INSERT INTO statuses
              (id, account_id, application_id, text, spoiler_text, visibility,
               language, sensitive, in_reply_to_id, in_reply_to_account_id, reply, uri, url,
-              quote_approval_policy)
-           VALUES ($1,$2,$10,$3,$4,$5,$6,$7,$8,$9,$12,$11,$11,$13)
+              quote_approval_policy, created_at, updated_at)
+           VALUES ($1,$2,$10,$3,$4,$5,$6,$7,$8,$9,$12,$11,$11,$13, now(), now())
            RETURNING *"#,
         status_id,
         account.id,
@@ -346,8 +346,8 @@ pub async fn post_status(
 
         let quote_row_id = crate::snowflake::next_id();
         let _ = sqlx::query!(
-            r#"INSERT INTO quotes (id, status_id, quoted_status_id, account_id, quoted_account_id, activity_uri, state)
-               VALUES ($1, $2, $3, $4, $5, $6, $7)
+            r#"INSERT INTO quotes (id, status_id, quoted_status_id, account_id, quoted_account_id, activity_uri, state, created_at, updated_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, now(), now())
                ON CONFLICT DO NOTHING"#,
             quote_row_id,
             status.id,
@@ -398,7 +398,7 @@ pub async fn post_status(
         cid
     } else {
         sqlx::query_scalar!(
-            "INSERT INTO conversations DEFAULT VALUES RETURNING id",
+            "INSERT INTO conversations (created_at, updated_at) VALUES (now(), now()) RETURNING id",
         )
         .fetch_one(&state.db)
         .await?
@@ -1368,7 +1368,7 @@ pub async fn favourite_status(
     check_status_visible(&state, &s, auth.account_id).await?;
 
     sqlx::query!(
-        "INSERT INTO favourites (account_id, status_id) VALUES ($1,$2) ON CONFLICT DO NOTHING",
+        "INSERT INTO favourites (account_id, status_id, created_at, updated_at) VALUES ($1,$2, now(), now()) ON CONFLICT DO NOTHING",
         auth.account_id, id
     )
     .execute(&state.db)
@@ -1563,8 +1563,8 @@ pub async fn reblog_status(
     let boost_id = crate::snowflake::next_id();
     let boost = sqlx::query_as!(
         DbStatus,
-        r#"INSERT INTO statuses (id, account_id, text, visibility, reblog_of_id)
-           VALUES ($1,$2,'',$3,$4)
+        r#"INSERT INTO statuses (id, account_id, text, visibility, reblog_of_id, created_at, updated_at)
+           VALUES ($1,$2,'',$3,$4, now(), now())
            RETURNING *"#,
         boost_id,
         auth.account_id,
@@ -2048,7 +2048,7 @@ pub async fn bookmark_status(
     check_status_visible(&state, &s, auth.account_id).await?;
 
     sqlx::query!(
-        "INSERT INTO bookmarks (account_id, status_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        "INSERT INTO bookmarks (account_id, status_id, created_at, updated_at) VALUES ($1, $2, now(), now()) ON CONFLICT DO NOTHING",
         auth.account_id, id
     )
     .execute(&state.db)
@@ -2112,7 +2112,7 @@ pub async fn pin_status(
         return Err(AppError::Unprocessable("Validation failed: You have already pinned the maximum number of statuses".into()));
     }
     sqlx::query!(
-        "INSERT INTO status_pins (account_id, status_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+        "INSERT INTO status_pins (account_id, status_id, created_at, updated_at) VALUES ($1, $2, now(), now()) ON CONFLICT DO NOTHING",
         auth.account_id, id
     )
     .execute(&state.db)
@@ -2418,8 +2418,8 @@ pub async fn edit_status(
 
     // Save the current version to the edit history before updating.
     sqlx::query!(
-        r#"INSERT INTO status_edits (status_id, account_id, text, spoiler_text, sensitive)
-           VALUES ($1, $2, $3, $4, $5)"#,
+        r#"INSERT INTO status_edits (status_id, account_id, text, spoiler_text, sensitive, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, now(), now())"#,
         id, auth.account_id, status.text, status.spoiler_text, status.sensitive,
     )
     .execute(&state.db)
@@ -3417,7 +3417,7 @@ pub async fn store_statuses_tags(state: &AppState, status_id: i64, account_id: i
         .await?;
     for tag_name in hashtags {
         let tag_id = sqlx::query_scalar!(
-            "INSERT INTO tags (name) VALUES ($1)
+            "INSERT INTO tags (name, created_at, updated_at) VALUES ($1, now(), now())
              ON CONFLICT ((lower(name))) DO UPDATE SET updated_at = now()
              RETURNING id",
             tag_name,
@@ -3462,7 +3462,7 @@ pub async fn store_status_mentions(
         .await?;
     for (_, account) in resolved {
         sqlx::query!(
-            "INSERT INTO mentions (status_id, account_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+            "INSERT INTO mentions (status_id, account_id, created_at, updated_at) VALUES ($1, $2, now(), now()) ON CONFLICT DO NOTHING",
             status_id, account.id,
         )
         .execute(&state.db)

@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO oauth_access_grants\n             (application_id, resource_owner_id, token, redirect_uri, scopes, expires_in, created_at)\n           VALUES ($1, $2, $3, $4, $5, 600, now())",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Varchar",
+        "Text",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "090d6c47abaae1c9a21ddb3b9019a6e797c7629ddc8ecd43d55f284bc4b53d43"
+}

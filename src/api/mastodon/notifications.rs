@@ -950,8 +950,8 @@ pub async fn update_notification_policy(
     let filter_private_mentions = form.for_private_mentions.as_deref().map(|s| if policy_to_bool(s) { 1i32 } else { 0i32 });
     let filter_limited_accounts = form.for_limited_accounts.as_deref().map(|s| if policy_to_bool(s) { 1i32 } else { 0i32 });
     sqlx::query!(
-        r#"INSERT INTO notification_policies (account_id, for_not_following, for_not_followers, for_new_accounts, for_private_mentions, for_limited_accounts)
-           VALUES ($1, COALESCE($2, 0), COALESCE($3, 0), COALESCE($4, 0), COALESCE($5, 1), COALESCE($6, 1))
+        r#"INSERT INTO notification_policies (account_id, for_not_following, for_not_followers, for_new_accounts, for_private_mentions, for_limited_accounts, created_at, updated_at)
+           VALUES ($1, COALESCE($2, 0), COALESCE($3, 0), COALESCE($4, 0), COALESCE($5, 1), COALESCE($6, 1), now(), now())
            ON CONFLICT (account_id) DO UPDATE SET
                for_not_following    = COALESCE($2, notification_policies.for_not_following),
                for_not_followers    = COALESCE($3, notification_policies.for_not_followers),
@@ -1052,8 +1052,8 @@ pub async fn update_notification_policy_v1(
     let private_mentions = form.filter_private_mentions.map(|v| if v { 1_i32 } else { 0_i32 });
     sqlx::query!(
         r#"INSERT INTO notification_policies
-               (account_id, for_not_following, for_not_followers, for_new_accounts, for_private_mentions)
-           VALUES ($1, COALESCE($2, 0), COALESCE($3, 0), COALESCE($4, 0), COALESCE($5, 1))
+               (account_id, for_not_following, for_not_followers, for_new_accounts, for_private_mentions, created_at, updated_at)
+           VALUES ($1, COALESCE($2, 0), COALESCE($3, 0), COALESCE($4, 0), COALESCE($5, 1), now(), now())
            ON CONFLICT (account_id) DO UPDATE SET
                for_not_following    = COALESCE($2, notification_policies.for_not_following),
                for_not_followers    = COALESCE($3, notification_policies.for_not_followers),

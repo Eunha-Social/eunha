@@ -1,0 +1,169 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO media_attachments\n             (id, account_id, \"type\", file_file_name, file_content_type, file_file_size, thumbnail_file_name, description, file_meta, blurhash, created_at, updated_at)\n           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now(), now())\n           RETURNING *",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "status_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "file_file_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "file_content_type",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "file_file_size",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "file_updated_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 6,
+        "name": "remote_url",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 8,
+        "name": "updated_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 9,
+        "name": "shortcode",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 10,
+        "name": "type",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 11,
+        "name": "file_meta",
+        "type_info": "Json"
+      },
+      {
+        "ordinal": 12,
+        "name": "account_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 13,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "scheduled_status_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 15,
+        "name": "blurhash",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 16,
+        "name": "processing",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 17,
+        "name": "file_storage_schema_version",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 18,
+        "name": "thumbnail_file_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 19,
+        "name": "thumbnail_content_type",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 20,
+        "name": "thumbnail_file_size",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 21,
+        "name": "thumbnail_updated_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 22,
+        "name": "thumbnail_remote_url",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 23,
+        "name": "thumbnail_storage_schema_version",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int4",
+        "Varchar",
+        "Varchar",
+        "Int4",
+        "Varchar",
+        "Text",
+        "Json",
+        "Varchar"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "1882e7a014a5e53d296c208849efe92a7482e2394262ae04ec83016823106903"
+}

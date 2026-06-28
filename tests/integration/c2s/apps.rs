@@ -300,8 +300,8 @@ async fn test_authorization_code_grant() {
 
     sqlx::query!(
         r#"INSERT INTO oauth_access_grants
-             (application_id, resource_owner_id, token, redirect_uri, scopes, expires_in)
-           VALUES ($1, $2, $3, $4, $5, 600)"#,
+             (application_id, resource_owner_id, token, redirect_uri, scopes, expires_in, created_at)
+           VALUES ($1, $2, $3, $4, $5, 600, now())"#,
         app_id,
         owner_id,
         code,

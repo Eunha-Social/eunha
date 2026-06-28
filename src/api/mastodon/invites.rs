@@ -81,8 +81,8 @@ pub async fn create_invite(
         .map(|s| chrono::Utc::now().naive_utc() + chrono::Duration::seconds(s));
 
     let row = sqlx::query!(
-        r#"INSERT INTO invites (code, user_id, max_uses, expires_at)
-           VALUES ($1, (SELECT id FROM users WHERE account_id = $2), $3, $4)
+        r#"INSERT INTO invites (code, user_id, max_uses, expires_at, created_at, updated_at)
+           VALUES ($1, (SELECT id FROM users WHERE account_id = $2), $3, $4, now(), now())
            RETURNING id, code, expires_at, max_uses, uses, created_at"#,
         code,
         auth.account_id,

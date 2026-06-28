@@ -350,7 +350,7 @@ async fn resolve_tag(state: &AppState, tag_name: &str) -> AppResult<i64> {
         return Err(AppError::Unprocessable("tag_name is invalid".into()));
     }
     let id = sqlx::query_scalar!(
-        r#"INSERT INTO tags (name) VALUES ($1)
+        r#"INSERT INTO tags (name, created_at, updated_at) VALUES ($1, now(), now())
            ON CONFLICT ((lower(name))) DO UPDATE SET name = EXCLUDED.name
            RETURNING id"#,
         name,
