@@ -1,5 +1,5 @@
 use eunha::{build_app, config, state};
-use sqlx::postgres::PgPoolOptions;
+use sqlx::{postgres::PgPoolOptions, Executor as _};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -13,11 +13,23 @@ async fn main() -> anyhow::Result<()> {
 
     let config = config::Config::from_env()?;
 
+    // Resolve unqualified names against the eunha schema first, then public.
+    // All app queries are schema-qualified, so this only affects where sqlx
+    // creates its unqualified `_sqlx_migrations` bookkeeping table.
     let db = PgPoolOptions::new()
         .max_connections(20)
+        .after_connect(|conn, _meta| {
+            Box::pin(async move {
+                conn.execute("SET search_path TO eunha, public").await?;
+                Ok(())
+            })
+        })
         .connect(&config.database_url)
         .await?;
 
+    // Pre-create `eunha` so `_sqlx_migrations` lands there (first on the search
+    // path) instead of `public`, keeping `public` a pure Mastodon-schema mirror.
+    db.execute("CREATE SCHEMA IF NOT EXISTS eunha").await?;
     sqlx::migrate!("./migrations").run(&db).await?;
 
     let state = state::AppState::new(db, config.clone()).await?;
