@@ -34,7 +34,7 @@ async fn test_signature_actor_host_mismatch_rejected() {
     let attacker_uri = "https://attacker.invalid/users/eve";
     sqlx::query!(
         r#"INSERT INTO accounts (id, username, domain, display_name, note, url, uri, public_key, inbox_url, outbox_url)
-           VALUES ($1, 'eve', 'attacker.invalid', 'eve', '', $2, $2, $3, $2||'/inbox', $2||'/outbox')"#,
+           VALUES ($1, 'eve', 'attacker.invalid', 'eve', '', $2::text, $2::text, $3, $2::text||'/inbox', $2::text||'/outbox')"#,
         eunha::snowflake::next_id(),
         attacker_uri,
         pub_pem,

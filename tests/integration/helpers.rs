@@ -538,7 +538,7 @@ pub async fn seed_account_and_token(
         r#"INSERT INTO accounts
              (id, username, display_name, note,
               url, uri, public_key, inbox_url, outbox_url, shared_inbox_url, discoverable)
-           VALUES ($1,$2,$2,'', $3,$4,'test-public-key',$4||'/inbox',$4||'/outbox',''::text, true)
+           VALUES ($1,$2,$2,'', $3,$4::text,'test-public-key',$4::text||'/inbox',$4::text||'/outbox',''::text, true)
            RETURNING id"#,
         eunha::snowflake::next_id(),
         username,
@@ -550,15 +550,16 @@ pub async fn seed_account_and_token(
     .unwrap();
 
     let encrypted_password = hash_password("testpassword123");
-    sqlx::query!(
+    let user_id: i64 = sqlx::query_scalar!(
         r#"INSERT INTO users
              (account_id, email, encrypted_password, confirmed_at, approved)
-           VALUES ($1,$2,$3,now(),true)"#,
+           VALUES ($1,$2,$3,now(),true)
+           RETURNING id"#,
         account_id,
         email,
         encrypted_password,
     )
-    .execute(db)
+    .fetch_one(db)
     .await
     .unwrap();
 
@@ -574,9 +575,9 @@ pub async fn seed_account_and_token(
 
     let token = Uuid::new_v4().to_string().replace("-", "");
     sqlx::query!(
-        "INSERT INTO oauth_access_tokens (application_id, account_id, token, scopes) VALUES ($1,$2,$3,'read write follow push')",
+        "INSERT INTO oauth_access_tokens (application_id, resource_owner_id, token, scopes) VALUES ($1,$2,$3,'read write follow push')",
         app_id,
-        account_id,
+        user_id,
         token,
     )
     .execute(db)
@@ -628,10 +629,11 @@ pub async fn user_id_for(db: &PgPool, account_id: i64) -> i64 {
 /// Create an additional access token for `account_id` with the given scopes.
 /// Use this to test scope enforcement (e.g. a read-only token trying a write endpoint).
 pub async fn seed_token_with_scopes(db: &PgPool, account_id: i64, scopes: &str) -> String {
+    let user_id = user_id_for(db, account_id).await;
     let app_id: i64 = sqlx::query_scalar!(
         r#"SELECT application_id as "application_id!: i64" FROM oauth_access_tokens
-           WHERE account_id = $1 AND application_id IS NOT NULL LIMIT 1"#,
-        account_id,
+           WHERE resource_owner_id = $1 AND application_id IS NOT NULL LIMIT 1"#,
+        user_id,
     )
     .fetch_one(db)
     .await
@@ -639,9 +641,9 @@ pub async fn seed_token_with_scopes(db: &PgPool, account_id: i64, scopes: &str) 
 
     let token = Uuid::new_v4().to_string().replace("-", "");
     sqlx::query!(
-        "INSERT INTO oauth_access_tokens (application_id, account_id, token, scopes) VALUES ($1,$2,$3,$4)",
+        "INSERT INTO oauth_access_tokens (application_id, resource_owner_id, token, scopes) VALUES ($1,$2,$3,$4)",
         app_id,
-        account_id,
+        user_id,
         token,
         scopes,
     )

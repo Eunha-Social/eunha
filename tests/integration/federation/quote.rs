@@ -20,7 +20,7 @@ async fn seed_remote_account(db: &PgPool, username: &str, domain: &str) -> (i64,
         r#"INSERT INTO accounts
              (id, username, domain, display_name, note, url, uri, public_key,
               inbox_url, outbox_url, shared_inbox_url, discoverable)
-           VALUES ($1,$2,$3,$2,'',$4,$4,'remote-key',$5,$4||'/outbox',''::text,true)
+           VALUES ($1,$2,$3,$2,'',$4::text,$4::text,'remote-key',$5,$4::text||'/outbox',''::text,true)
            RETURNING id"#,
         eunha::snowflake::next_id(),
         username,
