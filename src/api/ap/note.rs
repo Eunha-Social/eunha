@@ -214,7 +214,7 @@ pub async fn build_note(
         "type": "Note",
         "summary": if s.spoiler_text.is_empty() { None } else { Some(s.spoiler_text.clone()) },
         "inReplyTo": in_reply_to,
-        "published": s.created_at.to_rfc3339(),
+        "published": s.created_at.and_utc().to_rfc3339(),
         "url": note_url,
         "attributedTo": actor_url,
         "to": to.clone(),
@@ -229,7 +229,7 @@ pub async fn build_note(
         note["contentMap"] = json!({ lang: note["content"].clone() });
     }
     if let Some(edited) = s.edited_at {
-        note["updated"] = json!(edited.to_rfc3339());
+        note["updated"] = json!(edited.and_utc().to_rfc3339());
     }
 
     // FEP-044f quote linkage.
@@ -250,7 +250,7 @@ pub async fn build_note(
         note_uri,
         to,
         cc,
-        created_at: s.created_at,
+        created_at: s.created_at.and_utc(),
     }))
 }
 
@@ -336,7 +336,7 @@ async fn emoji_tags_for(state: &AppState, text: &str, spoiler: &str) -> AppResul
                 "type": "Emoji",
                 "id": r.uri,
                 "name": format!(":{}:", r.shortcode),
-                "updated": r.updated_at.to_rfc3339(),
+                "updated": r.updated_at.and_utc().to_rfc3339(),
                 "icon": { "type": "Image", "url": image },
             }))
         })

@@ -12,8 +12,8 @@
     "parameters": {
       "Left": [
         "Int8",
-        "Timestamptz",
-        "Timestamptz",
+        "Timestamp",
+        "Timestamp",
         "Int8"
       ]
     },

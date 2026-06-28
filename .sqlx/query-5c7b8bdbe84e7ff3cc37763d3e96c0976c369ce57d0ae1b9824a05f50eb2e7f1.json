@@ -10,48 +10,48 @@
       },
       {
         "ordinal": 1,
-        "name": "account_id",
-        "type_info": "Int8"
-      },
-      {
-        "ordinal": 2,
-        "name": "from_account_id",
-        "type_info": "Int8"
-      },
-      {
-        "ordinal": 3,
-        "name": "type",
-        "type_info": "Text"
-      },
-      {
-        "ordinal": 4,
-        "name": "filtered",
-        "type_info": "Bool"
-      },
-      {
-        "ordinal": 5,
-        "name": "group_key",
-        "type_info": "Text"
-      },
-      {
-        "ordinal": 6,
         "name": "activity_id",
         "type_info": "Int8"
       },
       {
-        "ordinal": 7,
+        "ordinal": 2,
         "name": "activity_type",
-        "type_info": "Text"
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 4,
+        "name": "updated_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 5,
+        "name": "account_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "from_account_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "type",
+        "type_info": "Varchar"
       },
       {
         "ordinal": 8,
-        "name": "created_at",
-        "type_info": "Timestamptz"
+        "name": "filtered",
+        "type_info": "Bool"
       },
       {
         "ordinal": 9,
-        "name": "updated_at",
-        "type_info": "Timestamptz"
+        "name": "group_key",
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
@@ -64,13 +64,13 @@
       false,
       false,
       false,
-      true,
+      false,
+      false,
+      false,
       false,
       true,
-      true,
-      true,
       false,
-      false
+      true
     ]
   },
   "hash": "5c7b8bdbe84e7ff3cc37763d3e96c0976c369ce57d0ae1b9824a05f50eb2e7f1"

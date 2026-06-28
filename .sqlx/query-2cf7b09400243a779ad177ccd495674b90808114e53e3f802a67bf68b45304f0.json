@@ -10,28 +10,28 @@
       },
       {
         "ordinal": 1,
-        "name": "status_id",
-        "type_info": "Int8"
-      },
-      {
-        "ordinal": 2,
         "name": "account_id",
         "type_info": "Int8"
       },
       {
+        "ordinal": 2,
+        "name": "status_id",
+        "type_info": "Int8"
+      },
+      {
         "ordinal": 3,
-        "name": "options",
-        "type_info": "TextArray"
+        "name": "expires_at",
+        "type_info": "Timestamp"
       },
       {
         "ordinal": 4,
-        "name": "votes_count",
-        "type_info": "Int8"
+        "name": "options",
+        "type_info": "VarcharArray"
       },
       {
         "ordinal": 5,
-        "name": "voters_count",
-        "type_info": "Int8"
+        "name": "cached_tallies",
+        "type_info": "Int8Array"
       },
       {
         "ordinal": 6,
@@ -40,38 +40,38 @@
       },
       {
         "ordinal": 7,
-        "name": "expires_at",
-        "type_info": "Timestamptz"
-      },
-      {
-        "ordinal": 8,
-        "name": "cached_tallies",
-        "type_info": "Int8Array"
-      },
-      {
-        "ordinal": 9,
         "name": "hide_totals",
         "type_info": "Bool"
       },
       {
-        "ordinal": 10,
+        "ordinal": 8,
+        "name": "votes_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 9,
         "name": "last_fetched_at",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 10,
+        "name": "created_at",
+        "type_info": "Timestamp"
       },
       {
         "ordinal": 11,
+        "name": "updated_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 12,
         "name": "lock_version",
         "type_info": "Int4"
       },
       {
-        "ordinal": 12,
-        "name": "created_at",
-        "type_info": "Timestamptz"
-      },
-      {
         "ordinal": 13,
-        "name": "updated_at",
-        "type_info": "Timestamptz"
+        "name": "voters_count",
+        "type_info": "Int8"
       }
     ],
     "parameters": {
@@ -83,17 +83,17 @@
       false,
       false,
       false,
+      true,
+      false,
+      false,
+      false,
       false,
       false,
       true,
       false,
-      true,
       false,
       false,
-      true,
-      false,
-      false,
-      false
+      true
     ]
   },
   "hash": "2cf7b09400243a779ad177ccd495674b90808114e53e3f802a67bf68b45304f0"

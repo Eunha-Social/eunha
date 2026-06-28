@@ -6,7 +6,7 @@
       {
         "ordinal": 0,
         "name": "locale",
-        "type_info": "Text"
+        "type_info": "Varchar"
       },
       {
         "ordinal": 1,
@@ -16,8 +16,8 @@
     ],
     "parameters": {
       "Left": [
-        "Timestamptz",
-        "Timestamptz",
+        "Timestamp",
+        "Timestamp",
         "Int8"
       ]
     },

@@ -12,14 +12,14 @@
     "parameters": {
       "Left": [
         "Int8",
+        "Varchar",
+        "Varchar",
+        "Varchar",
         "Text",
         "Text",
-        "Text",
-        "Text",
-        "Text",
-        "Text",
-        "Text",
-        "Text"
+        "Varchar",
+        "Varchar",
+        "Varchar"
       ]
     },
     "nullable": [

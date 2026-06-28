@@ -137,7 +137,7 @@ pub async fn update_scheduled_status(
     auth.require_scope("write:statuses")?;
     let scheduled_at = form.scheduled_at.as_deref()
         .map(|s| chrono::DateTime::parse_from_rfc3339(s)
-            .map(|dt| dt.with_timezone(&chrono::Utc)))
+            .map(|dt| dt.with_timezone(&chrono::Utc).naive_utc()))
         .transpose()
         .map_err(|_| AppError::Unprocessable("Invalid scheduled_at format".into()))?;
 

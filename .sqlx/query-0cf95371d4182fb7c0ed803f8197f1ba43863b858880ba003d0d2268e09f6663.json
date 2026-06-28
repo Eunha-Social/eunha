@@ -1,0 +1,106 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT spc.status_id, pc.url, pc.title, pc.description,\n                  CASE pc.type WHEN 1 THEN 'photo' WHEN 2 THEN 'video' WHEN 3 THEN 'rich' ELSE 'link' END as \"card_type!\",\n                  NULL::text as image_url, pc.author_name, pc.author_url,\n                  pc.provider_name, pc.provider_url, pc.html, pc.width, pc.height,\n                  pc.embed_url, pc.blurhash\n           FROM preview_cards_statuses spc\n           JOIN preview_cards pc ON pc.id = spc.preview_card_id\n           WHERE spc.status_id = ANY($1::bigint[])",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "url",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "title",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "description",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "card_type!",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "image_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "author_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "author_url",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "provider_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 9,
+        "name": "provider_url",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 10,
+        "name": "html",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "width",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 12,
+        "name": "height",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 13,
+        "name": "embed_url",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 14,
+        "name": "blurhash",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      null,
+      null,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "0cf95371d4182fb7c0ed803f8197f1ba43863b858880ba003d0d2268e09f6663"
+}

@@ -17,14 +17,14 @@
         "Text",
         "Int4",
         "Bool",
-        "Text",
-        "Text",
+        "Varchar",
+        "Varchar",
         "Int8",
         "Int8",
         "Bool",
-        "Text",
-        "Timestamptz",
-        "Timestamptz"
+        "Varchar",
+        "Timestamp",
+        "Timestamp"
       ]
     },
     "nullable": [

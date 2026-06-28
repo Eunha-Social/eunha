@@ -6,7 +6,7 @@
       {
         "ordinal": 0,
         "name": "also_known_as",
-        "type_info": "TextArray"
+        "type_info": "VarcharArray"
       }
     ],
     "parameters": {

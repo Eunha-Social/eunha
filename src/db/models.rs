@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::NaiveDateTime;
 use sqlx::FromRow;
 
 #[derive(Debug, Clone, FromRow)]
@@ -18,25 +18,25 @@ pub struct Account {
     pub inbox_url: String,
     pub outbox_url: String,
     pub shared_inbox_url: String,
-    pub suspended_at: Option<DateTime<Utc>>,
-    pub silenced_at: Option<DateTime<Utc>>,
-    pub sensitized_at: Option<DateTime<Utc>>,
+    pub suspended_at: Option<NaiveDateTime>,
+    pub silenced_at: Option<NaiveDateTime>,
+    pub sensitized_at: Option<NaiveDateTime>,
     pub hide_collections: Option<bool>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
     pub fields: Option<serde_json::Value>,
-    pub attribution_domains: Vec<String>,
+    pub attribution_domains: Option<Vec<String>>,
     pub actor_type: Option<String>,
     pub also_known_as: Option<Vec<String>>,
     pub featured_collection_url: Option<String>,
     pub followers_url: String,
     pub following_url: String,
-    pub last_webfingered_at: Option<DateTime<Utc>>,
+    pub last_webfingered_at: Option<NaiveDateTime>,
     pub memorial: bool,
     pub moved_to_account_id: Option<i64>,
     pub protocol: i32,
-    pub requested_review_at: Option<DateTime<Utc>>,
-    pub reviewed_at: Option<DateTime<Utc>>,
+    pub requested_review_at: Option<NaiveDateTime>,
+    pub reviewed_at: Option<NaiveDateTime>,
     pub suspension_origin: Option<i32>,
     pub trendable: Option<bool>,
     pub id_scheme: Option<i32>,
@@ -44,11 +44,11 @@ pub struct Account {
     pub avatar_file_name: Option<String>,
     pub avatar_content_type: Option<String>,
     pub avatar_file_size: Option<i32>,
-    pub avatar_updated_at: Option<DateTime<Utc>>,
+    pub avatar_updated_at: Option<NaiveDateTime>,
     pub header_file_name: Option<String>,
     pub header_content_type: Option<String>,
     pub header_file_size: Option<i32>,
-    pub header_updated_at: Option<DateTime<Utc>>,
+    pub header_updated_at: Option<NaiveDateTime>,
     pub avatar_remote_url: Option<String>,
     pub header_remote_url: String,
     pub avatar_storage_schema_version: Option<i32>,
@@ -82,10 +82,10 @@ pub struct User {
     pub account_id: i64,
     pub email: String,
     pub encrypted_password: String,
-    pub confirmed_at: Option<DateTime<Utc>>,
+    pub confirmed_at: Option<NaiveDateTime>,
     pub invite_id: Option<i64>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -103,19 +103,19 @@ pub struct Status {
     pub sensitive: bool,
     pub url: Option<String>,
     pub uri: Option<String>,
-    pub deleted_at: Option<DateTime<Utc>>,
-    pub edited_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
+    pub deleted_at: Option<NaiveDateTime>,
+    pub edited_at: Option<NaiveDateTime>,
+    pub created_at: NaiveDateTime,
     pub reply: bool,
     pub conversation_id: Option<i64>,
     // Added in migration 065
-    pub fetched_replies_at: Option<DateTime<Utc>>,
+    pub fetched_replies_at: Option<NaiveDateTime>,
     pub local: Option<bool>,
     pub ordered_media_attachment_ids: Option<Vec<i64>>,
     pub poll_id: Option<i64>,
     pub quote_approval_policy: i32,
     pub trendable: Option<bool>,
-    pub updated_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<NaiveDateTime>,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -126,9 +126,9 @@ pub struct MediaAttachment {
     pub remote_url: Option<String>,
     pub description: Option<String>,
     pub blurhash: Option<String>,
-    pub created_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
     // Mastodon compat columns (added in migration 067)
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: NaiveDateTime,
     pub shortcode: Option<String>,
     pub r#type: Option<i32>,
     pub file_meta: Option<serde_json::Value>,
@@ -138,11 +138,11 @@ pub struct MediaAttachment {
     pub file_file_name: Option<String>,
     pub file_content_type: Option<String>,
     pub file_file_size: Option<i32>,
-    pub file_updated_at: Option<DateTime<Utc>>,
+    pub file_updated_at: Option<NaiveDateTime>,
     pub thumbnail_file_name: Option<String>,
     pub thumbnail_content_type: Option<String>,
     pub thumbnail_file_size: Option<i32>,
-    pub thumbnail_updated_at: Option<DateTime<Utc>>,
+    pub thumbnail_updated_at: Option<NaiveDateTime>,
     pub thumbnail_remote_url: Option<String>,
     // Added in Mastodon v4.6.0
     pub thumbnail_storage_schema_version: Option<i32>,
@@ -157,7 +157,7 @@ pub struct Follow {
     pub notify: bool,
     pub languages: Vec<String>,
     pub uri: Option<String>,
-    pub created_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -166,14 +166,14 @@ pub struct Notification {
     pub account_id: i64,
     pub from_account_id: i64,
     pub r#type: Option<String>,
-    pub created_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
     // Added in migration 065
     pub filtered: bool,
     pub group_key: Option<String>,
     // Mastodon polymorphic association columns
     pub activity_id: Option<i64>,
     pub activity_type: Option<String>,
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -185,11 +185,11 @@ pub struct OauthApplication {
     pub redirect_uri: String,
     pub scopes: Option<String>,
     pub website: Option<String>,
-    pub created_at: Option<DateTime<Utc>>,
+    pub created_at: Option<NaiveDateTime>,
     // Added in migration 065
     pub confidential: bool,
     pub superapp: bool,
-    pub updated_at: Option<DateTime<Utc>>,
+    pub updated_at: Option<NaiveDateTime>,
     pub owner_type: Option<String>,
     pub owner_id: Option<i64>,
 }
@@ -198,21 +198,23 @@ pub struct OauthApplication {
 pub struct OauthAccessToken {
     pub id: i64,
     pub application_id: Option<i64>,
-    pub account_id: Option<i64>,
+    pub resource_owner_id: Option<i64>,
     pub token: String,
     pub refresh_token: Option<String>,
     pub scopes: Option<String>,
-    pub expires_at: Option<DateTime<Utc>>,
-    pub revoked_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
+    pub expires_in: Option<i32>,
+    pub revoked_at: Option<NaiveDateTime>,
+    pub created_at: NaiveDateTime,
+    pub last_used_at: Option<NaiveDateTime>,
+    pub last_used_ip: Option<std::net::IpAddr>,
 }
 
 #[derive(Debug, Clone, FromRow)]
 pub struct Tag {
     pub id: i64,
     pub name: String,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -223,7 +225,7 @@ pub struct CustomEmoji {
     pub image_remote_url: Option<String>,
     pub visible_in_picker: bool,
     pub disabled: bool,
-    pub created_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -231,7 +233,7 @@ pub struct Favourite {
     pub id: i64,
     pub account_id: i64,
     pub status_id: i64,
-    pub created_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -241,8 +243,8 @@ pub struct List {
     pub title: String,
     pub replies_policy: i32,
     pub exclusive: bool,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -253,13 +255,13 @@ pub struct StatusEdit {
     pub text: String,
     pub spoiler_text: String,
     pub sensitive: Option<bool>,
-    pub created_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
     // Added in migration 065
     pub media_descriptions: Option<Vec<String>>,
     pub ordered_media_attachment_ids: Option<Vec<i64>>,
     pub poll_options: Option<Vec<String>>,
     pub quote_id: Option<i64>,
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -271,13 +273,13 @@ pub struct Poll {
     pub votes_count: i64,
     pub voters_count: Option<i64>,
     pub multiple: bool,
-    pub expires_at: Option<DateTime<Utc>>,
-    pub created_at: DateTime<Utc>,
+    pub expires_at: Option<NaiveDateTime>,
+    pub created_at: NaiveDateTime,
     pub cached_tallies: Vec<i64>,
     pub hide_totals: bool,
-    pub last_fetched_at: Option<DateTime<Utc>>,
+    pub last_fetched_at: Option<NaiveDateTime>,
     pub lock_version: i32,
-    pub updated_at: DateTime<Utc>,
+    pub updated_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -285,7 +287,7 @@ pub struct UserDomainBlock {
     pub id: i64,
     pub account_id: i64,
     pub domain: String,
-    pub created_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -297,8 +299,8 @@ pub struct WebPushSubscription {
     pub key_p256dh: String,
     pub key_auth: String,
     pub data: serde_json::Value,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 /// Integer-to-text helpers for statuses.visibility (public=0 unlisted=1 private=2 direct=3 limited=4).

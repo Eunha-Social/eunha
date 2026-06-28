@@ -11,13 +11,13 @@
       {
         "ordinal": 1,
         "name": "scheduled_at",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamp"
       }
     ],
     "parameters": {
       "Left": [
         "Int8",
-        "Timestamptz",
+        "Timestamp",
         "Jsonb"
       ]
     },

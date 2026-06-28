@@ -21,7 +21,7 @@
       {
         "ordinal": 3,
         "name": "domain",
-        "type_info": "Text"
+        "type_info": "Varchar"
       }
     ],
     "parameters": {

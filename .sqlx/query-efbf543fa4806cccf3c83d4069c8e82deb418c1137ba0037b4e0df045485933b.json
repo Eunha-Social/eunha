@@ -11,7 +11,7 @@
       {
         "ordinal": 1,
         "name": "encrypted_password",
-        "type_info": "Text"
+        "type_info": "Varchar"
       },
       {
         "ordinal": 2,
@@ -21,7 +21,7 @@
       {
         "ordinal": 3,
         "name": "username",
-        "type_info": "Text"
+        "type_info": "Varchar"
       }
     ],
     "parameters": {

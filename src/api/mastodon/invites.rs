@@ -3,7 +3,7 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use chrono::{DateTime, Utc};
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use crate::{
     error::{AppError, AppResult},
@@ -15,12 +15,12 @@ use crate::{
 pub struct InviteResponse {
     pub id: String,
     pub code: String,
-    pub expires_at: Option<DateTime<Utc>>,
+    pub expires_at: Option<NaiveDateTime>,
     pub max_uses: Option<i32>,
     pub uses: i32,
     pub url: String,
     pub autofollow: bool,
-    pub created_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
 }
 
 pub async fn list_invites(
@@ -78,7 +78,7 @@ pub async fn create_invite(
     let code = generate_code();
     let expires_at = req
         .expires_in
-        .map(|s| Utc::now() + chrono::Duration::seconds(s));
+        .map(|s| chrono::Utc::now().naive_utc() + chrono::Duration::seconds(s));
 
     let row = sqlx::query!(
         r#"INSERT INTO invites (code, user_id, max_uses, expires_at)

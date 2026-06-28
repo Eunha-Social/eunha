@@ -7,9 +7,9 @@
       "Left": [
         "Int8",
         "Int8",
-        "TextArray",
+        "VarcharArray",
         "Bool",
-        "Timestamptz"
+        "Timestamp"
       ]
     },
     "nullable": []

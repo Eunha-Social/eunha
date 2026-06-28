@@ -11,7 +11,7 @@
       {
         "ordinal": 1,
         "name": "scheduled_at",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamp"
       },
       {
         "ordinal": 2,

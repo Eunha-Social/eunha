@@ -21,12 +21,12 @@
       {
         "ordinal": 3,
         "name": "context",
-        "type_info": "TextArray"
+        "type_info": "VarcharArray"
       },
       {
         "ordinal": 4,
         "name": "expires_at",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamp"
       },
       {
         "ordinal": 5,

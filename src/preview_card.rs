@@ -28,21 +28,25 @@ pub async fn fetch_and_store(db: &PgPool, http: &reqwest::Client, url: &str) -> 
     }
 
     let html = resp.text().await.ok()?;
-    let (title, description, image_url, card_type) = extract_og(&html, url);
+    let (title, description, _image_url, card_type) = extract_og(&html, url);
+    let card_type = match card_type.as_str() {
+        "photo" => 1,
+        "video" => 2,
+        "rich" => 3,
+        _ => 0,
+    };
 
     let id: i64 = sqlx::query_scalar(
-        r#"INSERT INTO preview_cards (url, title, description, card_type, image_url, fetched_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, now(), now())
+        r#"INSERT INTO preview_cards (url, title, description, type, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, now(), now())
            ON CONFLICT (url) DO UPDATE
-             SET title = $2, description = $3, card_type = $4, image_url = $5,
-                 fetched_at = now(), updated_at = now()
+             SET title = $2, description = $3, type = $4, updated_at = now()
            RETURNING id"#,
     )
     .bind(url)
     .bind(&title)
     .bind(&description)
     .bind(&card_type)
-    .bind(&image_url)
     .fetch_one(db)
     .await
     .ok()?;

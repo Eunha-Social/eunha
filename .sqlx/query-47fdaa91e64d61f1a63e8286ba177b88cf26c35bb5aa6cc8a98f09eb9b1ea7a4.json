@@ -11,7 +11,7 @@
       {
         "ordinal": 1,
         "name": "used_at",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamp"
       }
     ],
     "parameters": {

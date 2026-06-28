@@ -6,17 +6,17 @@
       {
         "ordinal": 0,
         "name": "quoted_status_uri?",
-        "type_info": "Text"
+        "type_info": "Varchar"
       },
       {
         "ordinal": 1,
         "name": "quoting_status_uri?",
-        "type_info": "Text"
+        "type_info": "Varchar"
       },
       {
         "ordinal": 2,
         "name": "quoted_account_uri",
-        "type_info": "Text"
+        "type_info": "Varchar"
       }
     ],
     "parameters": {

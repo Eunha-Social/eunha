@@ -594,9 +594,9 @@ struct AdminReportRow {
     comment: String,
     forwarded: Option<bool>,
     category: String,
-    action_taken_at: Option<chrono::DateTime<chrono::Utc>>,
-    created_at: chrono::DateTime<chrono::Utc>,
-    updated_at: chrono::DateTime<chrono::Utc>,
+    action_taken_at: Option<chrono::NaiveDateTime>,
+    created_at: chrono::NaiveDateTime,
+    updated_at: chrono::NaiveDateTime,
 }
 
 // ── GET /api/v1/admin/reports ─────────────────────────────────────────────
@@ -806,12 +806,12 @@ pub async fn get_measures(
 ) -> AppResult<Json<Vec<serde_json::Value>>> {
     require_admin(&state, auth.account_id).await?;
 
-    let start: chrono::DateTime<chrono::Utc> = body.start_at.as_deref()
+    let start: chrono::NaiveDateTime = body.start_at.as_deref()
         .and_then(parse_admin_date)
-        .unwrap_or_else(|| chrono::Utc::now() - chrono::Duration::days(7));
-    let end: chrono::DateTime<chrono::Utc> = body.end_at.as_deref()
+        .unwrap_or_else(|| chrono::Utc::now().naive_utc() - chrono::Duration::days(7));
+    let end: chrono::NaiveDateTime = body.end_at.as_deref()
         .and_then(parse_admin_date)
-        .unwrap_or_else(chrono::Utc::now);
+        .unwrap_or_else(|| chrono::Utc::now().naive_utc());
     let prev_start = start - (end - start);
 
     let mut result = Vec::new();
@@ -828,10 +828,10 @@ pub async fn get_measures(
                     prev_start, start,
                 ).fetch_one(&state.db).await?.unwrap_or(0);
                 let data = sqlx::query!(
-                    r#"SELECT axis.day::timestamptz,
+                    r#"SELECT axis.day::timestamp,
                               (SELECT COUNT(*) FROM users
                                WHERE date_trunc('day', created_at)::date = axis.day) AS n
-                       FROM (SELECT generate_series($1::timestamptz, $2::timestamptz, '1 day')::date AS day) AS axis
+                       FROM (SELECT generate_series($1::timestamp, $2::timestamp, '1 day')::date AS day) AS axis
                        ORDER BY axis.day"#,
                     start, end,
                 ).fetch_all(&state.db).await?;
@@ -857,10 +857,10 @@ pub async fn get_measures(
                     prev_start, start,
                 ).fetch_one(&state.db).await?.unwrap_or(0);
                 let data = sqlx::query!(
-                    r#"SELECT axis.day::timestamptz,
+                    r#"SELECT axis.day::timestamp,
                               (SELECT COUNT(*) FROM users
                                WHERE date_trunc('day', current_sign_in_at)::date = axis.day) AS n
-                       FROM (SELECT generate_series($1::timestamptz, $2::timestamptz, '1 day')::date AS day) AS axis
+                       FROM (SELECT generate_series($1::timestamp, $2::timestamp, '1 day')::date AS day) AS axis
                        ORDER BY axis.day"#,
                     start, end,
                 ).fetch_all(&state.db).await?;
@@ -887,11 +887,11 @@ pub async fn get_measures(
                     prev_start, start,
                 ).fetch_one(&state.db).await?.unwrap_or(0);
                 let data = sqlx::query!(
-                    r#"SELECT axis.day::timestamptz,
+                    r#"SELECT axis.day::timestamp,
                               (SELECT COUNT(*) FROM statuses s JOIN accounts a ON a.id = s.account_id
                                WHERE a.domain IS NULL AND s.deleted_at IS NULL
                                  AND date_trunc('day', s.created_at)::date = axis.day) AS n
-                       FROM (SELECT generate_series($1::timestamptz, $2::timestamptz, '1 day')::date AS day) AS axis
+                       FROM (SELECT generate_series($1::timestamp, $2::timestamp, '1 day')::date AS day) AS axis
                        ORDER BY axis.day"#,
                     start, end,
                 ).fetch_all(&state.db).await?;
@@ -916,10 +916,10 @@ pub async fn get_measures(
                     prev_start, start,
                 ).fetch_one(&state.db).await?.unwrap_or(0);
                 let data = sqlx::query!(
-                    r#"SELECT axis.day::timestamptz,
+                    r#"SELECT axis.day::timestamp,
                               (SELECT COUNT(*) FROM reports
                                WHERE date_trunc('day', created_at)::date = axis.day) AS n
-                       FROM (SELECT generate_series($1::timestamptz, $2::timestamptz, '1 day')::date AS day) AS axis
+                       FROM (SELECT generate_series($1::timestamp, $2::timestamp, '1 day')::date AS day) AS axis
                        ORDER BY axis.day"#,
                     start, end,
                 ).fetch_all(&state.db).await?;
@@ -943,10 +943,10 @@ pub async fn get_measures(
                     prev_start, start,
                 ).fetch_one(&state.db).await?.unwrap_or(0);
                 let data = sqlx::query!(
-                    r#"SELECT axis.day::timestamptz,
+                    r#"SELECT axis.day::timestamp,
                               (SELECT COUNT(*) FROM reports
                                WHERE date_trunc('day', action_taken_at)::date = axis.day) AS n
-                       FROM (SELECT generate_series($1::timestamptz, $2::timestamptz, '1 day')::date AS day) AS axis
+                       FROM (SELECT generate_series($1::timestamp, $2::timestamp, '1 day')::date AS day) AS axis
                        ORDER BY axis.day"#,
                     start, end,
                 ).fetch_all(&state.db).await?;
@@ -982,7 +982,7 @@ pub async fn get_measures(
                 let total = count_interactions!(start, end);
                 let previous_total = count_interactions!(prev_start, start);
                 let data = sqlx::query!(
-                    r#"SELECT axis.day::timestamptz,
+                    r#"SELECT axis.day::timestamp,
                               (SELECT COUNT(*) FROM statuses s JOIN accounts a ON a.id = s.account_id
                                WHERE a.domain IS NULL AND s.deleted_at IS NULL
                                  AND date_trunc('day', s.created_at)::date = axis.day)
@@ -995,7 +995,7 @@ pub async fn get_measures(
                                WHERE a.domain IS NULL
                                  AND date_trunc('day', f2.created_at)::date = axis.day)
                               AS n
-                       FROM (SELECT generate_series($1::timestamptz, $2::timestamptz, '1 day')::date AS day) AS axis
+                       FROM (SELECT generate_series($1::timestamp, $2::timestamp, '1 day')::date AS day) AS axis
                        ORDER BY axis.day"#,
                     start, end,
                 ).fetch_all(&state.db).await?;
@@ -1037,13 +1037,13 @@ fn locale_name(code: &str) -> &'static str {
     }
 }
 
-fn parse_admin_date(s: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+fn parse_admin_date(s: &str) -> Option<chrono::NaiveDateTime> {
     if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
-        return Some(dt.with_timezone(&chrono::Utc));
+        return Some(dt.with_timezone(&chrono::Utc).naive_utc());
     }
     // Mastodon sends date-only strings like "2026-04-27"
     if let Ok(date) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
-        return date.and_hms_opt(0, 0, 0).map(|ndt| ndt.and_utc());
+        return date.and_hms_opt(0, 0, 0);
     }
     None
 }
@@ -1087,12 +1087,12 @@ pub async fn get_dimensions(
 ) -> AppResult<Json<Vec<serde_json::Value>>> {
     require_admin(&state, auth.account_id).await?;
 
-    let start: chrono::DateTime<chrono::Utc> = body.start_at.as_deref()
+    let start: chrono::NaiveDateTime = body.start_at.as_deref()
         .and_then(parse_admin_date)
-        .unwrap_or_else(|| chrono::Utc::now() - chrono::Duration::days(7));
-    let end: chrono::DateTime<chrono::Utc> = body.end_at.as_deref()
+        .unwrap_or_else(|| chrono::Utc::now().naive_utc() - chrono::Duration::days(7));
+    let end: chrono::NaiveDateTime = body.end_at.as_deref()
         .and_then(parse_admin_date)
-        .unwrap_or_else(chrono::Utc::now);
+        .unwrap_or_else(|| chrono::Utc::now().naive_utc());
     let limit = body.limit.unwrap_or(10).min(50).max(1);
 
     let mut result = Vec::new();
@@ -1258,12 +1258,12 @@ pub async fn get_retention(
 ) -> AppResult<Json<Vec<serde_json::Value>>> {
     require_admin(&state, auth.account_id).await?;
 
-    let start: chrono::DateTime<chrono::Utc> = body.start_at.as_deref()
+    let start: chrono::NaiveDateTime = body.start_at.as_deref()
         .and_then(parse_admin_date)
-        .unwrap_or_else(|| chrono::Utc::now() - chrono::Duration::days(30));
-    let end: chrono::DateTime<chrono::Utc> = body.end_at.as_deref()
+        .unwrap_or_else(|| chrono::Utc::now().naive_utc() - chrono::Duration::days(30));
+    let end: chrono::NaiveDateTime = body.end_at.as_deref()
         .and_then(parse_admin_date)
-        .unwrap_or_else(chrono::Utc::now);
+        .unwrap_or_else(|| chrono::Utc::now().naive_utc());
     let frequency = match body.frequency.as_deref().unwrap_or("day") {
         "month" => "month",
         _ => "day",
@@ -1275,8 +1275,8 @@ pub async fn get_retention(
     // is >= retention_period.
     let rows = sqlx::query!(
         r#"SELECT
-               axis.cohort_period::timestamptz,
-               axis.retention_period::timestamptz,
+               axis.cohort_period::timestamp,
+               axis.retention_period::timestamp,
                (
                  WITH new_users AS (
                    SELECT users.id FROM users
@@ -1297,8 +1297,8 @@ pub async fn get_retention(
            FROM (
              WITH cohort_periods AS (
                SELECT generate_series(
-                 date_trunc($3, $1::timestamptz)::date,
-                 date_trunc($3, $2::timestamptz)::date,
+                 date_trunc($3, $1::timestamp)::date,
+                 date_trunc($3, $2::timestamp)::date,
                  ('1 ' || $3)::interval
                ) AS cohort_period
              ),
@@ -1317,7 +1317,7 @@ pub async fn get_retention(
     .await?;
 
     let mut cohorts: indexmap::IndexMap<
-        chrono::DateTime<chrono::Utc>,
+        chrono::NaiveDateTime,
         Vec<serde_json::Value>,
     > = indexmap::IndexMap::new();
 
@@ -1444,25 +1444,37 @@ pub async fn create_admin_custom_emoji(
         .map_err(|e| AppError::Internal(anyhow::anyhow!("storage: {e}")))?;
     let url = state.storage.public_url(&key);
 
-    let row = sqlx::query!(
-        r#"INSERT INTO custom_emojis (shortcode, image_remote_url, visible_in_picker)
-           VALUES ($1, $2, true)
-           ON CONFLICT (shortcode) WHERE domain IS NULL
-           DO UPDATE SET image_remote_url = $2, disabled = false
+    let row = if let Some(row) = sqlx::query!(
+        r#"UPDATE custom_emojis
+           SET image_remote_url = $2, disabled = false, visible_in_picker = true, updated_at = now()
+           WHERE shortcode = $1 AND domain IS NULL
            RETURNING id, shortcode, image_remote_url, visible_in_picker, disabled"#,
         shortcode, url,
     )
-    .fetch_one(&state.db)
-    .await?;
+    .fetch_optional(&state.db)
+    .await?
+    {
+        (row.id, row.shortcode, row.image_remote_url, row.visible_in_picker, row.disabled)
+    } else {
+        let row = sqlx::query!(
+            r#"INSERT INTO custom_emojis (shortcode, image_remote_url, visible_in_picker, created_at, updated_at)
+               VALUES ($1, $2, true, now(), now())
+               RETURNING id, shortcode, image_remote_url, visible_in_picker, disabled"#,
+            shortcode, url,
+        )
+        .fetch_one(&state.db)
+        .await?;
+        (row.id, row.shortcode, row.image_remote_url, row.visible_in_picker, row.disabled)
+    };
 
-    let url = row.image_remote_url.unwrap_or_default();
+    let url = row.2.unwrap_or_default();
     Ok(Json(AdminCustomEmoji {
-        id: row.id.to_string(),
-        shortcode: row.shortcode,
+        id: row.0.to_string(),
+        shortcode: row.1,
         url: url.clone(),
         static_url: url,
-        visible_in_picker: row.visible_in_picker,
-        disabled: row.disabled,
+        visible_in_picker: row.3,
+        disabled: row.4,
         category: None,
     }))
 }
@@ -1862,7 +1874,7 @@ pub async fn create_ip_block(
     require_admin(&state, auth.account_id).await?;
     let severity = crate::db::models::ip_severity::from_str(form.severity.as_deref().unwrap_or("sign_up_block"));
     let expires_at = form.expires_in
-        .map(|secs| chrono::Utc::now() + chrono::Duration::seconds(secs));
+        .map(|secs| chrono::Utc::now().naive_utc() + chrono::Duration::seconds(secs));
     let r = sqlx::query!(
         r#"INSERT INTO ip_blocks (ip, severity, comment, expires_at)
            VALUES ($1::text::inet, $2, $3, $4)
@@ -1892,7 +1904,7 @@ pub async fn update_ip_block(
     require_admin(&state, auth.account_id).await?;
     let severity = crate::db::models::ip_severity::from_str(form.severity.as_deref().unwrap_or("sign_up_block"));
     let expires_at = form.expires_in
-        .map(|secs| chrono::Utc::now() + chrono::Duration::seconds(secs));
+        .map(|secs| chrono::Utc::now().naive_utc() + chrono::Duration::seconds(secs));
     let r = sqlx::query!(
         r#"UPDATE ip_blocks SET severity = $2, comment = $3, expires_at = $4, updated_at = now()
            WHERE id = $1
@@ -2191,7 +2203,12 @@ pub async fn delete_admin_account(
         id,
     ).execute(&mut *tx).await?;
     sqlx::query!(
-        "UPDATE oauth_access_tokens SET revoked_at = now() WHERE account_id = $1 AND revoked_at IS NULL",
+        r#"UPDATE oauth_access_tokens t
+           SET revoked_at = now()
+           FROM users u
+           WHERE u.id = t.resource_owner_id
+             AND u.account_id = $1
+             AND t.revoked_at IS NULL"#,
         id,
     ).execute(&mut *tx).await?;
     sqlx::query!(

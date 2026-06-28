@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT a.id, a.name, a.website, COALESCE(a.scopes, 'read') as \"scopes!\", a.redirect_uri\n           FROM oauth_access_tokens t\n           JOIN oauth_applications a ON a.id = t.application_id\n           WHERE t.token = $1 AND t.revoked_at IS NULL\n             AND (t.expires_in IS NULL OR t.created_at + t.expires_in * interval '1 second' > now())",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "website",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "scopes!",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "redirect_uri",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      null,
+      false
+    ]
+  },
+  "hash": "d0c3e710bfb138f25ca38568a15976cd67e0d70b9efb2374969363fc05881fb6"
+}

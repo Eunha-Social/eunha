@@ -11,17 +11,17 @@
       {
         "ordinal": 1,
         "name": "name",
-        "type_info": "Text"
+        "type_info": "Varchar"
       },
       {
         "ordinal": 2,
         "name": "uid",
-        "type_info": "Text"
+        "type_info": "Varchar"
       },
       {
         "ordinal": 3,
         "name": "secret",
-        "type_info": "Text"
+        "type_info": "Varchar"
       },
       {
         "ordinal": 4,
@@ -31,17 +31,17 @@
       {
         "ordinal": 5,
         "name": "scopes",
-        "type_info": "Text"
+        "type_info": "Varchar"
       },
       {
         "ordinal": 6,
-        "name": "website",
-        "type_info": "Text"
+        "name": "created_at",
+        "type_info": "Timestamp"
       },
       {
         "ordinal": 7,
-        "name": "confidential",
-        "type_info": "Bool"
+        "name": "updated_at",
+        "type_info": "Timestamp"
       },
       {
         "ordinal": 8,
@@ -50,33 +50,33 @@
       },
       {
         "ordinal": 9,
-        "name": "owner_type",
-        "type_info": "Text"
+        "name": "website",
+        "type_info": "Varchar"
       },
       {
         "ordinal": 10,
+        "name": "owner_type",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 11,
         "name": "owner_id",
         "type_info": "Int8"
       },
       {
-        "ordinal": 11,
-        "name": "created_at",
-        "type_info": "Timestamptz"
-      },
-      {
         "ordinal": 12,
-        "name": "updated_at",
-        "type_info": "Timestamptz"
+        "name": "confidential",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
       "Left": [
+        "Varchar",
+        "Varchar",
+        "Varchar",
         "Text",
-        "Text",
-        "Text",
-        "Text",
-        "Text",
-        "Text"
+        "Varchar",
+        "Varchar"
       ]
     },
     "nullable": [
@@ -85,14 +85,14 @@
       false,
       false,
       false,
-      true,
-      true,
-      false,
       false,
       true,
       true,
+      false,
       true,
-      true
+      true,
+      true,
+      false
     ]
   },
   "hash": "cd1927df65a6018b5f6009f7f187e72bdf701da2e92d6c3d8b9bb57903e43c21"

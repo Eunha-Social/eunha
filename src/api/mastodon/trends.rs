@@ -234,9 +234,10 @@ pub async fn trending_links(
     let offset = params.offset.unwrap_or(0).max(0) as i64;
 
     let rows = sqlx::query!(
-        r#"SELECT pc.url, pc.title, pc.description, pc.card_type,
+        r#"SELECT pc.url, pc.title, pc.description,
+                  CASE pc.type WHEN 1 THEN 'photo' WHEN 2 THEN 'video' WHEN 3 THEN 'rich' ELSE 'link' END as "card_type!",
                   pc.author_name, pc.author_url, pc.provider_name, pc.provider_url,
-                  pc.html, pc.width, pc.height, pc.image_url, pc.embed_url, pc.blurhash,
+                  pc.html, pc.width, pc.height, NULL::text as image_url, pc.embed_url, pc.blurhash,
                   COUNT(s.id) AS uses
            FROM preview_cards pc
            JOIN preview_cards_statuses spc ON spc.preview_card_id = pc.id
@@ -244,9 +245,9 @@ pub async fn trending_links(
            WHERE s.deleted_at IS NULL
              AND s.visibility = 0
              AND s.created_at > now() - interval '7 days'
-           GROUP BY pc.url, pc.title, pc.description, pc.card_type,
+           GROUP BY pc.url, pc.title, pc.description, pc.type,
                     pc.author_name, pc.author_url, pc.provider_name, pc.provider_url,
-                    pc.html, pc.width, pc.height, pc.image_url, pc.embed_url, pc.blurhash
+                    pc.html, pc.width, pc.height, pc.embed_url, pc.blurhash
            ORDER BY uses DESC
            LIMIT $1 OFFSET $2"#,
         limit, offset,

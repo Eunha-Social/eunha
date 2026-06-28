@@ -21,12 +21,12 @@
       {
         "ordinal": 3,
         "name": "expires_at",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamp"
       },
       {
         "ordinal": 4,
         "name": "created_at",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamp"
       },
       {
         "ordinal": 5,
@@ -39,7 +39,7 @@
         "Text",
         "Int4",
         "Text",
-        "Timestamptz"
+        "Timestamp"
       ]
     },
     "nullable": [

@@ -12,11 +12,11 @@
     "parameters": {
       "Left": [
         "Int8",
-        "Text",
-        "Text",
+        "Varchar",
+        "Varchar",
         "Int8",
         "Bool",
-        "Text",
+        "Varchar",
         "Int8"
       ]
     },

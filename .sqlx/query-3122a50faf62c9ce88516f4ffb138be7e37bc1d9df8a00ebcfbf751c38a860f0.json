@@ -21,12 +21,12 @@
       {
         "ordinal": 3,
         "name": "action_taken_at",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamp"
       },
       {
         "ordinal": 4,
         "name": "created_at",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamp"
       },
       {
         "ordinal": 5,
@@ -41,7 +41,7 @@
       {
         "ordinal": 7,
         "name": "ta_username",
-        "type_info": "Text"
+        "type_info": "Varchar"
       },
       {
         "ordinal": 8,

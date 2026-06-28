@@ -56,11 +56,11 @@ async fn get_session(
     let row = sqlx::query!(
         r#"SELECT u.id as user_id, a.username
            FROM oauth_access_tokens t
-           JOIN accounts a ON a.id = t.account_id
-           JOIN users u ON u.account_id = a.id
+           JOIN users u ON u.id = t.resource_owner_id
+           JOIN accounts a ON a.id = u.account_id
            WHERE t.token = $1
              AND t.revoked_at IS NULL
-             AND (t.expires_at IS NULL OR t.expires_at > now())
+             AND (t.expires_in IS NULL OR t.created_at + t.expires_in * interval '1 second' > now())
              AND a.domain IS NULL"#,
         token,
     )
@@ -209,11 +209,11 @@ pub async fn login_post(
     // Reuse an existing non-revoked OAuth token, or mint a new one.
     let token = match sqlx::query_scalar!(
         r#"SELECT token FROM oauth_access_tokens
-           WHERE account_id = $1
+           WHERE resource_owner_id = $1
              AND revoked_at IS NULL
-             AND (expires_at IS NULL OR expires_at > now())
+             AND (expires_in IS NULL OR created_at + expires_in * interval '1 second' > now())
            LIMIT 1"#,
-        row.account_id,
+        row.id,
     )
     .fetch_optional(&state.db)
     .await
@@ -222,8 +222,8 @@ pub async fn login_post(
         _ => {
             let t = generate_token(64);
             if sqlx::query!(
-                "INSERT INTO oauth_access_tokens (account_id, token, scopes) VALUES ($1, $2, 'read write follow push')",
-                row.account_id,
+                "INSERT INTO oauth_access_tokens (resource_owner_id, token, scopes) VALUES ($1, $2, 'read write follow push')",
+                row.id,
                 t,
             )
             .execute(&state.db)
@@ -267,11 +267,11 @@ pub async fn sso_post(
     let valid = sqlx::query!(
         r#"SELECT 1 as "exists!"
            FROM oauth_access_tokens t
-           JOIN accounts a ON a.id = t.account_id
-           JOIN users u ON u.account_id = a.id
+           JOIN users u ON u.id = t.resource_owner_id
+           JOIN accounts a ON a.id = u.account_id
            WHERE t.token = $1
              AND t.revoked_at IS NULL
-             AND (t.expires_at IS NULL OR t.expires_at > now())
+             AND (t.expires_in IS NULL OR t.created_at + t.expires_in * interval '1 second' > now())
              AND a.domain IS NULL"#,
         form.token,
     )

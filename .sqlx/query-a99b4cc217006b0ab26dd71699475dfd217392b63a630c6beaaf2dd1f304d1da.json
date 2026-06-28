@@ -16,14 +16,14 @@
       {
         "ordinal": 2,
         "name": "last_status_at",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamp"
       }
     ],
     "parameters": {
       "Left": [
         "Int8",
         "Int8",
-        "Text"
+        "Varchar"
       ]
     },
     "nullable": [

@@ -6,9 +6,9 @@
     "parameters": {
       "Left": [
         "Int8",
+        "Varchar",
         "Text",
-        "Text",
-        "Text",
+        "Varchar",
         "Bool",
         "Bool",
         "Bool",

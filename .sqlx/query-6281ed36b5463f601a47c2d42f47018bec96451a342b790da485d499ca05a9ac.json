@@ -15,53 +15,53 @@
       },
       {
         "ordinal": 2,
-        "name": "text",
-        "type_info": "Text"
-      },
-      {
-        "ordinal": 3,
-        "name": "spoiler_text",
-        "type_info": "Text"
-      },
-      {
-        "ordinal": 4,
-        "name": "sensitive",
-        "type_info": "Bool"
-      },
-      {
-        "ordinal": 5,
-        "name": "created_at",
-        "type_info": "Timestamptz"
-      },
-      {
-        "ordinal": 6,
         "name": "account_id",
         "type_info": "Int8"
       },
       {
-        "ordinal": 7,
-        "name": "media_descriptions",
-        "type_info": "TextArray"
+        "ordinal": 3,
+        "name": "text",
+        "type_info": "Text"
       },
       {
-        "ordinal": 8,
+        "ordinal": 4,
+        "name": "spoiler_text",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 6,
+        "name": "updated_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 7,
         "name": "ordered_media_attachment_ids",
         "type_info": "Int8Array"
       },
       {
-        "ordinal": 9,
-        "name": "poll_options",
+        "ordinal": 8,
+        "name": "media_descriptions",
         "type_info": "TextArray"
       },
       {
+        "ordinal": 9,
+        "name": "poll_options",
+        "type_info": "VarcharArray"
+      },
+      {
         "ordinal": 10,
-        "name": "quote_id",
-        "type_info": "Int8"
+        "name": "sensitive",
+        "type_info": "Bool"
       },
       {
         "ordinal": 11,
-        "name": "updated_at",
-        "type_info": "Timestamptz"
+        "name": "quote_id",
+        "type_info": "Int8"
       }
     ],
     "parameters": {
@@ -72,16 +72,16 @@
     "nullable": [
       false,
       false,
-      false,
-      false,
       true,
       false,
+      false,
+      false,
+      false,
       true,
       true,
       true,
       true,
-      true,
-      false
+      true
     ]
   },
   "hash": "6281ed36b5463f601a47c2d42f47018bec96451a342b790da485d499ca05a9ac"

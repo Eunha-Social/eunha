@@ -11,7 +11,7 @@
       {
         "ordinal": 1,
         "name": "uri",
-        "type_info": "Text"
+        "type_info": "Varchar"
       }
     ],
     "parameters": {

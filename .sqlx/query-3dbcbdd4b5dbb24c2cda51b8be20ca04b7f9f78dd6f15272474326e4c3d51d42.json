@@ -16,7 +16,7 @@
       {
         "ordinal": 2,
         "name": "languages",
-        "type_info": "TextArray"
+        "type_info": "VarcharArray"
       }
     ],
     "parameters": {

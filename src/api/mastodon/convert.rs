@@ -87,11 +87,26 @@ pub fn media_preview_url(m: &models::MediaAttachment) -> Option<String> {
     m.thumbnail_remote_url.as_deref().filter(|s| !s.is_empty()).map(str::to_string)
 }
 
+pub trait MastodonTimestamp {
+    fn format_mastodon(self) -> String;
+}
+
+impl MastodonTimestamp for chrono::NaiveDateTime {
+    fn format_mastodon(self) -> String {
+        self.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
+    }
+}
+
+impl MastodonTimestamp for chrono::DateTime<chrono::Utc> {
+    fn format_mastodon(self) -> String {
+        self.naive_utc().format_mastodon()
+    }
+}
+
 /// Format a timestamp in the Mastodon-standard format: `YYYY-MM-DDTHH:MM:SS.mmmZ`.
-/// Mastodon always uses the `Z` suffix and millisecond precision; `to_rfc3339()` produces
-/// `+00:00` suffix and microsecond precision, which can confuse some clients.
-pub fn mastodon_date(t: chrono::DateTime<chrono::Utc>) -> String {
-    t.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()
+/// Mastodon stores UTC timestamps without time zones and serializes them with a `Z` suffix.
+pub fn mastodon_date<T: MastodonTimestamp>(t: T) -> String {
+    t.format_mastodon()
 }
 
 fn status_url_from_uri(uri: &str) -> Option<String> {

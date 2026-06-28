@@ -123,7 +123,7 @@ pub async fn post_status(
     // Handle scheduled statuses
     if let Some(ref scheduled_at_str) = form.scheduled_at {
         let scheduled_at = chrono::DateTime::parse_from_rfc3339(scheduled_at_str)
-            .map(|t| t.with_timezone(&chrono::Utc))
+            .map(|t| t.with_timezone(&chrono::Utc).naive_utc())
             .map_err(|_| AppError::Unprocessable("Invalid scheduled_at format".into()))?;
         let params = serde_json::json!({
             "text": text,
@@ -513,7 +513,7 @@ pub async fn post_status(
 
     // Create poll if requested (options already validated above)
     if let Some(ref poll_form) = form.poll {
-        let expires_at = poll_form.expires_in.map(|secs| chrono::Utc::now() + chrono::Duration::seconds(secs));
+        let expires_at = poll_form.expires_in.map(|secs| chrono::Utc::now().naive_utc() + chrono::Duration::seconds(secs));
         let poll_options: Vec<String> = poll_form.options.clone();
         sqlx::query!(
             r#"INSERT INTO polls (status_id, account_id, options, multiple, expires_at)
@@ -1653,7 +1653,7 @@ pub async fn reblog_status(
             .collect();
         let to_refs = vec![crate::federation::activity::AS_PUBLIC];
         let cc_refs: Vec<&str> = cc_strs.iter().map(String::as_str).collect();
-        let published = boost.created_at.to_rfc3339();
+        let published = boost.created_at.and_utc().to_rfc3339();
         let announce = crate::federation::activity::announce(&announce_id, &actor_url, &original_uri, &to_refs, &cc_refs, &published)?;
         let key_id = format!("{}#main-key", actor_url);
 

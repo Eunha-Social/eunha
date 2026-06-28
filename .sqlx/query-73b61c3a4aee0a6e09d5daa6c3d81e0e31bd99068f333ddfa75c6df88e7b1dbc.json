@@ -27,7 +27,7 @@
     "parameters": {
       "Left": [
         "Int8Array",
-        "Timestamptz"
+        "Timestamp"
       ]
     },
     "nullable": [

@@ -66,7 +66,7 @@ fn resolve_actor_uri(domain: &str, stored: String, username: &str) -> String {
 struct ItemRow {
     id: i64,
     account_uri: String,
-    created_at: chrono::DateTime<chrono::Utc>,
+    created_at: chrono::NaiveDateTime,
 }
 
 /// Fetch a collection's accepted items joined with each account's AP URI.
@@ -106,7 +106,7 @@ fn featured_item_object(domain: &str, collection_id: i64, item: &ItemRow) -> Val
         "id": item_uri(domain, collection_id, item.id),
         "type": "FeaturedItem",
         "featuredObject": item.account_uri,
-        "published": item.created_at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        "published": item.created_at.and_utc().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
     })
 }
 
@@ -120,8 +120,8 @@ pub struct ApCollection {
     pub sensitive: bool,
     pub discoverable: bool,
     pub url: Option<String>,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub updated_at: chrono::DateTime<chrono::Utc>,
+    pub created_at: chrono::NaiveDateTime,
+    pub updated_at: chrono::NaiveDateTime,
 }
 
 /// Load a local collection (with its owner's username) for AP serialization.
@@ -171,8 +171,8 @@ pub async fn featured_collection_body(
         "url": c.url.clone().unwrap_or_else(|| collection_uri(domain, c.id)),
         "sensitive": c.sensitive,
         "discoverable": c.discoverable,
-        "published": c.created_at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
-        "updated": c.updated_at.to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        "published": c.created_at.and_utc().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
+        "updated": c.updated_at.and_utc().to_rfc3339_opts(chrono::SecondsFormat::Secs, true),
         "totalItems": ordered.len(),
         "orderedItems": ordered,
     });

@@ -896,14 +896,14 @@ pub async fn get_notification_policy(
 
     let (pending_requests, pending_notifs) = if any_filter {
         let pending_requests: i64 = sqlx::query_scalar!(
-            "SELECT COUNT(*) FROM notification_requests WHERE account_id = $1 AND NOT dismissed",
+            "SELECT COUNT(*) FROM notification_requests WHERE account_id = $1",
             auth.account_id,
         )
         .fetch_one(&state.db)
         .await?
         .unwrap_or(0);
         let pending_notifs: i64 = sqlx::query_scalar!(
-            "SELECT COALESCE(SUM(notifications_count), 0)::bigint FROM notification_requests WHERE account_id = $1 AND NOT dismissed",
+            "SELECT COALESCE(SUM(notifications_count), 0)::bigint FROM notification_requests WHERE account_id = $1",
             auth.account_id,
         )
         .fetch_one(&state.db)
@@ -1000,14 +1000,14 @@ pub async fn get_notification_policy_v1(
 
     let (pending_requests, pending_notifs) = if any_filter {
         let pending_requests: i64 = sqlx::query_scalar!(
-            "SELECT COUNT(*) FROM notification_requests WHERE account_id = $1 AND NOT dismissed",
+            "SELECT COUNT(*) FROM notification_requests WHERE account_id = $1",
             auth.account_id,
         )
         .fetch_one(&state.db)
         .await?
         .unwrap_or(0);
         let pending_notifs: i64 = sqlx::query_scalar!(
-            "SELECT COALESCE(SUM(notifications_count), 0)::bigint FROM notification_requests WHERE account_id = $1 AND NOT dismissed",
+            "SELECT COALESCE(SUM(notifications_count), 0)::bigint FROM notification_requests WHERE account_id = $1",
             auth.account_id,
         )
         .fetch_one(&state.db)
@@ -1090,7 +1090,7 @@ pub async fn get_notification_requests(
     let rows = sqlx::query!(
         r#"SELECT nr.id, nr.from_account_id, nr.last_status_id, nr.notifications_count, nr.created_at, nr.updated_at
            FROM notification_requests nr
-           WHERE nr.account_id = $1 AND NOT nr.dismissed
+           WHERE nr.account_id = $1
              AND ($3::bigint IS NULL OR nr.id < $3)
              AND ($4::bigint IS NULL OR nr.id > $4)
              AND ($5::bigint IS NULL OR nr.id > $5)
@@ -1262,7 +1262,7 @@ pub async fn dismiss_notification_request(
 ) -> AppResult<Json<serde_json::Value>> {
     auth.require_scope("write:notifications")?;
     sqlx::query!(
-        "UPDATE notification_requests SET dismissed = true WHERE id = $1 AND account_id = $2",
+        "DELETE FROM notification_requests WHERE id = $1 AND account_id = $2",
         id, auth.account_id,
     )
     .execute(&state.db)
@@ -1278,7 +1278,7 @@ pub async fn accept_all_notification_requests(
 ) -> AppResult<Json<serde_json::Value>> {
     auth.require_scope("write:notifications")?;
     sqlx::query!(
-        "DELETE FROM notification_requests WHERE account_id = $1 AND NOT dismissed",
+        "DELETE FROM notification_requests WHERE account_id = $1",
         auth.account_id,
     )
     .execute(&state.db)
@@ -1294,7 +1294,7 @@ pub async fn dismiss_all_notification_requests(
 ) -> AppResult<Json<serde_json::Value>> {
     auth.require_scope("write:notifications")?;
     sqlx::query!(
-        "UPDATE notification_requests SET dismissed = true WHERE account_id = $1",
+        "DELETE FROM notification_requests WHERE account_id = $1",
         auth.account_id,
     )
     .execute(&state.db)

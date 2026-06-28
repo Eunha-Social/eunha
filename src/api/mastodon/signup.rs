@@ -63,7 +63,7 @@ async fn validate_invite(
     if inv.max_uses.map_or(false, |m| inv.uses >= m) {
         return Err("err_invite_maxed");
     }
-    if inv.expires_at.map_or(false, |e| e < chrono::Utc::now()) {
+    if inv.expires_at.map_or(false, |e| e < chrono::Utc::now().naive_utc()) {
         return Err("err_invite_expired");
     }
     Ok(inv.id)
@@ -126,7 +126,7 @@ pub async fn api_create_account(
     let username_taken = sqlx::query_scalar!(
         r#"SELECT 1 FROM accounts WHERE username = $1 AND domain IS NULL
            UNION ALL
-           SELECT 1 FROM pending_signups
+           SELECT 1 FROM eunha.pending_signups
              WHERE username = $1
                AND lower(email) != lower($2)
                AND expires_at > now()
@@ -144,7 +144,7 @@ pub async fn api_create_account(
     let app_id = extract_app_from_bearer(&state, &req_headers).await;
 
     sqlx::query!(
-        r#"INSERT INTO pending_signups
+        r#"INSERT INTO eunha.pending_signups
              (username, email, email_normalized, password_hash,
               invite_id, reason, locale, app_id, confirmation_token)
            VALUES ($1,$2,lower($2),$3,$4,$5,$6,$7,$8)
@@ -195,7 +195,7 @@ pub async fn confirm_email(
     Query(q): Query<ConfirmQuery>,
 ) -> Response {
     let pending = sqlx::query!(
-        r#"DELETE FROM pending_signups
+        r#"DELETE FROM eunha.pending_signups
            WHERE confirmation_token = $1 AND expires_at > now()
            RETURNING username, email, email_normalized,
                      password_hash, invite_id, reason, locale, app_id"#,
@@ -421,7 +421,7 @@ async fn extract_app_from_bearer(state: &AppState, headers: &HeaderMap) -> Optio
     let val = headers.get(axum::http::header::AUTHORIZATION)?.to_str().ok()?;
     let token = val.strip_prefix("Bearer ")?.trim();
     sqlx::query_scalar!(
-        "SELECT application_id FROM oauth_access_tokens WHERE token = $1 AND account_id IS NULL",
+        "SELECT application_id FROM oauth_access_tokens WHERE token = $1 AND resource_owner_id IS NULL",
         token
     ).fetch_optional(&state.db).await.ok().flatten().flatten()
 }

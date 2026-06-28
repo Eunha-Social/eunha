@@ -11,7 +11,7 @@
       {
         "ordinal": 1,
         "name": "scopes",
-        "type_info": "Text"
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
@@ -21,7 +21,7 @@
     },
     "nullable": [
       false,
-      true
+      false
     ]
   },
   "hash": "6afe58be6b591946edb3894e04d9d8793d0e3de36cfe3316ad371717ee98c3e0"

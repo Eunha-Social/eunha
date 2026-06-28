@@ -103,7 +103,8 @@ async fn try_deliver(
         r#"SELECT wps.id, wps.endpoint, wps.key_p256dh, wps.key_auth
            FROM web_push_subscriptions wps
            JOIN oauth_access_tokens oat ON oat.id = wps.access_token_id
-           WHERE oat.account_id = $1
+           JOIN users u ON u.id = oat.resource_owner_id
+           WHERE u.account_id = $1
              AND oat.revoked_at IS NULL
              AND COALESCE((wps.data->'alerts'->>'{}')::boolean, {})"#,
         alert_key,
@@ -479,11 +480,11 @@ async fn build_admin_notification_payload(
             serde_json::json!({
                 "id": r.id.to_string(),
                 "action_taken": r.action_taken_at.is_some(),
-                "action_taken_at": r.action_taken_at.map(|t| t.to_rfc3339()),
+                "action_taken_at": r.action_taken_at.map(|t| t.and_utc().to_rfc3339()),
                 "category": r.category,
                 "comment": r.comment,
                 "forwarded": r.forwarded,
-                "created_at": r.created_at.to_rfc3339(),
+                "created_at": r.created_at.and_utc().to_rfc3339(),
                 "status_ids": r.status_ids.iter().map(|i| i.to_string()).collect::<Vec<_>>(),
                 "rule_ids": [],
                 "target_account": {
@@ -501,7 +502,7 @@ async fn build_admin_notification_payload(
     let payload = serde_json::json!({
         "id": notification_id.to_string(),
         "type": notification_type,
-        "created_at": created_at.to_rfc3339(),
+        "created_at": created_at.and_utc().to_rfc3339(),
         "group_key": format!("ungrouped-{}", notification_id),
         "account": serde_json::to_value(from_api).ok(),
         "report": report_json,
@@ -655,7 +656,6 @@ async fn route_to_request(
            ON CONFLICT (account_id, from_account_id) DO UPDATE
              SET notifications_count = notification_requests.notifications_count + 1,
                  last_status_id = COALESCE($3, notification_requests.last_status_id),
-                 dismissed = false,
                  updated_at = now()"#,
         recipient_id,
         from_account_id,
@@ -735,7 +735,7 @@ async fn build_notification_payload(
     let payload = serde_json::json!({
         "id": notification_id.to_string(),
         "type": notification_type,
-        "created_at": created_at.to_rfc3339(),
+        "created_at": created_at.and_utc().to_rfc3339(),
         "group_key": format!("ungrouped-{}", notification_id),
         "account": serde_json::to_value(api_account).ok(),
         "status": status_json,

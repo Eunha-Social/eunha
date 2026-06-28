@@ -9,7 +9,7 @@
         "Int8",
         "Bool",
         "Bool",
-        "TextArray"
+        "VarcharArray"
       ]
     },
     "nullable": []

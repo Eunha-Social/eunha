@@ -6,10 +6,10 @@
     "parameters": {
       "Left": [
         "Int8",
-        "Text",
-        "Text",
-        "Text",
-        "Text"
+        "Varchar",
+        "Varchar",
+        "Varchar",
+        "Varchar"
       ]
     },
     "nullable": []

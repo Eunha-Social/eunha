@@ -184,7 +184,7 @@ async fn enqueue_to_inboxes(
     let mut enqueued = 0;
     for inbox in inboxes {
         sqlx::query!(
-            r#"INSERT INTO activity_delivery_jobs
+            r#"INSERT INTO eunha.activity_delivery_jobs
                  (activity, inbox_url, key_id, private_key_pem, created_at, updated_at)
                VALUES ($1, $2, $3, $4, now(), now())"#,
             &activity,
@@ -219,7 +219,7 @@ async fn run_delivery_queue_batch(state: &AppState, worker_id: &str) -> anyhow::
     let jobs = sqlx::query!(
         r#"WITH picked AS (
              SELECT id
-             FROM activity_delivery_jobs
+             FROM eunha.activity_delivery_jobs
              WHERE delivered_at IS NULL
                AND failed_at IS NULL
                AND run_at <= now()
@@ -228,7 +228,7 @@ async fn run_delivery_queue_batch(state: &AppState, worker_id: &str) -> anyhow::
              LIMIT $1
              FOR UPDATE SKIP LOCKED
            )
-           UPDATE activity_delivery_jobs j
+           UPDATE eunha.activity_delivery_jobs j
            SET locked_at = now(), locked_by = $2, updated_at = now()
            FROM picked
            WHERE j.id = picked.id
@@ -254,7 +254,7 @@ async fn run_delivery_queue_batch(state: &AppState, worker_id: &str) -> anyhow::
         match result {
             Ok(()) => {
                 sqlx::query!(
-                    r#"UPDATE activity_delivery_jobs
+                    r#"UPDATE eunha.activity_delivery_jobs
                        SET delivered_at = now(),
                            locked_at = NULL,
                            locked_by = NULL,
@@ -274,7 +274,7 @@ async fn run_delivery_queue_batch(state: &AppState, worker_id: &str) -> anyhow::
                 let error = e.to_string();
                 if terminal {
                     sqlx::query!(
-                        r#"UPDATE activity_delivery_jobs
+                        r#"UPDATE eunha.activity_delivery_jobs
                            SET attempts = $2,
                                failed_at = now(),
                                locked_at = NULL,
@@ -299,7 +299,7 @@ async fn run_delivery_queue_batch(state: &AppState, worker_id: &str) -> anyhow::
                     let backoff_secs = queue_backoff_seconds(next_attempts);
                     let run_at = chrono::Utc::now() + chrono::Duration::seconds(backoff_secs);
                     sqlx::query!(
-                        r#"UPDATE activity_delivery_jobs
+                        r#"UPDATE eunha.activity_delivery_jobs
                            SET attempts = $2,
                                run_at = $3,
                                locked_at = NULL,

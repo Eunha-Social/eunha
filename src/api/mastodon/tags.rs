@@ -22,7 +22,7 @@ pub(super) async fn fetch_tags_histories(
     if tag_ids.is_empty() {
         return HashMap::new();
     }
-    let cutoff = chrono::Utc::now() - chrono::Duration::days(7);
+    let cutoff = chrono::Utc::now().naive_utc() - chrono::Duration::days(7);
     let rows = sqlx::query!(
         r#"SELECT st.tag_id,
                   date_trunc('day', s.created_at)::date AS day,

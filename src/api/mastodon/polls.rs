@@ -39,7 +39,7 @@ pub async fn vote_poll(
     auth.require_scope("write:statuses")?;
     let poll = fetch_poll(&state, id).await?;
 
-    let expired = poll.expires_at.map(|e| e < chrono::Utc::now()).unwrap_or(false);
+    let expired = poll.expires_at.map(|e| e < chrono::Utc::now().naive_utc()).unwrap_or(false);
     if expired {
         return Err(AppError::Unprocessable("Poll has expired".into()));
     }
@@ -123,7 +123,7 @@ async fn fetch_poll(state: &AppState, id: i64) -> AppResult<models::Poll> {
 async fn poll_from_db(state: &AppState, poll: &models::Poll, viewer_id: Option<i64>) -> AppResult<Poll> {
     let option_titles: Vec<String> = poll.options.clone();
 
-    let expired = poll.expires_at.map(|e| e < chrono::Utc::now()).unwrap_or(false);
+    let expired = poll.expires_at.map(|e| e < chrono::Utc::now().naive_utc()).unwrap_or(false);
     let viewer_is_owner = viewer_id.map(|vid| vid == poll.account_id).unwrap_or(false);
 
     let (voted, own_votes) = if let Some(vid) = viewer_id {

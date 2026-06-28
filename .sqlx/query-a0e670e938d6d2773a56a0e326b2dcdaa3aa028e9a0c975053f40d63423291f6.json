@@ -16,7 +16,7 @@
       {
         "ordinal": 2,
         "name": "name",
-        "type_info": "Text"
+        "type_info": "Varchar"
       },
       {
         "ordinal": 3,
@@ -31,7 +31,7 @@
       {
         "ordinal": 5,
         "name": "language",
-        "type_info": "Text"
+        "type_info": "Varchar"
       },
       {
         "ordinal": 6,
@@ -51,27 +51,27 @@
       {
         "ordinal": 9,
         "name": "uri",
-        "type_info": "Text"
+        "type_info": "Varchar"
       },
       {
         "ordinal": 10,
         "name": "url",
-        "type_info": "Text"
+        "type_info": "Varchar"
       },
       {
         "ordinal": 11,
         "name": "created_at",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamp"
       },
       {
         "ordinal": 12,
         "name": "updated_at",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamp"
       },
       {
         "ordinal": 13,
         "name": "tag_name?",
-        "type_info": "Text"
+        "type_info": "Varchar"
       }
     ],
     "parameters": {

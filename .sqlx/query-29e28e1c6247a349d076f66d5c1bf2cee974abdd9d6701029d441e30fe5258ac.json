@@ -16,7 +16,7 @@
       {
         "ordinal": 2,
         "name": "created_at",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamp"
       }
     ],
     "parameters": {
@@ -24,7 +24,7 @@
         "Int8",
         "Int8",
         "Int4",
-        "Text"
+        "Varchar"
       ]
     },
     "nullable": [

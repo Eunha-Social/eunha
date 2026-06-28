@@ -54,7 +54,7 @@ pub async fn verify_credentials(
         discoverable: account.discoverable,
         indexable: account.indexable,
         hide_collections: account.hide_collections,
-        attribution_domains: account.attribution_domains.clone(),
+        attribution_domains: account.attribution_domains.clone().unwrap_or_default(),
         quote_policy: default_quote_policy,
     });
 
@@ -1714,7 +1714,7 @@ async fn distribute_account_update(state: &AppState, domain: &str, account: &Acc
     let Ok(actor) = crate::api::ap::objects::actor_json(state, domain, account).await else {
         return;
     };
-    let update_id = format!("{}#updates/{}", actor_url, account.updated_at.timestamp());
+    let update_id = format!("{}#updates/{}", actor_url, account.updated_at.and_utc().timestamp());
     let Ok(activity) = crate::federation::activity::update_actor(&update_id, &actor_url, actor) else {
         return;
     };
@@ -1797,7 +1797,7 @@ pub async fn patch_profile(
         hide_collections: a.hide_collections,
         discoverable: a.discoverable,
         indexable: a.indexable,
-        attribution_domains: a.attribution_domains.clone(),
+        attribution_domains: a.attribution_domains.clone().unwrap_or_default(),
         featured_tags,
     }))
 }
@@ -1833,7 +1833,7 @@ async fn build_credential_account_response(
         discoverable: account.discoverable,
         indexable: account.indexable,
         hide_collections: account.hide_collections,
-        attribution_domains: account.attribution_domains.clone(),
+        attribution_domains: account.attribution_domains.clone().unwrap_or_default(),
         quote_policy: default_quote_policy,
     });
     api_account.roles = fetch_account_roles(state, auth.account_id).await;
@@ -1860,9 +1860,9 @@ pub async fn mute_account(
     auth.require_scope("write:mutes")?;
     let params = body.map(|Json(p)| p).unwrap_or_default();
     let hide_notifications = params.notifications.unwrap_or(true);
-    let expires_at: Option<chrono::DateTime<chrono::Utc>> = params.duration
+    let expires_at: Option<chrono::NaiveDateTime> = params.duration
         .filter(|&d| d > 0)
-        .map(|d| chrono::Utc::now() + chrono::Duration::seconds(d));
+        .map(|d| chrono::Utc::now().naive_utc() + chrono::Duration::seconds(d));
 
     sqlx::query!(
         r#"INSERT INTO mutes (account_id, target_account_id, hide_notifications, expires_at)
@@ -2125,7 +2125,7 @@ pub async fn get_mutes(
     let first_mute_id = rows.first().map(|r| r.mute_id.to_string());
     let last_mute_id = rows.last().map(|r| r.mute_id.to_string());
 
-    let mute_expiries: std::collections::HashMap<i64, Option<chrono::DateTime<chrono::Utc>>> =
+    let mute_expiries: std::collections::HashMap<i64, Option<chrono::NaiveDateTime>> =
         rows.iter().map(|r| (r.target_account_id, r.expires_at)).collect();
     let target_ids: Vec<i64> = rows.iter().map(|r| r.target_account_id).collect();
 
@@ -2719,7 +2719,7 @@ pub async fn fetch_status_poll(
         return Ok(None);
     };
 
-    let now = chrono::Utc::now();
+    let now = chrono::Utc::now().naive_utc();
     let expired = row.expires_at.map_or(false, |t| t < now);
 
     let option_titles: Vec<String> = row.options;
@@ -2830,7 +2830,7 @@ pub async fn fetch_reblog_data(
 
 async fn batch_build_relationships(state: &AppState, source_id: i64, target_ids: &[i64]) -> AppResult<Vec<Relationship>> {
     struct FollowRow { show_reblogs: bool, notify: bool, languages: Option<Vec<String>> }
-    struct MuteRow { hide_notifications: bool, expires_at: Option<chrono::DateTime<chrono::Utc>> }
+    struct MuteRow { hide_notifications: bool, expires_at: Option<chrono::NaiveDateTime> }
 
     // Accepted follows (outgoing)
     let follows_out = sqlx::query!(
@@ -3689,7 +3689,7 @@ async fn build_profile(
         hide_collections: a.hide_collections,
         discoverable: a.discoverable,
         indexable: a.indexable,
-        attribution_domains: a.attribution_domains.clone(),
+        attribution_domains: a.attribution_domains.clone().unwrap_or_default(),
         featured_tags,
     };
     Ok(profile)
@@ -4184,7 +4184,7 @@ pub async fn batch_status_polls(
         votes_by_poll.entry(v.poll_id).or_default().push(v.choice);
     }
 
-    let now = chrono::Utc::now();
+    let now = chrono::Utc::now().naive_utc();
     let mut result = HashMap::new();
     for row in rows {
         let expired = row.expires_at.map_or(false, |t| t < now);
@@ -4237,8 +4237,9 @@ pub async fn batch_status_cards(
     }
 
     let rows = sqlx::query!(
-        r#"SELECT spc.status_id, pc.url, pc.title, pc.description, pc.card_type,
-                  pc.image_url, pc.author_name, pc.author_url,
+        r#"SELECT spc.status_id, pc.url, pc.title, pc.description,
+                  CASE pc.type WHEN 1 THEN 'photo' WHEN 2 THEN 'video' WHEN 3 THEN 'rich' ELSE 'link' END as "card_type!",
+                  NULL::text as image_url, pc.author_name, pc.author_url,
                   pc.provider_name, pc.provider_url, pc.html, pc.width, pc.height,
                   pc.embed_url, pc.blurhash
            FROM preview_cards_statuses spc
@@ -4628,8 +4629,9 @@ pub(super) async fn fetch_status_card(
     status_id: i64,
 ) -> Option<super::types::PreviewCard> {
     let r = sqlx::query!(
-        r#"SELECT pc.url, pc.title, pc.description, pc.card_type,
-                  pc.image_url, pc.author_name, pc.author_url,
+        r#"SELECT pc.url, pc.title, pc.description,
+                  CASE pc.type WHEN 1 THEN 'photo' WHEN 2 THEN 'video' WHEN 3 THEN 'rich' ELSE 'link' END as "card_type!",
+                  NULL::text as image_url, pc.author_name, pc.author_url,
                   pc.provider_name, pc.provider_url, pc.html, pc.width, pc.height,
                   pc.embed_url, pc.blurhash
            FROM preview_cards pc
@@ -4801,7 +4803,12 @@ pub async fn delete_account(
         auth.account_id,
     ).execute(&mut *tx).await?;
     sqlx::query!(
-        "UPDATE oauth_access_tokens SET revoked_at = now() WHERE account_id = $1 AND revoked_at IS NULL",
+        r#"UPDATE oauth_access_tokens t
+           SET revoked_at = now()
+           FROM users u
+           WHERE u.id = t.resource_owner_id
+             AND u.account_id = $1
+             AND t.revoked_at IS NULL"#,
         auth.account_id,
     ).execute(&mut *tx).await?;
     sqlx::query!(

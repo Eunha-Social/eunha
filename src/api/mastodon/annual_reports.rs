@@ -51,8 +51,8 @@ async fn generate_report_data(
     account_id: i64,
     year: i32,
 ) -> AppResult<serde_json::Value> {
-    let start = Utc.with_ymd_and_hms(year as i32, 1, 1, 0, 0, 0).unwrap();
-    let end = Utc.with_ymd_and_hms(year as i32 + 1, 1, 1, 0, 0, 0).unwrap();
+    let start = Utc.with_ymd_and_hms(year as i32, 1, 1, 0, 0, 0).unwrap().naive_utc();
+    let end = Utc.with_ymd_and_hms(year as i32 + 1, 1, 1, 0, 0, 0).unwrap().naive_utc();
 
     // Count different post types for archetype
     let reblog_count = sqlx::query_scalar!(
@@ -193,8 +193,8 @@ async fn generate_report_data(
 }
 
 async fn is_eligible(state: &AppState, account_id: i64, year: i32) -> AppResult<bool> {
-    let start = Utc.with_ymd_and_hms(year as i32, 1, 1, 0, 0, 0).unwrap();
-    let end = Utc.with_ymd_and_hms(year as i32 + 1, 1, 1, 0, 0, 0).unwrap();
+    let start = Utc.with_ymd_and_hms(year as i32, 1, 1, 0, 0, 0).unwrap().naive_utc();
+    let end = Utc.with_ymd_and_hms(year as i32 + 1, 1, 1, 0, 0, 0).unwrap().naive_utc();
     let count: i64 = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM statuses
          WHERE account_id = $1 AND deleted_at IS NULL

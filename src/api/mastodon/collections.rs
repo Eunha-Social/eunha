@@ -78,8 +78,8 @@ struct CollectionRow {
     uri: Option<String>,
     url: Option<String>,
     tag_name: Option<String>,
-    created_at: chrono::DateTime<chrono::Utc>,
-    updated_at: chrono::DateTime<chrono::Utc>,
+    created_at: chrono::NaiveDateTime,
+    updated_at: chrono::NaiveDateTime,
 }
 
 async fn load_collection(state: &AppState, id: i64) -> AppResult<Option<CollectionRow>> {
@@ -119,7 +119,7 @@ async fn visible_items(
     state: &AppState,
     c: &CollectionRow,
     viewer_id: Option<i64>,
-) -> AppResult<Vec<(i64, i32, chrono::DateTime<chrono::Utc>, Option<i64>)>> {
+) -> AppResult<Vec<(i64, i32, chrono::NaiveDateTime, Option<i64>)>> {
     let is_owner = viewer_id == Some(c.account_id);
     let rows = sqlx::query!(
         r#"SELECT ci.id, ci.state, ci.created_at, ci.account_id
@@ -143,11 +143,11 @@ async fn visible_items(
         .collect())
 }
 
-fn item_entity(id: i64, state: i32, created_at: chrono::DateTime<chrono::Utc>, account_id: Option<i64>) -> Value {
+fn item_entity(id: i64, state: i32, created_at: chrono::NaiveDateTime, account_id: Option<i64>) -> Value {
     let mut v = json!({
         "id": id.to_string(),
         "state": state_str(state),
-        "created_at": created_at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        "created_at": created_at.and_utc().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
     });
     // account_id only included for pending/accepted items.
     if matches!(state, 0 | 1) {
@@ -201,8 +201,8 @@ async fn collection_entity(
         "discoverable": c.discoverable,
         "url": url,
         "item_count": items_json.len(),
-        "created_at": c.created_at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
-        "updated_at": c.updated_at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        "created_at": c.created_at.and_utc().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        "updated_at": c.updated_at.and_utc().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
         "tag": tag,
         "items": items_json,
     }))
@@ -699,7 +699,7 @@ async fn distribute_collection(
             domain,
             &ap.owner_username,
             collection_id,
-            ap.updated_at.timestamp(),
+            ap.updated_at.and_utc().timestamp(),
             body,
         )
     };

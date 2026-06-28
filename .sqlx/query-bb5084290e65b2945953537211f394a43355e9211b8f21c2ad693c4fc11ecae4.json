@@ -21,12 +21,12 @@
       {
         "ordinal": 3,
         "name": "username",
-        "type_info": "Text"
+        "type_info": "Varchar"
       },
       {
         "ordinal": 4,
         "name": "account_uri",
-        "type_info": "Text"
+        "type_info": "Varchar"
       },
       {
         "ordinal": 5,

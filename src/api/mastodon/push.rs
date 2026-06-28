@@ -127,17 +127,17 @@ pub async fn create_subscription(
     });
 
     let standard = body.subscription.standard.unwrap_or(false);
-    let row = sqlx::query!(
-        r#"INSERT INTO web_push_subscriptions
-             (access_token_id, endpoint, key_p256dh, key_auth, data, standard)
-           VALUES ($1, $2, $3, $4, $5, $6)
-           ON CONFLICT (access_token_id) DO UPDATE SET
-             endpoint   = EXCLUDED.endpoint,
-             key_p256dh = EXCLUDED.key_p256dh,
-             key_auth   = EXCLUDED.key_auth,
-             data       = EXCLUDED.data,
-             standard   = EXCLUDED.standard,
-             updated_at = now()
+    let user_id = auth.user_id.ok_or(AppError::Unauthorized)?;
+    let row = if let Some(row) = sqlx::query!(
+        r#"UPDATE web_push_subscriptions
+           SET access_token_id = $1,
+               key_p256dh = $3,
+               key_auth = $4,
+               data = $5,
+               standard = $6,
+               user_id = $7,
+               updated_at = now()
+           WHERE endpoint = $2
            RETURNING id, standard, data as "data: serde_json::Value""#,
         auth.token_id,
         body.subscription.endpoint,
@@ -145,16 +145,37 @@ pub async fn create_subscription(
         body.subscription.keys.auth,
         data,
         standard,
+        user_id,
     )
-    .fetch_one(&state.db)
-    .await?;
+    .fetch_optional(&state.db)
+    .await?
+    {
+        (row.id, row.standard, row.data)
+    } else {
+        let row = sqlx::query!(
+            r#"INSERT INTO web_push_subscriptions
+                 (access_token_id, endpoint, key_p256dh, key_auth, data, standard, user_id)
+               VALUES ($1, $2, $3, $4, $5, $6, $7)
+               RETURNING id, standard, data as "data: serde_json::Value""#,
+            auth.token_id,
+            body.subscription.endpoint,
+            body.subscription.keys.p256dh,
+            body.subscription.keys.auth,
+            data,
+            standard,
+            user_id,
+        )
+        .fetch_one(&state.db)
+        .await?;
+        (row.id, row.standard, row.data)
+    };
 
     Ok(Json(PushSubscription {
-        id: row.id.to_string(),
+        id: row.0.to_string(),
         endpoint: body.subscription.endpoint,
-        standard: row.standard,
-        alerts: alerts_from_data(row.data.as_ref().unwrap_or(&serde_json::json!({}))),
-        policy: policy_from_data(row.data.as_ref().unwrap_or(&serde_json::json!({}))),
+        standard: row.1,
+        alerts: alerts_from_data(row.2.as_ref().unwrap_or(&serde_json::json!({}))),
+        policy: policy_from_data(row.2.as_ref().unwrap_or(&serde_json::json!({}))),
         server_key: state.instance.vapid_public_key.clone(),
     }))
 }

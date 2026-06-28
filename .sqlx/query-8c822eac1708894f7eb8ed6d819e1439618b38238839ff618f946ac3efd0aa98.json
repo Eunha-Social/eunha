@@ -13,8 +13,8 @@
       "Left": [
         "Int8",
         "Int8",
-        "Text",
-        "Text",
+        "Varchar",
+        "Varchar",
         "Int8"
       ]
     },

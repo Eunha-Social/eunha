@@ -1,0 +1,56 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT nr.id, nr.from_account_id, nr.last_status_id, nr.notifications_count, nr.created_at, nr.updated_at\n           FROM notification_requests nr\n           WHERE nr.account_id = $1\n             AND ($3::bigint IS NULL OR nr.id < $3)\n             AND ($4::bigint IS NULL OR nr.id > $4)\n             AND ($5::bigint IS NULL OR nr.id > $5)\n           ORDER BY nr.id DESC\n           LIMIT $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "from_account_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "last_status_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "notifications_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "created_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 5,
+        "name": "updated_at",
+        "type_info": "Timestamp"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "e906a0890584951176473e141bbe3337600464b1356c5f2bd57cf202468fb682"
+}

@@ -8,7 +8,7 @@
         "Int8",
         "Int8",
         "Text",
-        "TextArray",
+        "VarcharArray",
         "Int4",
         "Int8"
       ]

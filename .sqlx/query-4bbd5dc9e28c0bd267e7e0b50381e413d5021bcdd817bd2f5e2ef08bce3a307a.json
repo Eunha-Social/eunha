@@ -16,7 +16,7 @@
       {
         "ordinal": 2,
         "name": "options",
-        "type_info": "TextArray"
+        "type_info": "VarcharArray"
       },
       {
         "ordinal": 3,
@@ -26,7 +26,7 @@
       {
         "ordinal": 4,
         "name": "expires_at",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamp"
       }
     ],
     "parameters": {

@@ -70,15 +70,16 @@ pub async fn handler(
 
 async fn resolve_token(state: &AppState, token: &str) -> Option<i64> {
     sqlx::query_scalar!(
-        r#"SELECT account_id FROM oauth_access_tokens
-           WHERE token = $1 AND revoked_at IS NULL
-             AND (expires_at IS NULL OR expires_at > now())"#,
+        r#"SELECT u.account_id
+           FROM oauth_access_tokens t
+           JOIN users u ON u.id = t.resource_owner_id
+           WHERE t.token = $1 AND t.revoked_at IS NULL
+             AND (t.expires_in IS NULL OR t.created_at + t.expires_in * interval '1 second' > now())"#,
         token,
     )
     .fetch_optional(&state.db)
     .await
     .ok()
-    .flatten()
     .flatten()
 }
 

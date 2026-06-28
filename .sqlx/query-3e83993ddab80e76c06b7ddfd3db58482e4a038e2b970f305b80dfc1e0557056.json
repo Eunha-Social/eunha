@@ -16,12 +16,12 @@
       {
         "ordinal": 2,
         "name": "collection_uri?",
-        "type_info": "Text"
+        "type_info": "Varchar"
       },
       {
         "ordinal": 3,
         "name": "account_uri?",
-        "type_info": "Text"
+        "type_info": "Varchar"
       }
     ],
     "parameters": {

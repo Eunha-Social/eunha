@@ -8,7 +8,7 @@
         "Text",
         "Text",
         "Bool",
-        "Text",
+        "Varchar",
         "Int8"
       ]
     },

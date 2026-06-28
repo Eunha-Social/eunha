@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT wps.id, wps.endpoint, wps.key_p256dh, wps.key_auth\n           FROM web_push_subscriptions wps\n           JOIN oauth_access_tokens oat ON oat.id = wps.access_token_id\n           JOIN users u ON u.id = oat.resource_owner_id\n           WHERE u.account_id = $1 AND oat.revoked_at IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "endpoint",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "key_p256dh",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "key_auth",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "f484780ada914b1210cca4918b9ef4d5cd0fd67e4fea0e3766434f50d83ca749"
+}

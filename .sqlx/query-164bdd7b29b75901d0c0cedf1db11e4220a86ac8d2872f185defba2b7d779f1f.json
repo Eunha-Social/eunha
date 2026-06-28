@@ -14,12 +14,12 @@
         "Int8",
         "Int8",
         "Int8",
+        "Varchar",
         "Text",
-        "Text",
-        "Text",
+        "Varchar",
         "Int4",
-        "Text",
-        "Text",
+        "Varchar",
+        "Varchar",
         "Json"
       ]
     },

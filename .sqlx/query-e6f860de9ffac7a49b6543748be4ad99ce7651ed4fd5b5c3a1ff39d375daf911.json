@@ -16,17 +16,17 @@
       {
         "ordinal": 2,
         "name": "username",
-        "type_info": "Text"
+        "type_info": "Varchar"
       },
       {
         "ordinal": 3,
         "name": "domain",
-        "type_info": "Text"
+        "type_info": "Varchar"
       },
       {
         "ordinal": 4,
         "name": "url",
-        "type_info": "Text"
+        "type_info": "Varchar"
       }
     ],
     "parameters": {

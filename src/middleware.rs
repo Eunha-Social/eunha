@@ -83,10 +83,10 @@ pub async fn authenticate(
 ) -> Response {
     if let Some(token) = extract_bearer(&req) {
         if let Some(tok) = sqlx::query!(
-            r#"SELECT t.id, t.account_id, t.application_id, t.scopes, t.expires_at, t.revoked_at,
-                      u.id as "user_id?"
+            r#"SELECT t.id, u.account_id, t.application_id, t.scopes,
+                      t.expires_in, t.created_at, t.revoked_at, u.id as "user_id?"
                FROM oauth_access_tokens t
-               LEFT JOIN users u ON u.account_id = t.account_id
+               LEFT JOIN users u ON u.id = t.resource_owner_id
                WHERE t.token = $1"#,
             token
         )
@@ -96,19 +96,17 @@ pub async fn authenticate(
         .flatten()
         {
             let valid = tok.revoked_at.is_none()
-                && tok.expires_at.map_or(true, |e| e > chrono::Utc::now());
+                && token_not_expired(tok.created_at, tok.expires_in);
 
             if valid {
-                if let Some(account_id) = tok.account_id {
-                    let user = AuthenticatedUser {
-                        account_id,
-                        user_id: tok.user_id,
-                        token_id: tok.id,
-                        scopes: tok.scopes.as_deref().unwrap_or("read").split(|c: char| c.is_whitespace() || c == ',').filter(|s| !s.is_empty()).map(str::to_owned).collect(),
-                        application_id: tok.application_id,
-                    };
-                    req.extensions_mut().insert(user);
-                }
+                let user = AuthenticatedUser {
+                    account_id: tok.account_id,
+                    user_id: tok.user_id,
+                    token_id: tok.id,
+                    scopes: tok.scopes.as_deref().unwrap_or("read").split(|c: char| c.is_whitespace() || c == ',').filter(|s| !s.is_empty()).map(str::to_owned).collect(),
+                    application_id: tok.application_id,
+                };
+                req.extensions_mut().insert(user);
             }
         }
     }
@@ -173,4 +171,10 @@ fn extract_bearer(req: &Request) -> Option<String> {
         .to_str()
         .ok()?;
     header.strip_prefix("Bearer ").map(str::to_string)
+}
+
+fn token_not_expired(created_at: chrono::NaiveDateTime, expires_in: Option<i32>) -> bool {
+    expires_in
+        .map(|seconds| created_at + chrono::Duration::seconds(seconds as i64) > chrono::Utc::now().naive_utc())
+        .unwrap_or(true)
 }

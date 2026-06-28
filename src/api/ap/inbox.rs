@@ -517,12 +517,12 @@ async fn handle_create(
         .get("published")
         .and_then(|p| p.as_str())
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-        .map(|t| t.with_timezone(&chrono::Utc));
+        .map(|t| t.with_timezone(&chrono::Utc).naive_utc());
     let edited_at = object
         .get("updated")
         .and_then(|p| p.as_str())
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-        .map(|t| t.with_timezone(&chrono::Utc));
+        .map(|t| t.with_timezone(&chrono::Utc).naive_utc());
 
     // Visibility is determined from the Note object's own to/cc fields.
     let note_to = as_string_vec(object.get("to"));
@@ -553,7 +553,7 @@ async fn handle_create(
     };
 
     let status_id = crate::snowflake::next_id();
-    let created_at = published.unwrap_or_else(chrono::Utc::now);
+    let created_at = published.unwrap_or_else(|| chrono::Utc::now().naive_utc());
 
     let inserted = sqlx::query_scalar!(
         r#"INSERT INTO statuses
@@ -917,14 +917,14 @@ async fn handle_create(
             .get("endTime")
             .and_then(|v| v.as_str())
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-            .map(|t| t.with_timezone(&chrono::Utc));
+            .map(|t| t.with_timezone(&chrono::Utc).naive_utc());
         let poll_id = crate::snowflake::next_id();
         if let Ok(Some(_)) = sqlx::query_scalar!(
             r#"INSERT INTO polls
                  (id, status_id, account_id, options, cached_tallies, votes_count,
                   multiple, expires_at, created_at, updated_at)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now(),now())
-               ON CONFLICT (status_id) DO NOTHING
+               SELECT $1,$2,$3,$4,$5,$6,$7,$8,now(),now()
+               WHERE NOT EXISTS (SELECT 1 FROM polls WHERE status_id = $2)
                RETURNING id"#,
             poll_id,
             inserted_id,
@@ -1045,8 +1045,8 @@ async fn handle_delete(
                 let tombstone_id = crate::snowflake::next_id();
                 let _ = sqlx::query!(
                     r#"INSERT INTO tombstones (id, account_id, uri, created_at, updated_at)
-                       SELECT $1, $2, $3, now(), now()
-                       WHERE NOT EXISTS (SELECT 1 FROM tombstones WHERE uri = $3)"#,
+                       SELECT $1, $2, $3::text, now(), now()
+                       WHERE NOT EXISTS (SELECT 1 FROM tombstones WHERE uri = $3::text)"#,
                     tombstone_id,
                     actor_id,
                     uri,
@@ -1107,8 +1107,8 @@ async fn handle_announce(
         .get("published")
         .and_then(|p| p.as_str())
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-        .map(|t| t.with_timezone(&chrono::Utc))
-        .unwrap_or_else(chrono::Utc::now);
+        .map(|t| t.with_timezone(&chrono::Utc).naive_utc())
+        .unwrap_or_else(|| chrono::Utc::now().naive_utc());
 
     let boost_id = crate::snowflake::next_id();
     sqlx::query!(
@@ -1444,7 +1444,7 @@ async fn handle_update(
                 .filter(|s| ["ko", "en"].contains(&s.as_str()));
             let edited_at = object.get("updated").and_then(|p| p.as_str())
                 .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-                .map(|t| t.with_timezone(&chrono::Utc));
+                .map(|t| t.with_timezone(&chrono::Utc).naive_utc());
 
             let updated = sqlx::query!(
                 r#"UPDATE statuses
@@ -2195,8 +2195,8 @@ async fn fetch_remote_status_depth(state: &AppState, uri: &str, depth: u8) -> Ap
         .get("published")
         .and_then(|p| p.as_str())
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-        .map(|t| t.with_timezone(&chrono::Utc))
-        .unwrap_or_else(chrono::Utc::now);
+        .map(|t| t.with_timezone(&chrono::Utc).naive_utc())
+        .unwrap_or_else(|| chrono::Utc::now().naive_utc());
 
     let note_to = as_string_vec(object.get("to"));
     let note_cc = as_string_vec(object.get("cc"));
@@ -2419,6 +2419,33 @@ pub async fn resolve_or_fetch_remote_account(
         .unwrap_or("")
         .to_string();
 
+    if let Some(id) = sqlx::query_scalar!(
+        r#"UPDATE accounts
+           SET display_name = $2,
+               note = $3,
+               inbox_url = $4,
+               shared_inbox_url = $5,
+               public_key = $6,
+               avatar_remote_url = COALESCE($7, avatar_remote_url),
+               header_remote_url = CASE WHEN $8 != '' THEN $8 ELSE header_remote_url END,
+               updated_at = now()
+           WHERE uri = $1 AND uri != ''
+           RETURNING id"#,
+        actor_uri,
+        display_name,
+        note,
+        inbox_url,
+        shared_inbox_url,
+        public_key,
+        avatar_remote_url,
+        header_remote_url,
+    )
+    .fetch_optional(&state.db)
+    .await?
+    {
+        return Ok(id);
+    }
+
     let new_id = crate::snowflake::next_id();
     let id = sqlx::query_scalar!(
         r#"INSERT INTO accounts
@@ -2426,15 +2453,6 @@ pub async fn resolve_or_fetch_remote_account(
               inbox_url, outbox_url, shared_inbox_url, public_key,
               avatar_remote_url, header_remote_url)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-           ON CONFLICT (uri) WHERE uri != '' DO UPDATE
-             SET display_name = EXCLUDED.display_name,
-                 note = EXCLUDED.note,
-                 inbox_url = EXCLUDED.inbox_url,
-                 shared_inbox_url = EXCLUDED.shared_inbox_url,
-                 public_key = EXCLUDED.public_key,
-                 avatar_remote_url = COALESCE(EXCLUDED.avatar_remote_url, accounts.avatar_remote_url),
-                 header_remote_url = CASE WHEN EXCLUDED.header_remote_url != '' THEN EXCLUDED.header_remote_url ELSE accounts.header_remote_url END,
-                 updated_at = now()
            RETURNING id"#,
         new_id,
         username,

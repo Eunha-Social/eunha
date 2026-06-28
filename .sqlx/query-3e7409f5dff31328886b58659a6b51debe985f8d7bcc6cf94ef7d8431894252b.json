@@ -16,18 +16,18 @@
       {
         "ordinal": 2,
         "name": "uri",
-        "type_info": "Text"
+        "type_info": "Varchar"
       },
       {
         "ordinal": 3,
         "name": "created_at",
-        "type_info": "Timestamptz"
+        "type_info": "Timestamp"
       }
     ],
     "parameters": {
       "Left": [
         "Int8",
-        "Text"
+        "Varchar"
       ]
     },
     "nullable": [

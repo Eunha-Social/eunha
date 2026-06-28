@@ -8,7 +8,7 @@
         "Int8",
         "Int8",
         "Bool",
-        "Timestamptz"
+        "Timestamp"
       ]
     },
     "nullable": []

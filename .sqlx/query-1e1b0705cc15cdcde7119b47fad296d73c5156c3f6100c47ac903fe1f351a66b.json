@@ -11,12 +11,12 @@
       {
         "ordinal": 1,
         "name": "shortcode",
-        "type_info": "Text"
+        "type_info": "Varchar"
       },
       {
         "ordinal": 2,
         "name": "image_remote_url",
-        "type_info": "Text"
+        "type_info": "Varchar"
       },
       {
         "ordinal": 3,

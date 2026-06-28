@@ -20,8 +20,8 @@
         "Text",
         "Text",
         "Bool",
-        "Text",
-        "Timestamptz"
+        "Varchar",
+        "Timestamp"
       ]
     },
     "nullable": [

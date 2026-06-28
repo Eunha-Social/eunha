@@ -175,7 +175,7 @@ async fn publish_one(
             if options.len() >= 2 {
                 let expires_in = poll.get("expires_in").and_then(|v| v.as_i64());
                 let multiple = poll.get("multiple").and_then(|v| v.as_bool()).unwrap_or(false);
-                let expires_at = expires_in.map(|s| chrono::Utc::now() + chrono::Duration::seconds(s));
+                let expires_at = expires_in.map(|s| chrono::Utc::now().naive_utc() + chrono::Duration::seconds(s));
                 let opts: Vec<String> = options.iter()
                     .filter_map(|o| o.as_str())
                     .map(|o| o.to_string())

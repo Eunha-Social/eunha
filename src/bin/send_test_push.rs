@@ -81,7 +81,8 @@ async fn main() -> Result<()> {
         r#"SELECT wps.id, wps.endpoint, wps.key_p256dh, wps.key_auth
            FROM web_push_subscriptions wps
            JOIN oauth_access_tokens oat ON oat.id = wps.access_token_id
-           WHERE oat.account_id = $1 AND oat.revoked_at IS NULL"#,
+           JOIN users u ON u.id = oat.resource_owner_id
+           WHERE u.account_id = $1 AND oat.revoked_at IS NULL"#,
         account_id,
     )
     .fetch_all(&db)

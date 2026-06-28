@@ -30,11 +30,11 @@ pub async fn verify_app_credentials(
         .ok_or(AppError::Unauthorized)?;
 
     let row = sqlx::query!(
-        r#"SELECT a.id, a.name, a.website, a.scopes, a.redirect_uri
+        r#"SELECT a.id, a.name, a.website, COALESCE(a.scopes, 'read') as "scopes!", a.redirect_uri
            FROM oauth_access_tokens t
            JOIN oauth_applications a ON a.id = t.application_id
            WHERE t.token = $1 AND t.revoked_at IS NULL
-             AND (t.expires_at IS NULL OR t.expires_at > now())"#,
+             AND (t.expires_in IS NULL OR t.created_at + t.expires_in * interval '1 second' > now())"#,
         token,
     )
     .fetch_optional(&state.db)
@@ -47,7 +47,7 @@ pub async fn verify_app_credentials(
         id: row.id.to_string(),
         name: row.name,
         website: row.website,
-        scopes: normalize_scopes(row.scopes.as_deref().unwrap_or("read")).split_whitespace().map(str::to_owned).collect(),
+        scopes: normalize_scopes(&row.scopes).split_whitespace().map(str::to_owned).collect(),
         redirect_uri,
         redirect_uris: uris,
         vapid_key: Some(instance.vapid_public_key.clone()),
@@ -153,7 +153,7 @@ pub async fn issue_token(
         return Err(AppError::Unauthorized);
     }
 
-    let (account_id, scopes) = match form.grant_type.as_str() {
+    let (user_id, scopes) = match form.grant_type.as_str() {
         "client_credentials" => (None, app.scopes.clone().unwrap_or_else(|| "read".to_string())),
 
         "authorization_code" => {
@@ -172,7 +172,7 @@ pub async fn issue_token(
                 tracing::warn!(code = %code_str, "authorization code not found or expired");
                 AppError::Unauthorized
             })?;
-            let account_id = sqlx::query_scalar!(
+            let _account_id = sqlx::query_scalar!(
                 r#"UPDATE users SET
                      last_sign_in_at    = current_sign_in_at,
                      current_sign_in_at = now(),
@@ -184,7 +184,7 @@ pub async fn issue_token(
             .fetch_optional(&state.db)
             .await?
             .ok_or(AppError::Unauthorized)?;
-            (Some(account_id), code.scopes.unwrap_or_else(|| "read".to_string()))
+            (Some(code.resource_owner_id), code.scopes.unwrap_or_else(|| "read".to_string()))
         }
 
         "password" => {
@@ -215,7 +215,7 @@ pub async fn issue_token(
             .execute(&state.db)
             .await?;
 
-            (Some(user.account_id), normalize_scopes(form.scope.as_deref().or(app.scopes.as_deref()).unwrap_or("read")))
+            (Some(user.id), normalize_scopes(form.scope.as_deref().or(app.scopes.as_deref()).unwrap_or("read")))
         }
 
         _ => return Err(AppError::Unprocessable("unsupported grant_type".into())),
@@ -225,10 +225,10 @@ pub async fn issue_token(
     let created_at = chrono::Utc::now();
 
     sqlx::query!(
-        r#"INSERT INTO oauth_access_tokens (application_id, account_id, token, scopes)
+        r#"INSERT INTO oauth_access_tokens (application_id, resource_owner_id, token, scopes)
            VALUES ($1, $2, $3, $4)"#,
         app.id,
-        account_id,
+        user_id,
         token_str,
         scopes,
     )
@@ -454,7 +454,7 @@ pub async fn elk_oauth_callback(
     .ok()
     .flatten();
 
-    let Some(account_id) = account_id else {
+    let Some(_account_id) = account_id else {
         tracing::warn!("elk_oauth_callback: resource_owner has no account");
         return Redirect::to(&format!("{}/signin/callback?error=no_account", origin))
             .into_response();
@@ -462,10 +462,10 @@ pub async fn elk_oauth_callback(
 
     let token_str = generate_token(64);
     let db_ok = sqlx::query!(
-        r#"INSERT INTO oauth_access_tokens (application_id, account_id, token, scopes)
+        r#"INSERT INTO oauth_access_tokens (application_id, resource_owner_id, token, scopes)
            VALUES ($1, $2, $3, $4)"#,
         app.id,
-        account_id,
+        code_row.resource_owner_id,
         token_str,
         code_row.scopes.as_deref().unwrap_or("read"),
     )
@@ -673,4 +673,3 @@ async fn do_authorize(
     let sep = if form.redirect_uri.contains('?') { '&' } else { '?' };
     Ok(format!("{}{}code={}", form.redirect_uri, sep, code))
 }
-
