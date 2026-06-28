@@ -16,5 +16,11 @@ export DATABASE_URL="postgres://limeburst@localhost/${DB_NAME}"
 git pull
 git submodule sync
 git submodule update --init
-sqlx migrate run
+
+# Keep sqlx's _sqlx_migrations bookkeeping table in the eunha schema, matching
+# the app's connection search_path, so the public schema stays a pure Mastodon
+# mirror. The schema must exist before `migrate run` creates the table.
+psql "$DATABASE_URL" -c "CREATE SCHEMA IF NOT EXISTS eunha"
+DATABASE_URL="${DATABASE_URL}?options=-c%20search_path%3Deunha,public" sqlx migrate run
+
 docker compose up -d --build
