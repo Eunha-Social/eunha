@@ -128,16 +128,18 @@ pub async fn create_subscription(
 
     let standard = body.subscription.standard.unwrap_or(false);
     let user_id = auth.user_id.ok_or(AppError::Unauthorized)?;
+    // One push subscription per access token: replace the existing one (endpoint
+    // and keys may change) rather than keying on the endpoint.
     let row = if let Some(row) = sqlx::query!(
         r#"UPDATE web_push_subscriptions
-           SET access_token_id = $1,
+           SET endpoint = $2,
                key_p256dh = $3,
                key_auth = $4,
                data = $5,
                standard = $6,
                user_id = $7,
                updated_at = now()
-           WHERE endpoint = $2
+           WHERE access_token_id = $1
            RETURNING id, standard, data as "data: serde_json::Value""#,
         auth.token_id,
         body.subscription.endpoint,

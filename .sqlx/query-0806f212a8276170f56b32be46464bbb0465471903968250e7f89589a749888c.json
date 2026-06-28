@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT 1 FROM notifications\n           WHERE account_id = $1 AND from_account_id = $2\n             AND \"type\" = $3\n             AND (activity_id = $4 OR ($4::bigint IS NULL AND activity_id IS NULL))\n           LIMIT 1",
+  "query": "SELECT 1 FROM notifications\n           WHERE account_id = $1 AND from_account_id = $2\n             AND \"type\" = $3 AND activity_id = $4\n           LIMIT 1",
   "describe": {
     "columns": [
       {
@@ -21,5 +21,5 @@
       null
     ]
   },
-  "hash": "9c39865a89519820c35dc7e1e87c752f4d62d04908c5abe47a585ac4563cfb91"
+  "hash": "0806f212a8276170f56b32be46464bbb0465471903968250e7f89589a749888c"
 }

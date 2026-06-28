@@ -226,6 +226,49 @@ async fn send_with_reqwest(
 // ── Notification creation helper ───────────────────────────────────────────
 
 /// Insert a notification record and fire push delivery in a background task.
+/// Resolve a notification's polymorphic activity (`activity_type`, `activity_id`).
+/// Both columns are NOT NULL in the schema, so a notification without a
+/// resolvable activity is dropped rather than inserted with NULLs.
+async fn notification_activity(
+    db: &sqlx::PgPool,
+    notification_type: &str,
+    recipient_id: i64,
+    from_account_id: i64,
+    status_id: Option<i64>,
+) -> Option<(&'static str, i64)> {
+    if let Some(sid) = status_id {
+        return Some(("Status", sid));
+    }
+    match notification_type {
+        // The Follow links follower→followed; the direction differs for a fresh
+        // follow vs. an accepted follow request, so match either orientation.
+        "follow" => sqlx::query_scalar!(
+            r#"SELECT id FROM follows
+               WHERE (account_id = $1 AND target_account_id = $2)
+                  OR (account_id = $2 AND target_account_id = $1)
+               LIMIT 1"#,
+            from_account_id,
+            recipient_id,
+        )
+        .fetch_optional(db)
+        .await
+        .ok()
+        .flatten()
+        .map(|id| ("Follow", id)),
+        "follow_request" => sqlx::query_scalar!(
+            "SELECT id FROM follow_requests WHERE account_id = $1 AND target_account_id = $2 LIMIT 1",
+            from_account_id,
+            recipient_id,
+        )
+        .fetch_optional(db)
+        .await
+        .ok()
+        .flatten()
+        .map(|id| ("FollowRequest", id)),
+        _ => None,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub async fn create_and_push(
     state: &AppState,
@@ -298,17 +341,26 @@ pub async fn create_and_push(
         return;
     }
 
+    // Resolve the polymorphic activity (activity_type/activity_id are NOT NULL).
+    // Status-bearing notifications point at the Status; follow(_request)s point
+    // at the Follow/FollowRequest row.
+    let Some((activity_type_val, activity_id_val)) =
+        notification_activity(&db, notification_type, recipient_id, from_account_id, status_id).await
+    else {
+        tracing::warn!(notification_type, "no activity found for notification; skipping");
+        return;
+    };
+
     // Dedup: don't insert the same (account, from, type, activity) twice
     let existing = sqlx::query_scalar!(
         r#"SELECT 1 FROM notifications
            WHERE account_id = $1 AND from_account_id = $2
-             AND "type" = $3
-             AND (activity_id = $4 OR ($4::bigint IS NULL AND activity_id IS NULL))
+             AND "type" = $3 AND activity_id = $4
            LIMIT 1"#,
         recipient_id,
         from_account_id,
         notification_type,
-        status_id,
+        activity_id_val,
     )
     .fetch_optional(&db)
     .await;
@@ -317,7 +369,6 @@ pub async fn create_and_push(
         return;
     }
 
-    let activity_type_val: Option<&str> = if status_id.is_some() { Some("Status") } else { None };
     let row = sqlx::query!(
         r#"INSERT INTO notifications (account_id, from_account_id, "type", activity_type, activity_id, created_at, updated_at)
            VALUES ($1, $2, $3, $4, $5, now(), now())
@@ -326,7 +377,7 @@ pub async fn create_and_push(
         from_account_id,
         notification_type,
         activity_type_val,
-        status_id,
+        activity_id_val,
     )
     .fetch_one(&db)
     .await;
@@ -405,11 +456,13 @@ pub async fn notify_admins(
             .fetch_one(&state.db)
             .await
         } else {
+            // admin.sign_up: the activity is the newly-registered Account, which
+            // is the `from_account_id` here.
             sqlx::query_scalar!(
-                r#"INSERT INTO notifications (account_id, from_account_id, "type", created_at, updated_at)
-                   VALUES ($1, $2, $3, now(), now())
+                r#"INSERT INTO notifications (account_id, from_account_id, "type", activity_id, activity_type, created_at, updated_at)
+                   VALUES ($1, $2, $3, $4, 'Account', now(), now())
                    RETURNING id"#,
-                admin_id, from_account_id, notification_type,
+                admin_id, from_account_id, notification_type, from_account_id,
             )
             .fetch_one(&state.db)
             .await
