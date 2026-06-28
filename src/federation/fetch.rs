@@ -13,13 +13,15 @@ const AP_ACCEPT: &str = "application/activity+json, application/ld+json";
 /// Fetch a remote ActivityPub object as JSON, signing the GET with the instance
 /// actor's key.
 pub async fn signed_get_json(state: &AppState, url: &str) -> anyhow::Result<Value> {
+    crate::federation::safe_fetch::validate_url(url)?;
+
     let (private_key, _) = crate::federation::instance_actor::get_or_create(state).await?;
     let key_id = crate::federation::instance_actor::key_id(&state.instance.domain);
 
     let signed = feder_runtime::signature::sign_get(url, &key_id, &private_key)?;
 
     let resp = state
-        .http
+        .fetch
         .get(url)
         .header("Accept", AP_ACCEPT)
         .header("Date", signed.date)

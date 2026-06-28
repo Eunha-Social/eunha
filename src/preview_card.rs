@@ -4,6 +4,10 @@ use sqlx::PgPool;
 /// Fetch and upsert a preview card for a URL, return the card id.
 /// Fails silently — callers ignore errors.
 pub async fn fetch_and_store(db: &PgPool, http: &reqwest::Client, url: &str) -> Option<i64> {
+    // `http` must be the SSRF-guarded client; this also rejects literal-IP and
+    // non-HTTP(S) targets before we issue the request.
+    crate::federation::safe_fetch::validate_url(url).ok()?;
+
     let resp = http
         .get(url)
         .header("User-Agent", "eunha/1.0 (link preview bot)")

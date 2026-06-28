@@ -117,6 +117,35 @@ pub async fn shared_inbox(
     Ok(StatusCode::ACCEPTED)
 }
 
+/// The lower-cased list of header names a `Signature` header claims to cover
+/// (its `headers="…"` parameter). Empty when the parameter is absent.
+fn signed_headers_list(sig_val: &str) -> Vec<String> {
+    for part in sig_val.split(',') {
+        let part = part.trim();
+        if let Some(rest) = part.strip_prefix("headers=") {
+            return rest
+                .trim_matches('"')
+                .split_whitespace()
+                .map(|s| s.to_ascii_lowercase())
+                .collect();
+        }
+    }
+    Vec::new()
+}
+
+/// True if an HTTP-date `Date` header is within `skew` of now (in either
+/// direction). Rejects malformed dates.
+fn date_within_skew(date_val: &str, skew: chrono::Duration) -> bool {
+    let trimmed = date_val.trim();
+    let parsed = chrono::NaiveDateTime::parse_from_str(trimmed, "%a, %d %b %Y %H:%M:%S GMT")
+        .map(|n| n.and_utc())
+        .or_else(|_| chrono::DateTime::parse_from_rfc2822(trimmed).map(|d| d.with_timezone(&chrono::Utc)));
+    match parsed {
+        Ok(signed) => (chrono::Utc::now() - signed).abs() <= skew,
+        Err(_) => false,
+    }
+}
+
 /// Verify the HTTP Signature on an inbound activity. Returns `Ok(())` only when
 /// the request is signed by a key belonging to the same host as the claimed
 /// actor and the signature (and body digest) check out.
@@ -143,6 +172,32 @@ async fn verify_inbound_signature(
         return Err(format!(
             "signing key host does not match actor ({key_actor} vs {actor_uri})"
         ));
+    }
+
+    // feder's verify_request only checks the Digest if a Digest header happens to
+    // be present, and never bounds the signature's age. Without the following an
+    // attacker could sign only `date` and then swap the body (recomputing the
+    // Digest header that the signature never covered), or replay a captured
+    // request indefinitely. So, before doing any work:
+    //   * require the signature to actually cover (request-target), host, date,
+    //     and digest;
+    //   * require a Digest header (feder then binds it to the body);
+    //   * reject stale or future-dated requests (±1h skew, as Mastodon does).
+    let covered = signed_headers_list(sig_val);
+    for required in ["(request-target)", "host", "date", "digest"] {
+        if !covered.iter().any(|h| h == required) {
+            return Err(format!("signature does not cover required header {required:?}"));
+        }
+    }
+    if headers.get("digest").is_none() {
+        return Err("missing Digest header".to_string());
+    }
+    let date_val = headers
+        .get("date")
+        .and_then(|h| h.to_str().ok())
+        .ok_or_else(|| "missing Date header".to_string())?;
+    if !date_within_skew(date_val, chrono::Duration::hours(1)) {
+        return Err(format!("Date header outside acceptable clock skew: {date_val:?}"));
     }
 
     let pem = fetch_public_key(state, key_actor)
@@ -2732,4 +2787,33 @@ pub async fn resolve_or_fetch_remote_account(
     .await?;
 
     Ok(id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn signed_headers_list_parses_covered_set() {
+        let sig = r#"keyId="https://a.test/users/x#main-key",algorithm="rsa-sha256",headers="(request-target) Host Date Digest",signature="abc""#;
+        let covered = signed_headers_list(sig);
+        assert!(covered.contains(&"(request-target)".to_string()));
+        assert!(covered.contains(&"host".to_string()));
+        assert!(covered.contains(&"date".to_string()));
+        assert!(covered.contains(&"digest".to_string()));
+        assert!(signed_headers_list("keyId=\"x\",signature=\"y\"").is_empty());
+    }
+
+    #[test]
+    fn date_within_skew_accepts_recent_and_rejects_stale() {
+        let now = chrono::Utc::now();
+        let fmt = "%a, %d %b %Y %H:%M:%S GMT";
+        let recent = now.format(fmt).to_string();
+        let stale = (now - chrono::Duration::hours(2)).format(fmt).to_string();
+        let future = (now + chrono::Duration::hours(2)).format(fmt).to_string();
+        assert!(date_within_skew(&recent, chrono::Duration::hours(1)));
+        assert!(!date_within_skew(&stale, chrono::Duration::hours(1)));
+        assert!(!date_within_skew(&future, chrono::Duration::hours(1)));
+        assert!(!date_within_skew("garbage", chrono::Duration::hours(1)));
+    }
 }

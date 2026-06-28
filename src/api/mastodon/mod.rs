@@ -295,16 +295,21 @@ pub fn router(state: AppState) -> Router<AppState> {
         // Scheduled statuses
         .route("/api/v1/scheduled_statuses", get(scheduled_statuses::list_scheduled_statuses))
         .route("/api/v1/scheduled_statuses/{id}", get(scheduled_statuses::get_scheduled_status).put(scheduled_statuses::update_scheduled_status).delete(scheduled_statuses::delete_scheduled_status))
-        // Media — 25 MB limit matching Mastodon's default
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            require_auth,
+        ));
+
+    // File-upload routes carry a generous body limit (25 MB, matching Mastodon).
+    // Kept separate so the cap applies only here; everything else inherits the
+    // app-wide default in `build_app`.
+    let uploads = Router::new()
         .route("/api/v1/media", post(media::upload_media))
         .route("/api/v2/media", post(media::upload_media))
         .route("/api/v2/media/{id}", get(media::get_media).put(media::update_media))
         .route("/api/v1/accounts/update_credentials", patch(accounts::update_credentials))
         .layer(DefaultBodyLimit::max(25 * 1024 * 1024))
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            require_auth,
-        ));
+        .layer(middleware::from_fn_with_state(state.clone(), require_auth));
 
     let public = Router::new()
         // Instance info
@@ -389,7 +394,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/oauth/token", post(oauth::issue_token))
         .route("/oauth/revoke", post(oauth::revoke_token));
 
-    Router::new().merge(auth_required).merge(public)
+    Router::new().merge(auth_required).merge(uploads).merge(public)
 }
 
 /// Routes that must NOT be wrapped by CompressionLayer (WebSocket upgrades).

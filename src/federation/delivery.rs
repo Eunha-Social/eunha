@@ -12,6 +12,8 @@ const DELIVERY_QUEUE_BATCH: i64 = 50;
 const DELIVERY_QUEUE_CONCURRENCY: usize = 16;
 const DELIVERY_QUEUE_IDLE: Duration = Duration::from_secs(2);
 const DELIVERY_QUEUE_ERROR_IDLE: Duration = Duration::from_secs(10);
+/// How often to prune finished delivery jobs.
+const DELIVERY_CLEANUP_INTERVAL: Duration = Duration::from_secs(3600);
 
 /// Deliver an activity to a single remote inbox, signed with the given key.
 ///
@@ -337,6 +339,32 @@ async fn record_job_outcome(
         .await?;
     }
     Ok(())
+}
+
+/// Periodically delete finished delivery jobs. This bounds the table's growth
+/// and limits how long the signing keys stored in each row persist at rest.
+/// Delivered jobs are kept briefly; permanently-failed jobs are kept longer so
+/// their `last_error` is available for debugging.
+pub async fn run_delivery_cleanup(state: AppState) {
+    loop {
+        match cleanup_finished_jobs(&state).await {
+            Ok(0) => {}
+            Ok(n) => tracing::info!(deleted = n, "pruned finished delivery jobs"),
+            Err(e) => tracing::error!(error = %e, "delivery job cleanup failed"),
+        }
+        tokio::time::sleep(DELIVERY_CLEANUP_INTERVAL).await;
+    }
+}
+
+async fn cleanup_finished_jobs(state: &AppState) -> anyhow::Result<u64> {
+    let result = sqlx::query!(
+        r#"DELETE FROM eunha.activity_delivery_jobs
+           WHERE (delivered_at IS NOT NULL AND delivered_at < now() - interval '1 day')
+              OR (failed_at IS NOT NULL AND failed_at < now() - interval '7 days')"#,
+    )
+    .execute(&state.db)
+    .await?;
+    Ok(result.rows_affected())
 }
 
 fn queue_backoff_seconds(attempts: i32) -> i64 {

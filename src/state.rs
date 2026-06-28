@@ -12,6 +12,9 @@ pub struct AppState {
     pub config: Arc<Config>,
     pub instance: Arc<InstanceConfig>,
     pub http: reqwest::Client,
+    /// SSRF-guarded client for fetching untrusted remote content (ActivityPub
+    /// objects, actor keys, link previews). See [`crate::federation::safe_fetch`].
+    pub fetch: reqwest::Client,
     pub email: EmailSender,
     pub streaming: StreamBus,
     pub storage: Arc<Storage>,
@@ -24,6 +27,8 @@ impl AppState {
             .timeout(std::time::Duration::from_secs(30))
             .build()
             .expect("failed to build HTTP client");
+
+        let fetch = crate::federation::safe_fetch::build_client();
 
         let storage = Arc::new(Storage::from_config(&config.media_storage).await);
         crate::api::mastodon::convert::init_media_defaults(
@@ -46,6 +51,7 @@ impl AppState {
             config: Arc::new(config),
             instance,
             http,
+            fetch,
             email,
             streaming: StreamBus::new(),
             storage,

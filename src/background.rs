@@ -6,6 +6,7 @@ use crate::state::AppState;
 pub fn spawn(state: AppState) {
     tokio::spawn(run_scheduled_statuses(state.clone()));
     tokio::spawn(run_poll_expiry(state.clone()));
+    tokio::spawn(crate::federation::delivery::run_delivery_cleanup(state.clone()));
     tokio::spawn(crate::federation::delivery::run_delivery_queue(state));
 }
 

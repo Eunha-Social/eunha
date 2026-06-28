@@ -130,7 +130,7 @@ pub async fn search(
                 // resolve=true with a full user@domain: fetch via WebFinger
                 if q.resolve.unwrap_or(false) {
                     if let Some(dom) = domain {
-                        if let Ok(actor_url) = crate::federation::webfinger::resolve(&state.http, uname, dom).await {
+                        if let Ok(actor_url) = crate::federation::webfinger::resolve(&state.fetch, uname, dom).await {
                             if let Ok(account_id) = crate::api::ap::inbox::resolve_or_fetch_remote_account(&state, &actor_url).await {
                                 if let Ok(Some(account)) = sqlx::query_as!(
                                     crate::db::models::Account,

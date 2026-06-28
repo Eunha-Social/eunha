@@ -162,7 +162,7 @@ pub async fn lookup_account(
         if let Some(ref d) = domain {
             let acct_uri = format!("acct:{}@{}", username, d);
             let wf_url = format!("https://{}/.well-known/webfinger?resource={}", d, acct_uri);
-            if let Ok(resp) = state.http.get(&wf_url)
+            if let Ok(resp) = state.fetch.get(&wf_url)
                 .header("Accept", "application/jrd+json, application/json")
                 .send()
                 .await
@@ -1377,7 +1377,7 @@ pub async fn search_accounts(
             if !already_known {
                 let acct_uri = format!("acct:{}@{}", username, domain);
                 let wf_url = format!("https://{}/.well-known/webfinger?resource={}", domain, acct_uri);
-                if let Ok(resp) = state.http.get(&wf_url)
+                if let Ok(resp) = state.fetch.get(&wf_url)
                     .header("Accept", "application/jrd+json, application/json")
                     .send()
                     .await
@@ -4758,7 +4758,7 @@ pub fn spawn_card_fetch(state: &AppState, status_id: i64, content: String) {
     };
     let state = state.clone();
     tokio::spawn(async move {
-        let Some(card_id) = crate::preview_card::fetch_and_store(&state.db, &state.http, &url).await
+        let Some(card_id) = crate::preview_card::fetch_and_store(&state.db, &state.fetch, &url).await
         else {
             return;
         };
