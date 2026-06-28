@@ -271,6 +271,7 @@ pub fn status_from_db(
     status_from_db_with_app(s, account, media, reblog, viewer_context, None, mentions, reblog_mentions)
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn status_from_db_with_app(
     s: &models::Status,
     account: &models::Account,
@@ -336,7 +337,7 @@ pub fn status_from_db_with_app(
         url: {
             let uri_str = s.uri.as_deref();
             s.url.as_deref()
-                .filter(|&u| uri_str.map_or(true, |uri| u != uri))
+                .filter(|&u| uri_str != Some(u))
                 .map(String::from)
                 .or_else(|| status_url_from_uri(uri_str?))
         },
@@ -351,7 +352,7 @@ pub fn status_from_db_with_app(
         account: account_from_db(account),
         media_attachments: media.iter()
             .map(media_from_db)
-            .filter(|m| m.url.is_some() || m.remote_url.as_deref().map_or(false, |u| !u.is_empty()))
+            .filter(|m| m.url.is_some() || m.remote_url.as_deref().is_some_and(|u| !u.is_empty()))
             .collect(),
         mentions: mentions.to_vec(),
         tags: vec![],

@@ -623,7 +623,7 @@ async fn add_item(state: &AppState, collection_id: i64, account_id: i64) -> AppR
     // Send the FeatureRequest asking the remote account for consent.
     if is_remote {
         if let (Some(owner), Some(activity_uri)) = (owner, activity_uri) {
-            if let Some(pk) = owner.private_key.filter(|s| !s.is_empty()) {
+            if owner.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
                 let inbox = if !target.shared_inbox_url.is_empty() {
                     target.shared_inbox_url.clone()
                 } else {
@@ -645,7 +645,6 @@ async fn add_item(state: &AppState, collection_id: i64, account_id: i64) -> AppR
                             req,
                             vec![inbox],
                             key_id,
-                            pk,
                         )
                         .await
                         {
@@ -662,7 +661,9 @@ async fn add_item(state: &AppState, collection_id: i64, account_id: i64) -> AppR
 
 // ── ActivityPub distribution to followers (best-effort) ───────────────────────
 
-async fn owner_private_key(state: &AppState, owner_account_id: i64) -> Option<(String, String)> {
+/// The owner's username, if it's a local account with a usable signing key.
+/// (The key itself is loaded from the account at delivery time.)
+async fn owner_signing_username(state: &AppState, owner_account_id: i64) -> Option<String> {
     let row = sqlx::query!(
         "SELECT username, private_key FROM accounts WHERE id = $1 AND domain IS NULL",
         owner_account_id,
@@ -670,8 +671,8 @@ async fn owner_private_key(state: &AppState, owner_account_id: i64) -> Option<(S
     .fetch_optional(&state.db)
     .await
     .ok()??;
-    let pk = row.private_key.filter(|s| !s.is_empty())?;
-    Some((row.username, pk))
+    row.private_key.filter(|s| !s.is_empty())?;
+    Some(row.username)
 }
 
 /// Distribute an `Add`/`Update(FeaturedCollection)` to the owner's followers.
@@ -688,9 +689,9 @@ async fn distribute_collection(
     let Ok(body) = ap_coll::featured_collection_body(state, domain, &ap).await else {
         return;
     };
-    let Some((_, pk)) = owner_private_key(state, owner_account_id).await else {
+    if owner_signing_username(state, owner_account_id).await.is_none() {
         return;
-    };
+    }
     let key_id = format!("https://{domain}/users/{}#main-key", ap.owner_username);
     let activity = if is_create {
         ap_coll::add_collection_activity(domain, &ap.owner_username, body)
@@ -704,7 +705,7 @@ async fn distribute_collection(
         )
     };
     if let Err(e) =
-        crate::federation::delivery::fanout_to_followers(state, activity, owner_account_id, key_id, pk).await
+        crate::federation::delivery::fanout_to_followers(state, activity, owner_account_id, key_id).await
     {
         tracing::warn!(error = %e, "failed to enqueue collection fanout");
     }
@@ -717,13 +718,13 @@ async fn distribute_collection_removal(
     collection_id: i64,
     owner_account_id: i64,
 ) {
-    let Some((username, pk)) = owner_private_key(state, owner_account_id).await else {
+    let Some(username) = owner_signing_username(state, owner_account_id).await else {
         return;
     };
     let key_id = format!("https://{domain}/users/{username}#main-key");
     let activity = ap_coll::remove_collection_activity(domain, &username, collection_id);
     if let Err(e) =
-        crate::federation::delivery::fanout_to_followers(state, activity, owner_account_id, key_id, pk).await
+        crate::federation::delivery::fanout_to_followers(state, activity, owner_account_id, key_id).await
     {
         tracing::warn!(error = %e, "failed to enqueue collection removal fanout");
     }

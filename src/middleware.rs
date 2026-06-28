@@ -58,17 +58,15 @@ impl AuthenticatedUser {
         }
         // "follow" covers all social-graph operations (read + write on follows/blocks/mutes)
         if matches!(required, "write:follows" | "write:blocks" | "write:mutes"
-                             | "read:follows" | "read:blocks" | "read:mutes") {
-            if self.scopes.iter().any(|s| s == "follow") {
+                             | "read:follows" | "read:blocks" | "read:mutes")
+            && self.scopes.iter().any(|s| s == "follow") {
                 return true;
             }
-        }
         // "profile" is a narrow scope that covers read:accounts (for verify_credentials)
-        if required == "read:accounts" {
-            if self.scopes.iter().any(|s| s == "profile") {
+        if required == "read:accounts"
+            && self.scopes.iter().any(|s| s == "profile") {
                 return true;
             }
-        }
         false
     }
 }

@@ -29,7 +29,7 @@ pub async fn trending_tags(
     Query(params): Query<TrendParams>,
     auth: Option<Extension<AuthenticatedUser>>,
 ) -> AppResult<Json<Vec<Tag>>> {
-    let limit = params.limit.unwrap_or(10).min(20).max(1);
+    let limit = params.limit.unwrap_or(10).clamp(1, 20);
     let offset = params.offset.unwrap_or(0).max(0);
     let domain = &instance.domain;
     let viewer_id = auth.map(|Extension(a)| a.account_id);
@@ -107,7 +107,7 @@ pub async fn trending_statuses(
     Query(params): Query<TrendParams>,
     auth: Option<Extension<crate::middleware::AuthenticatedUser>>,
 ) -> AppResult<Json<Vec<Status>>> {
-    let limit = params.limit.unwrap_or(20).min(40).max(1);
+    let limit = params.limit.unwrap_or(20).clamp(1, 40);
     let offset = params.offset.unwrap_or(0).max(0);
     let viewer_id = auth.map(|Extension(a)| a.account_id);
 
@@ -230,8 +230,8 @@ pub async fn trending_links(
     State(state): State<AppState>,
     Query(params): Query<TrendParams>,
 ) -> AppResult<Json<Vec<super::types::PreviewCard>>> {
-    let limit = params.limit.unwrap_or(10).min(40).max(1) as i64;
-    let offset = params.offset.unwrap_or(0).max(0) as i64;
+    let limit = params.limit.unwrap_or(10).clamp(1, 40);
+    let offset = params.offset.unwrap_or(0).max(0);
 
     let rows = sqlx::query!(
         r#"SELECT pc.url, pc.title, pc.description,

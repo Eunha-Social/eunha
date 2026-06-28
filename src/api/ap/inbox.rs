@@ -371,10 +371,10 @@ async fn handle_follow(
                 }
             }
             feder_core::inbound::Action::SendAccept(accept) => {
-                let Some(private_key) = target.private_key.clone().filter(|s| !s.is_empty()) else {
+                if target.private_key.as_deref().is_none_or(|s| s.is_empty()) {
                     tracing::warn!(username = %target.username, "local account has no private key; cannot send Accept");
                     continue;
-                };
+                }
                 let follower_inbox = sqlx::query_scalar!(
                     "SELECT inbox_url FROM accounts WHERE id = $1",
                     follower_id,
@@ -392,11 +392,10 @@ async fn handle_follow(
                 let key_id = format!("{actor_url}#main-key");
                 tracing::debug!(inbox, actor_uri, "enqueueing Accept");
                 if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
-                    &state,
+                    state,
                     activity,
                     vec![inbox],
                     key_id,
-                    private_key,
                 )
                 .await
                 {
@@ -2176,9 +2175,9 @@ async fn handle_quote_request(
     } else {
         quoter.inbox_url
     };
-    let Some(private_key) = status.private_key.filter(|s| !s.is_empty()) else {
+    if status.private_key.as_deref().is_none_or(|s| s.is_empty()) {
         return Ok(());
-    };
+    }
     if inbox.is_empty() {
         return Ok(());
     }
@@ -2197,7 +2196,6 @@ async fn handle_quote_request(
                 r,
                 vec![inbox],
                 key_id,
-                private_key,
             )
             .await
             {
@@ -2269,7 +2267,6 @@ async fn handle_quote_request(
             accept,
             vec![inbox],
             key_id,
-            private_key,
         )
         .await
         {
@@ -2390,15 +2387,16 @@ async fn handle_feature_request(
     )
     .fetch_one(&state.db)
     .await?;
-    let Some(private_key) = sqlx::query_scalar!(
+    let has_signing_key = sqlx::query_scalar!(
         "SELECT private_key FROM accounts WHERE id = $1",
         local.id,
     )
     .fetch_one(&state.db)
     .await?
-    .filter(|s| !s.is_empty()) else {
+    .is_some_and(|s| !s.is_empty());
+    if !has_signing_key {
         return Ok(());
-    };
+    }
 
     let inbox = if !owner.shared_inbox_url.is_empty() {
         owner.shared_inbox_url
@@ -2422,7 +2420,6 @@ async fn handle_feature_request(
                 accept,
                 vec![inbox],
                 key_id,
-                private_key,
             )
             .await
             {

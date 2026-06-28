@@ -60,10 +60,10 @@ async fn validate_invite(
     let Some(inv) = row else {
         return Err("err_invalid_invite");
     };
-    if inv.max_uses.map_or(false, |m| inv.uses >= m) {
+    if inv.max_uses.is_some_and(|m| inv.uses >= m) {
         return Err("err_invite_maxed");
     }
-    if inv.expires_at.map_or(false, |e| e < chrono::Utc::now().naive_utc()) {
+    if inv.expires_at.is_some_and(|e| e < chrono::Utc::now().naive_utc()) {
         return Err("err_invite_expired");
     }
     Ok(inv.id)

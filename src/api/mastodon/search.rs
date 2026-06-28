@@ -36,7 +36,7 @@ pub async fn search(
     Query(q): Query<SearchQuery>,
     auth: Option<Extension<AuthenticatedUser>>,
 ) -> AppResult<Json<SearchResults>> {
-    let limit = q.limit.unwrap_or(20).min(40).max(1);
+    let limit = q.limit.unwrap_or(20).clamp(1, 40);
     let account_pattern = format!("%{}%", q.q.to_lowercase());
     let search_type = q.search_type.as_deref();
     let viewer_id = auth.as_ref().map(|Extension(a)| a.account_id);

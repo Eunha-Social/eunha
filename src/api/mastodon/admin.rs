@@ -211,7 +211,7 @@ pub async fn list_admin_accounts(
 ) -> AppResult<impl IntoResponse> {
     require_admin(&state, auth.account_id).await?;
 
-    let limit = params.limit.unwrap_or(40).min(80).max(1);
+    let limit = params.limit.unwrap_or(40).clamp(1, 80);
     let max_id = params.max_id.as_deref().and_then(|s| s.parse::<i64>().ok());
     let min_id = params.min_id.as_deref().and_then(|s| s.parse::<i64>().ok());
     let since_id = params.since_id.as_deref().and_then(|s| s.parse::<i64>().ok());
@@ -288,7 +288,7 @@ pub async fn list_admin_accounts_v2(
 ) -> AppResult<impl IntoResponse> {
     require_admin(&state, auth.account_id).await?;
 
-    let limit = params.limit.unwrap_or(40).min(80).max(1);
+    let limit = params.limit.unwrap_or(40).clamp(1, 80);
     let max_id = params.max_id.as_deref().and_then(|s| s.parse::<i64>().ok());
     let min_id = params.min_id.as_deref().and_then(|s| s.parse::<i64>().ok());
     let since_id = params.since_id.as_deref().and_then(|s| s.parse::<i64>().ok());
@@ -619,7 +619,7 @@ pub async fn list_admin_reports(
 ) -> AppResult<impl IntoResponse> {
     require_admin(&state, auth.account_id).await?;
 
-    let limit = params.limit.unwrap_or(20).min(40).max(1);
+    let limit = params.limit.unwrap_or(20).clamp(1, 40);
     let resolved = params.resolved.unwrap_or(false);
     let max_id = params.max_id.as_deref().and_then(|s| s.parse::<i64>().ok());
     let min_id = params.min_id.as_deref().and_then(|s| s.parse::<i64>().ok());
@@ -1066,7 +1066,7 @@ fn human_size(bytes: i64) -> String {
 fn parse_redis_info_field(info: &str, field: &str) -> Option<String> {
     info.lines()
         .find(|l| l.starts_with(field))
-        .and_then(|l| l.splitn(2, ':').nth(1))
+        .and_then(|l| l.split_once(':').map(|x| x.1))
         .map(|v| v.trim().to_string())
 }
 
@@ -1093,7 +1093,7 @@ pub async fn get_dimensions(
     let end: chrono::NaiveDateTime = body.end_at.as_deref()
         .and_then(parse_admin_date)
         .unwrap_or_else(|| chrono::Utc::now().naive_utc());
-    let limit = body.limit.unwrap_or(10).min(50).max(1);
+    let limit = body.limit.unwrap_or(10).clamp(1, 50);
 
     let mut result = Vec::new();
 

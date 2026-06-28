@@ -153,9 +153,9 @@ async fn federate_poll_votes(
     .fetch_optional(&state.db)
     .await?;
     let Some(voter) = voter else { return Ok(()); };
-    let Some(private_key) = voter.private_key.filter(|s| !s.is_empty()) else {
+    if voter.private_key.as_deref().is_none_or(|s| s.is_empty()) {
         return Ok(());
-    };
+    }
 
     let remote = sqlx::query!(
         r#"SELECT owner.uri AS owner_uri, owner.inbox_url, owner.shared_inbox_url,
@@ -220,7 +220,6 @@ async fn federate_poll_votes(
             activity,
             vec![inbox.clone()],
             key_id.clone(),
-            private_key.clone(),
         )
         .await?;
     }
@@ -244,9 +243,9 @@ pub(crate) async fn federate_poll_update(state: &AppState, status_id: i64) -> an
     .fetch_optional(&state.db)
     .await?;
     let Some(status) = status else { return Ok(()); };
-    let Some(private_key) = status.private_key.filter(|s| !s.is_empty()) else {
+    if status.private_key.as_deref().is_none_or(|s| s.is_empty()) {
         return Ok(());
-    };
+    }
 
     let Some(bundle) = crate::api::ap::note::build_note(state, &state.instance.domain, status_id).await? else {
         return Ok(());
@@ -321,7 +320,7 @@ pub(crate) async fn federate_poll_update(state: &AppState, status_id: i64) -> an
         inboxes.extend(follower_inboxes.into_iter().filter_map(|r| r.inbox));
     }
 
-    crate::federation::delivery::deliver_to_inboxes(state, activity, inboxes, key_id, private_key).await?;
+    crate::federation::delivery::deliver_to_inboxes(state, activity, inboxes, key_id).await?;
     Ok(())
 }
 

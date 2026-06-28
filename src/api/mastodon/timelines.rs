@@ -589,6 +589,7 @@ async fn hydrate_list_statuses(
 }
 
 // DB fallback used on cold start.
+#[allow(clippy::too_many_arguments)]
 async fn list_timeline_from_db(
     state: &AppState,
     list_id: i64,
@@ -912,7 +913,7 @@ pub(super) async fn compute_filter_results(
                 Vec::new()
             };
 
-            let status_matched = fs_map.get(&f.id).map_or(false, |sids| sids.contains(&s.id));
+            let status_matched = fs_map.get(&f.id).is_some_and(|sids| sids.contains(&s.id));
 
             if !matched_keywords.is_empty() || status_matched {
                 if f.filter_action == "hide" {
@@ -957,7 +958,7 @@ pub async fn build_status_list_with_context(
     let statuses: Vec<DbStatus> = statuses.into_iter()
         .filter(|s| {
             let effective_id = s.reblog_of_id.unwrap_or(s.id);
-            !filter_results.get(&effective_id).map_or(false, |(hide, _)| *hide)
+            !filter_results.get(&effective_id).is_some_and(|(hide, _)| *hide)
         })
         .collect();
 

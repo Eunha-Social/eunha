@@ -236,7 +236,7 @@ pub async fn build_note(
     .fetch_optional(&state.db)
     .await?
     {
-        let expired = poll.expires_at.map_or(false, |t| t <= chrono::Utc::now().naive_utc());
+        let expired = poll.expires_at.is_some_and(|t| t <= chrono::Utc::now().naive_utc());
         let show_totals = expired || !poll.hide_totals;
         let counts = sqlx::query!(
             "SELECT choice, COUNT(*)::bigint AS \"count!\" FROM poll_votes WHERE poll_id = $1 GROUP BY choice",

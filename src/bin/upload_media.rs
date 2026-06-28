@@ -132,7 +132,7 @@ async fn upload_parallel(
                     .await
                     .with_context(|| format!("uploading {key}"))?;
                 let n = counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-                if n % 100 == 0 {
+                if n.is_multiple_of(100) {
                     tracing::info!("  {}/{} files uploaded...", n, total);
                 }
                 Ok::<(), anyhow::Error>(())

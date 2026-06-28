@@ -171,7 +171,7 @@ pub async fn list_followed_tags(
 ) -> AppResult<impl IntoResponse> {
     auth.require_scope("read:follows")?;
     let domain = &instance.domain;
-    let limit = params.limit.unwrap_or(100).min(200).max(1) as i64;
+    let limit = params.limit.unwrap_or(100).clamp(1, 200);
     let max_id = params.max_id.as_deref().and_then(|s| s.parse::<i64>().ok());
     let since_id = params.since_id.as_deref().and_then(|s| s.parse::<i64>().ok());
     let min_id = params.min_id.as_deref().and_then(|s| s.parse::<i64>().ok());

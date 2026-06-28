@@ -81,8 +81,8 @@ pub async fn feed_get(
 
     let key = feed_key(account_id);
 
-    let ids: Vec<i64> = if min_id.is_some() {
-        let min_score = format!("({}", min_id.unwrap());
+    let ids: Vec<i64> = if let Some(min_id) = min_id {
+        let min_score = format!("({min_id}");
         redis::cmd("ZRANGEBYSCORE")
             .arg(&key)
             .arg(&min_score)
@@ -312,8 +312,8 @@ pub async fn list_feed_get(
         return None;
     }
     let key = list_feed_key(list_id);
-    let ids: Vec<i64> = if min_id.is_some() {
-        let min_score = format!("({}", min_id.unwrap());
+    let ids: Vec<i64> = if let Some(min_id) = min_id {
+        let min_score = format!("({min_id}");
         redis::cmd("ZRANGEBYSCORE")
             .arg(&key)
             .arg(&min_score)

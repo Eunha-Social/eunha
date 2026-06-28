@@ -226,6 +226,7 @@ async fn send_with_reqwest(
 // ── Notification creation helper ───────────────────────────────────────────
 
 /// Insert a notification record and fire push delivery in a background task.
+#[allow(clippy::too_many_arguments)]
 pub async fn create_and_push(
     state: &AppState,
     recipient_id: i64,

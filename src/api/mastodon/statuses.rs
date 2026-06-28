@@ -100,7 +100,7 @@ pub async fn post_status(
         }
     }
     let text = form.status.clone().unwrap_or_default();
-    if text.is_empty() && form.media_ids.as_ref().map_or(true, |m| m.is_empty()) && form.poll.is_none() {
+    if text.is_empty() && form.media_ids.as_ref().is_none_or(|m| m.is_empty()) && form.poll.is_none() {
         return Err(AppError::Unprocessable("Status must have text or media".into()));
     }
     if text.chars().count() > 500 {
@@ -663,8 +663,8 @@ pub async fn post_status(
     }
 
     // Federate outgoing statuses to remote inboxes
-    if matches!(visibility.as_str(), "public" | "unlisted" | "private" | "direct") {
-        if let Some(private_key) = account.private_key.clone().filter(|s| !s.is_empty()) {
+    if matches!(visibility.as_str(), "public" | "unlisted" | "private" | "direct")
+        && account.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
             let domain = &instance.domain;
             let actor_url = format!("https://{}/users/{}", domain, account.username);
             let key_id = format!("{}#main-key", actor_url);
@@ -719,7 +719,6 @@ pub async fn post_status(
                                 qr,
                                 vec![qinbox],
                                 key_id.clone(),
-                                private_key.clone(),
                             )
                             .await
                             {
@@ -751,7 +750,6 @@ pub async fn post_status(
                     activity,
                     mention_inboxes,
                     key_id,
-                    private_key,
                 )
                 .await
                 {
@@ -785,7 +783,6 @@ pub async fn post_status(
                         activity.clone(),
                         extra_inboxes,
                         key_id.clone(),
-                        private_key.clone(),
                     )
                     .await
                     {
@@ -797,7 +794,6 @@ pub async fn post_status(
                     activity,
                     account.id,
                     key_id,
-                    private_key,
                 )
                 .await
                 {
@@ -805,7 +801,6 @@ pub async fn post_status(
                 }
             }
         }
-    }
 
     // Record the idempotency mapping so a retried request replays this status.
     if let Some(ref ik) = idempotency_key {
@@ -1161,8 +1156,8 @@ pub async fn get_status(
                 return Err(AppError::NotFound);
             }
         }
-        crate::db::models::vis::DIRECT => {
-            if viewer_id != Some(status.account_id) {
+        crate::db::models::vis::DIRECT
+            if viewer_id != Some(status.account_id) => {
                 let is_mentioned = if let Some(vid) = viewer_id {
                     sqlx::query_scalar!(
                         "SELECT 1 as e FROM mentions WHERE status_id = $1 AND account_id = $2",
@@ -1178,7 +1173,6 @@ pub async fn get_status(
                     return Err(AppError::NotFound);
                 }
             }
-        }
         _ => {}
     }
 
@@ -1335,7 +1329,7 @@ pub async fn delete_status(
     }
 
     // Federate Delete to remote followers
-    if let Some(private_key) = account.private_key.clone().filter(|s| !s.is_empty()) {
+    if account.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
         if let Some(ref status_uri) = status.uri {
             let domain = &state.instance.domain;
             let actor_url = format!("https://{}/users/{}", domain, account.username);
@@ -1347,7 +1341,6 @@ pub async fn delete_status(
                 activity,
                 account.id,
                 key_id,
-                private_key,
             )
             .await
             {
@@ -1411,8 +1404,8 @@ pub async fn favourite_status(
     ).await;
 
     // Send Like to remote status author
-    if account.domain.is_some() {
-        if let Some(private_key) = from_account.private_key.clone().filter(|s| !s.is_empty()) {
+    if account.domain.is_some()
+        && from_account.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
             let domain = state.instance.domain.clone();
             let actor_url = format!("https://{}/users/{}", domain, from_account.username);
             let like_id = format!("https://{}/users/{}/likes/{}", domain, from_account.username, id);
@@ -1429,14 +1422,12 @@ pub async fn favourite_status(
                 like,
                 vec![inbox],
                 key_id,
-                private_key,
             )
             .await
             {
                 tracing::warn!(error = %e, "failed to enqueue Like delivery");
             }
         }
-    }
 
     Ok(Json(build_status(&state, &status, &account, media, reblog, Some(ctx)).await?))
 }
@@ -1474,7 +1465,7 @@ pub async fn unfavourite_status(
             "SELECT username, private_key, inbox_url, shared_inbox_url FROM accounts WHERE id = $1 AND domain IS NULL",
             auth.account_id,
         ).fetch_optional(&state.db).await? {
-            if let Some(private_key) = actor_row.private_key.filter(|s| !s.is_empty()) {
+            if actor_row.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
                 let domain = state.instance.domain.clone();
                 let actor_url = format!("https://{}/users/{}", domain, actor_row.username);
                 let like_id = format!("https://{}/users/{}/likes/{}", domain, actor_row.username, id);
@@ -1492,7 +1483,6 @@ pub async fn unfavourite_status(
                     undo,
                     vec![inbox],
                     key_id,
-                    private_key,
                 )
                 .await
                 {
@@ -1639,7 +1629,7 @@ pub async fn reblog_status(
     }
 
     // Send Announce activity to followers and original status author (if remote)
-    if let Some(private_key) = boost_account.private_key.clone().filter(|s| !s.is_empty()) {
+    if boost_account.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
         let domain = state.instance.domain.clone();
         let actor_url = format!("https://{}/users/{}", domain, boost_account.username);
         let followers_url = format!("{}/followers", actor_url);
@@ -1673,7 +1663,6 @@ pub async fn reblog_status(
                         announce.clone(),
                         vec![inbox],
                         key_id.clone(),
-                        private_key.clone(),
                     )
                     .await
                     {
@@ -1683,7 +1672,7 @@ pub async fn reblog_status(
             }
         }
 
-        if let Err(e) = crate::federation::delivery::fanout_to_followers(&state, announce, boost_account.id, key_id, private_key).await {
+        if let Err(e) = crate::federation::delivery::fanout_to_followers(&state, announce, boost_account.id, key_id).await {
             tracing::warn!(error = %e, "failed to enqueue Announce fanout");
         }
     }
@@ -1791,7 +1780,7 @@ pub async fn get_status_context(
     // Filter by visibility first, then apply "thread" context custom filters.
     let visible_ancestors: Vec<&DbStatus> = ancestor_rows.iter()
         .filter(|s| {
-            if viewer_id.map_or(false, |vid| vid != s.account_id) && blocked_accounts.contains(&s.account_id) {
+            if viewer_id.is_some_and(|vid| vid != s.account_id) && blocked_accounts.contains(&s.account_id) {
                 return false;
             }
             if matches!(s.visibility, crate::db::models::vis::PRIVATE | crate::db::models::vis::DIRECT) {
@@ -1803,7 +1792,7 @@ pub async fn get_status_context(
         .collect();
     let visible_descendants: Vec<&DbStatus> = descendant_rows.iter()
         .filter(|s| {
-            if viewer_id.map_or(false, |vid| vid != s.account_id) && blocked_accounts.contains(&s.account_id) {
+            if viewer_id.is_some_and(|vid| vid != s.account_id) && blocked_accounts.contains(&s.account_id) {
                 return false;
             }
             if matches!(s.visibility, crate::db::models::vis::PRIVATE | crate::db::models::vis::DIRECT) {
@@ -1855,13 +1844,12 @@ pub async fn get_status_context(
     // Build ancestors and descendants using batch fetches instead of N+1 queries.
     let build_batch = |statuses: Vec<DbStatus>, filters: HashMap<i64, (bool, serde_json::Value)>| {
         let state = state.clone();
-        let viewer_id = viewer_id;
         async move {
             if statuses.is_empty() {
                 return Ok::<Vec<Status>, crate::error::AppError>(vec![]);
             }
             let visible: Vec<DbStatus> = statuses.into_iter()
-                .filter(|s| !filters.get(&s.id).map_or(false, |(hide, _)| *hide))
+                .filter(|s| !filters.get(&s.id).is_some_and(|(hide, _)| *hide))
                 .collect();
             if visible.is_empty() {
                 return Ok(vec![]);
@@ -2002,7 +1990,7 @@ pub async fn unreblog_status(
             "SELECT username, private_key FROM accounts WHERE id = $1 AND domain IS NULL",
             auth.account_id,
         ).fetch_optional(&state.db).await? {
-            if let Some(private_key) = actor_row.private_key.filter(|s| !s.is_empty()) {
+            if actor_row.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
                 let domain = state.instance.domain.clone();
                 let actor_url = format!("https://{}/users/{}", domain, actor_row.username);
                 let announce_id = format!("https://{}/users/{}/statuses/{}/activity", domain, actor_row.username, boost_id);
@@ -2025,7 +2013,6 @@ pub async fn unreblog_status(
                                 undo.clone(),
                                 vec![inbox],
                                 key_id.clone(),
-                                private_key.clone(),
                             )
                             .await
                             {
@@ -2035,7 +2022,7 @@ pub async fn unreblog_status(
                     }
                 }
 
-                if let Err(e) = crate::federation::delivery::fanout_to_followers(&state, undo, auth.account_id, key_id, private_key).await {
+                if let Err(e) = crate::federation::delivery::fanout_to_followers(&state, undo, auth.account_id, key_id).await {
                     tracing::warn!(error = %e, "failed to enqueue Undo(Announce) fanout");
                 }
             }
@@ -2636,7 +2623,7 @@ pub async fn get_status_history(
             list.iter()
                 .filter_map(|id| media_map.get(id))
                 .map(|m| super::convert::media_from_db(m))
-                .filter(|m| m.url.is_some() || m.remote_url.as_deref().map_or(false, |u| !u.is_empty()))
+                .filter(|m| m.url.is_some() || m.remote_url.as_deref().is_some_and(|u| !u.is_empty()))
                 .collect()
         })
         .unwrap_or_default()
@@ -2660,7 +2647,7 @@ pub async fn get_status_history(
     }).collect();
 
     // Current version poll
-    let current_poll = status.poll_id.and_then(|_| {
+    let current_poll = status.poll_id.and({
         // We don't have poll options in the status itself; omit for now.
         None::<serde_json::Value>
     });
@@ -2893,8 +2880,8 @@ async fn check_status_visible(
                 return Err(AppError::NotFound);
             }
         }
-        crate::db::models::vis::DIRECT => {
-            if status.account_id != viewer_id {
+        crate::db::models::vis::DIRECT
+            if status.account_id != viewer_id => {
                 let is_mentioned = sqlx::query_scalar!(
                     "SELECT 1 as e FROM mentions WHERE status_id = $1 AND account_id = $2",
                     status.id, viewer_id,
@@ -2906,7 +2893,6 @@ async fn check_status_visible(
                     return Err(AppError::NotFound);
                 }
             }
-        }
         _ => {}
     }
     Ok(())
@@ -2959,9 +2945,9 @@ async fn federate_status_update(
         return Ok(());
     }
 
-    let Some(private_key) = account.private_key.clone().filter(|s| !s.is_empty()) else {
+    if account.private_key.as_deref().is_none_or(|s| s.is_empty()) {
         return Ok(());
-    };
+    }
 
     let bundle = match crate::api::ap::note::build_note(state, &state.instance.domain, status_id).await? {
         Some(bundle) => bundle,
@@ -3010,7 +2996,6 @@ async fn federate_status_update(
             activity.clone(),
             mention_inboxes,
             key_id.clone(),
-            private_key.clone(),
         )
         .await?;
     }
@@ -3021,7 +3006,6 @@ async fn federate_status_update(
             activity,
             account.id,
             key_id,
-            private_key,
         )
         .await?;
     }

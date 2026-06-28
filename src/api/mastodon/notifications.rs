@@ -272,7 +272,7 @@ pub async fn get_notifications(
 
         let mut map = std::collections::HashMap::new();
         for s in &statuses {
-            if notif_filter_map.get(&s.id).map_or(false, |(hide, _)| *hide) {
+            if notif_filter_map.get(&s.id).is_some_and(|(hide, _)| *hide) {
                 continue;
             }
             let Some(account) = stat_account_map.get(&s.account_id) else { continue };
@@ -442,9 +442,9 @@ pub async fn get_notifications_v2(
     let expand_accounts = qs.as_deref()
         .and_then(|q| {
             q.split('&').find_map(|part| {
-                let mut kv = part.splitn(2, '=');
-                let k = kv.next()?;
-                let v = kv.next()?;
+                let (k, v) = part.split_once('=')?;
+                
+                
                 if k == "expand_accounts" { Some(v.to_string()) } else { None }
             })
         })
@@ -576,7 +576,7 @@ pub async fn get_notifications_v2(
 
         let mut map = std::collections::HashMap::new();
         for s in &statuses {
-            if notif_filter_map.get(&s.id).map_or(false, |(hide, _)| *hide) {
+            if notif_filter_map.get(&s.id).is_some_and(|(hide, _)| *hide) {
                 continue;
             }
             let Some(account) = stat_account_map.get(&s.account_id) else { continue };
@@ -820,7 +820,7 @@ pub async fn get_notifications_unread_count(
 ) -> AppResult<Json<serde_json::Value>> {
     auth.require_scope("read:notifications")?;
 
-    let limit = params.limit.unwrap_or(100).min(1000).max(1);
+    let limit = params.limit.unwrap_or(100).clamp(1, 1000);
 
     // Find last read ID from markers (0 means never read)
     let last_read_id: Option<i64> = if let Some(uid) = auth.user_id {
@@ -1082,7 +1082,7 @@ pub async fn get_notification_requests(
     req_headers: HeaderMap,
 ) -> AppResult<impl IntoResponse> {
     auth.require_scope("read:notifications")?;
-    let limit = pagination.limit.unwrap_or(40).min(80).max(1) as i64;
+    let limit = pagination.limit.unwrap_or(40).clamp(1, 80);
     let max_id = pagination.max_id.as_deref().and_then(|s| s.parse::<i64>().ok());
     let since_id = pagination.since_id.as_deref().and_then(|s| s.parse::<i64>().ok());
     let min_id = pagination.min_id.as_deref().and_then(|s| s.parse::<i64>().ok());
@@ -1384,6 +1384,7 @@ async fn fetch_last_status(
 /// Parse `types[]=x`, `types=x`, `exclude_types[]=x`, `exclude_types=x`,
 /// `account_id=x`, and `include_filtered=true` from the raw query string.
 /// Returns (types, exclude_types, account_id, include_filtered).
+#[allow(clippy::type_complexity)]
 fn parse_notif_filters(
     qs: Option<&str>,
 ) -> (Option<Vec<String>>, Option<Vec<String>>, Option<i64>, bool) {
@@ -1461,13 +1462,7 @@ async fn build_notification(state: &AppState, n: &DbNotification) -> AppResult<N
             .fetch_optional(&state.db)
             .await
             .ok()
-            .flatten()
-            .and_then(|r| {
-                // We'll fetch target_account synchronously in a blocking manner — acceptable here
-                // since this is the single-notification endpoint (not batch).
-                // Store report data without target_account for now; caller must handle.
-                Some((r.id, r.comment, r.forwarded, r.category, r.action_taken_at, r.created_at, r.status_ids, r.target_account_id))
-            })
+            .flatten().map(|r| (r.id, r.comment, r.forwarded, r.category, r.action_taken_at, r.created_at, r.status_ids, r.target_account_id))
         } else { None }
     } else { None };
 

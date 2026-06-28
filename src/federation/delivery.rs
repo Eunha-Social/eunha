@@ -99,7 +99,6 @@ pub async fn fanout_to_followers(
     activity: Value,
     actor_account_id: i64,
     key_id: String,
-    private_key_pem: String,
 ) -> anyhow::Result<u64> {
     let inboxes = sqlx::query!(
         r#"SELECT DISTINCT
@@ -132,7 +131,7 @@ pub async fn fanout_to_followers(
         })
         .collect();
 
-    enqueue_to_inboxes(state, activity, inboxes, key_id, private_key_pem).await
+    enqueue_to_inboxes(state, activity, inboxes, key_id).await
 }
 
 /// Deliver to a specific set of inboxes (for mentions, DMs, consent replies).
@@ -141,9 +140,23 @@ pub async fn deliver_to_inboxes(
     activity: Value,
     inboxes: Vec<String>,
     key_id: String,
-    private_key_pem: String,
 ) -> anyhow::Result<u64> {
-    enqueue_to_inboxes(state, activity, inboxes, key_id, private_key_pem).await
+    enqueue_to_inboxes(state, activity, inboxes, key_id).await
+}
+
+/// Resolve the local signing account id from a `key_id` of the form
+/// `{actor_url}#main-key`. `actor_url` is the account's canonical URL, which for
+/// local accounts is always stored verbatim in `accounts.uri` (set at signup),
+/// so this round-trips the value every caller builds the key id from.
+async fn signing_account_id(state: &AppState, key_id: &str) -> anyhow::Result<i64> {
+    let actor_url = key_id.split('#').next().unwrap_or(key_id);
+    sqlx::query_scalar!(
+        "SELECT id FROM accounts WHERE domain IS NULL AND uri = $1 LIMIT 1",
+        actor_url,
+    )
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| anyhow::anyhow!("no local signing account for key_id {key_id:?}"))
 }
 
 async fn enqueue_to_inboxes(
@@ -151,8 +164,11 @@ async fn enqueue_to_inboxes(
     activity: Value,
     inboxes: Vec<String>,
     key_id: String,
-    private_key_pem: String,
 ) -> anyhow::Result<u64> {
+    // Record the signing account, not its private key: the key is loaded from
+    // `accounts` at send time so the secret lives in exactly one place.
+    let actor_account_id = signing_account_id(state, &key_id).await?;
+
     // Never deliver to domains we've defederated (admin domain block at suspend
     // severity), even for direct sends like consent replies and mentions.
     let suspended = crate::federation::moderation::suspended_domains(state).await;
@@ -175,12 +191,12 @@ async fn enqueue_to_inboxes(
     for inbox in inboxes {
         sqlx::query!(
             r#"INSERT INTO eunha.activity_delivery_jobs
-                 (activity, inbox_url, key_id, private_key_pem, created_at, updated_at)
+                 (activity, inbox_url, key_id, actor_account_id, created_at, updated_at)
                VALUES ($1, $2, $3, $4, now(), now())"#,
             &activity,
             &inbox,
             &key_id,
-            &private_key_pem,
+            actor_account_id,
         )
         .execute(&state.db)
         .await?;
@@ -222,7 +238,7 @@ async fn run_delivery_queue_batch(state: &AppState, worker_id: &str) -> anyhow::
            SET locked_at = now(), locked_by = $2, updated_at = now()
            FROM picked
            WHERE j.id = picked.id
-           RETURNING j.id, j.activity, j.inbox_url, j.key_id, j.private_key_pem,
+           RETURNING j.id, j.activity, j.inbox_url, j.key_id, j.actor_account_id,
                      j.attempts, j.max_attempts"#,
         DELIVERY_QUEUE_BATCH,
         worker_id,
@@ -238,30 +254,69 @@ async fn run_delivery_queue_batch(state: &AppState, worker_id: &str) -> anyhow::
     // the others.
     futures::stream::iter(jobs)
         .for_each_concurrent(DELIVERY_QUEUE_CONCURRENCY, |job| async move {
-            let result = deliver(
-                &state.http,
-                &job.activity,
-                &job.inbox_url,
-                &job.key_id,
-                &job.private_key_pem,
-            )
-            .await;
-            if let Err(e) = record_job_outcome(
+            process_delivery_job(
                 state,
                 job.id,
                 &job.inbox_url,
+                &job.key_id,
+                &job.activity,
+                job.actor_account_id,
                 job.attempts,
                 job.max_attempts,
-                result,
             )
-            .await
-            {
-                tracing::error!(id = job.id, error = %e, "failed to record delivery job outcome");
-            }
+            .await;
         })
         .await;
 
     Ok(count)
+}
+
+/// Load the signing key, deliver one job, and record the outcome. A missing
+/// signing account or key is permanent (the actor was deleted), so the job is
+/// forced terminal rather than retried.
+#[allow(clippy::too_many_arguments)]
+async fn process_delivery_job(
+    state: &AppState,
+    id: i64,
+    inbox_url: &str,
+    key_id: &str,
+    activity: &Value,
+    actor_account_id: Option<i64>,
+    attempts: i32,
+    max_attempts: i32,
+) {
+    let private_key = match actor_account_id {
+        Some(aid) => load_signing_key(state, aid).await,
+        None => Err(anyhow::anyhow!("delivery job {id} has no signing account")),
+    };
+    let private_key = match private_key {
+        Ok(pk) => pk,
+        Err(e) => {
+            // Force terminal by maxing out attempts so the no-key failure isn't retried.
+            if let Err(db) =
+                record_job_outcome(state, id, inbox_url, max_attempts, max_attempts, Err(e)).await
+            {
+                tracing::error!(id, error = %db, "failed to record delivery job outcome");
+            }
+            return;
+        }
+    };
+
+    let result = deliver(&state.http, activity, inbox_url, key_id, &private_key).await;
+    if let Err(e) = record_job_outcome(state, id, inbox_url, attempts, max_attempts, result).await {
+        tracing::error!(id, error = %e, "failed to record delivery job outcome");
+    }
+}
+
+/// Load a local account's signing private key by id. Errors if the account or
+/// its key is gone.
+async fn load_signing_key(state: &AppState, account_id: i64) -> anyhow::Result<String> {
+    sqlx::query_scalar!("SELECT private_key FROM accounts WHERE id = $1", account_id)
+        .fetch_optional(&state.db)
+        .await?
+        .flatten()
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("no signing key for account {account_id}"))
 }
 
 /// Persist the result of a single delivery attempt: mark delivered, re-schedule

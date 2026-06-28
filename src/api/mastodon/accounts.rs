@@ -542,7 +542,7 @@ pub async fn get_account_statuses(
         std::collections::HashMap::new()
     };
     let statuses: Vec<crate::db::models::Status> = statuses.into_iter()
-        .filter(|s| !filter_map.get(&s.id).map_or(false, |(hide, _)| *hide))
+        .filter(|s| !filter_map.get(&s.id).is_some_and(|(hide, _)| *hide))
         .collect();
 
     let effective_ids: Vec<i64> = statuses.iter()
@@ -773,11 +773,11 @@ pub async fn follow_account(
         .execute(&state.db)
         .await?;
 
-        let follow_private_key = requester.private_key.filter(|s| !s.is_empty());
-        if follow_private_key.is_none() {
+        let has_signing_key = requester.private_key.as_deref().is_some_and(|s| !s.is_empty());
+        if !has_signing_key {
             tracing::warn!(username = %requester.username, "local account has no private key; cannot deliver Follow");
         }
-        if let Some(private_key) = follow_private_key {
+        if has_signing_key {
             let actor_url = format!(
                 "https://{}/users/{}",
                 state.instance.domain, requester.username
@@ -821,7 +821,6 @@ pub async fn follow_account(
                     follow_activity,
                     vec![inbox],
                     key_id,
-                    private_key,
                 )
                 .await
                 {
@@ -941,7 +940,7 @@ pub async fn unfollow_account(
     let target = fetch_account(&state, target_id).await?;
     if target.domain.is_some() {
         let requester = fetch_account(&state, auth.account_id).await?;
-        if let Some(private_key) = requester.private_key.filter(|s| !s.is_empty()) {
+        if requester.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
             let actor_url = format!(
                 "https://{}/users/{}",
                 state.instance.domain, requester.username
@@ -969,7 +968,6 @@ pub async fn unfollow_account(
                     undo,
                     vec![inbox],
                     key_id,
-                    private_key,
                 )
                 .await
                 {
@@ -1046,7 +1044,7 @@ pub async fn get_account_pins(
         std::collections::HashMap::new()
     };
     let pinned_statuses: Vec<crate::db::models::Status> = pinned_statuses.into_iter()
-        .filter(|s| !pin_filter_map.get(&s.id).map_or(false, |(hide, _)| *hide))
+        .filter(|s| !pin_filter_map.get(&s.id).is_some_and(|(hide, _)| *hide))
         .collect();
 
     let pin_status_ids: Vec<i64> = pinned_statuses.iter().map(|s| s.id).collect();
@@ -1325,7 +1323,7 @@ pub async fn search_accounts(
     Query(q): Query<AccountSearchQuery>,
     auth: Option<Extension<AuthenticatedUser>>,
 ) -> AppResult<Json<Vec<ApiAccount>>> {
-    let limit = q.limit.unwrap_or(40).min(80).max(1);
+    let limit = q.limit.unwrap_or(40).clamp(1, 80);
     let offset = q.offset.unwrap_or(0).max(0);
     let pattern = format!("%{}%", q.q.to_lowercase());
 
@@ -1549,7 +1547,7 @@ async fn do_update_credentials(
         || source_language.is_some()
         || source_quote_policy.is_some()
     {
-        let mut settings = user_settings_json(&state, auth.account_id).await;
+        let mut settings = user_settings_json(state, auth.account_id).await;
         let obj = settings.as_object_mut().expect("settings json object");
         if let Some(p) = &source_privacy {
             obj.insert("privacy".into(), serde_json::json!(p));
@@ -1617,7 +1615,7 @@ async fn do_update_credentials(
                 .execute(&state.db)
                 .await;
                 crate::push::create_and_push(
-                    &state,
+                    state,
                     auth.account_id,
                     row.account_id,
                     "follow",
@@ -1700,9 +1698,9 @@ async fn do_update_credentials(
 }
 
 async fn distribute_account_update(state: &AppState, domain: &str, account: &Account) {
-    let Some(private_key) = account.private_key.clone().filter(|s| !s.is_empty()) else {
+    if account.private_key.as_deref().is_none_or(|s| s.is_empty()) {
         return;
-    };
+    }
     if account.domain.is_some() {
         return;
     }
@@ -1720,7 +1718,7 @@ async fn distribute_account_update(state: &AppState, domain: &str, account: &Acc
     };
     let key_id = format!("{}#main-key", actor_url);
     if let Err(e) =
-        crate::federation::delivery::fanout_to_followers(state, activity, account.id, key_id, private_key).await
+        crate::federation::delivery::fanout_to_followers(state, activity, account.id, key_id).await
     {
         tracing::warn!(error = %e, "failed to enqueue account Update fanout");
     }
@@ -1947,7 +1945,7 @@ pub async fn block_account(
                 "SELECT username, private_key FROM accounts WHERE id = $1 AND domain IS NULL",
                 auth.account_id,
             ).fetch_optional(&state.db).await? {
-                if let Some(private_key) = actor_row.private_key.filter(|s| !s.is_empty()) {
+                if actor_row.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
                     let domain = state.instance.domain.clone();
                     let actor_url = format!("https://{}/users/{}", domain, actor_row.username);
                     let block_id = format!("https://{}/users/{}/blocks/{}", domain, actor_row.username, target_id);
@@ -1962,7 +1960,6 @@ pub async fn block_account(
                             block_act,
                             vec![inbox],
                             key_id,
-                            private_key,
                         )
                         .await
                         {
@@ -2002,7 +1999,7 @@ pub async fn unblock_account(
                 "SELECT username, private_key FROM accounts WHERE id = $1 AND domain IS NULL",
                 auth.account_id,
             ).fetch_optional(&state.db).await? {
-                if let Some(private_key) = actor_row.private_key.filter(|s| !s.is_empty()) {
+                if actor_row.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
                     let domain = state.instance.domain.clone();
                     let actor_url = format!("https://{}/users/{}", domain, actor_row.username);
                     let block_id = format!("https://{}/users/{}/blocks/{}", domain, actor_row.username, target_id);
@@ -2019,7 +2016,6 @@ pub async fn unblock_account(
                             undo,
                             vec![inbox],
                             key_id,
-                            private_key,
                         )
                         .await
                         {
@@ -2299,8 +2295,8 @@ pub async fn authorize_follow_request(
 
         if let Some(follow_uri) = deleted_row.uri {
             let requester = fetch_account(&state, requester_id).await?;
-            if requester.domain.is_some() {
-                if let Some(private_key) = accepter.private_key.clone().filter(|s| !s.is_empty()) {
+            if requester.domain.is_some()
+                && accepter.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
                     let accepter_actor_url = format!(
                         "https://{}/users/{}",
                         state.instance.domain, accepter.username
@@ -2328,7 +2324,6 @@ pub async fn authorize_follow_request(
                             activity,
                             vec![inbox],
                             key_id,
-                            private_key,
                         )
                         .await
                         {
@@ -2336,7 +2331,6 @@ pub async fn authorize_follow_request(
                         }
                     }
                 }
-            }
         }
 
         let mut redis = state.redis.clone();
@@ -2374,7 +2368,7 @@ pub async fn reject_follow_request(
             let requester = fetch_account(&state, requester_id).await?;
             if requester.domain.is_some() {
                 let rejecter = fetch_account(&state, auth.account_id).await?;
-                if let Some(private_key) = rejecter.private_key.filter(|s| !s.is_empty()) {
+                if rejecter.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
                     let rejecter_actor_url = format!(
                         "https://{}/users/{}",
                         state.instance.domain, rejecter.username
@@ -2399,7 +2393,6 @@ pub async fn reject_follow_request(
                             activity,
                             vec![inbox],
                             key_id,
-                            private_key,
                         )
                         .await
                         {
@@ -2720,7 +2713,7 @@ pub async fn fetch_status_poll(
     };
 
     let now = chrono::Utc::now().naive_utc();
-    let expired = row.expires_at.map_or(false, |t| t < now);
+    let expired = row.expires_at.is_some_and(|t| t < now);
 
     let option_titles: Vec<String> = row.options;
 
@@ -2953,18 +2946,18 @@ async fn batch_build_relationships(state: &AppState, source_id: i64, target_ids:
         let follow = follows_out_map.get(&target_id);
         let mute = mutes_map.get(&target_id);
         let domain = target_domains.get(&target_id).and_then(|d| d.clone());
-        let domain_blocking = domain.map_or(false, |d| domain_blocked_set.contains(&d));
+        let domain_blocking = domain.is_some_and(|d| domain_blocked_set.contains(&d));
         results.push(Relationship {
             id: target_id.to_string(),
             following: follow.is_some(),
-            showing_reblogs: follow.map_or(false, |f| f.show_reblogs),
-            notifying: follow.map_or(false, |f| f.notify),
+            showing_reblogs: follow.is_some_and(|f| f.show_reblogs),
+            notifying: follow.is_some_and(|f| f.notify),
             languages: follow.and_then(|f| f.languages.clone()),
             followed_by: followed_by_set.contains(&target_id),
             blocking: blocks_out.contains(&target_id),
             blocked_by: blocks_in.contains(&target_id),
             muting: mute.is_some(),
-            muting_notifications: mute.map_or(false, |m| m.hide_notifications),
+            muting_notifications: mute.is_some_and(|m| m.hide_notifications),
             muting_expires_at: mute.and_then(|m| m.expires_at).map(super::convert::mastodon_date),
             requested: follow_requests_out.contains(&target_id),
             requested_by: requested_by_set.contains(&target_id),
@@ -3062,8 +3055,8 @@ async fn build_relationship(state: &AppState, source_id: i64, target_id: i64) ->
     .await?
     .unwrap_or_default();
 
-    let showing_reblogs = follow.as_ref().map_or(false, |f| f.show_reblogs);
-    let notifying = follow.as_ref().map_or(false, |f| f.notify);
+    let showing_reblogs = follow.as_ref().is_some_and(|f| f.show_reblogs);
+    let notifying = follow.as_ref().is_some_and(|f| f.notify);
     let languages = follow.as_ref().and_then(|f| f.languages.clone().filter(|l| !l.is_empty()));
     let muting_expires_at = muting.as_ref().and_then(|m| m.expires_at)
         .map(super::convert::mastodon_date);
@@ -3078,7 +3071,7 @@ async fn build_relationship(state: &AppState, source_id: i64, target_id: i64) ->
         blocking,
         blocked_by,
         muting: muting.is_some(),
-        muting_notifications: muting.map_or(false, |m| m.hide_notifications),
+        muting_notifications: muting.is_some_and(|m| m.hide_notifications),
         muting_expires_at,
         requested,
         requested_by,
@@ -3268,10 +3261,7 @@ pub async fn move_account(
     )
     .fetch_one(&state.db)
     .await?;
-    if let (false, Some(private_key)) = (
-        new_uri.is_empty(),
-        mover.private_key.filter(|s| !s.is_empty()),
-    ) {
+    if !new_uri.is_empty() && mover.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
         let actor_url = if mover.uri.is_empty() {
             format!("https://{}/users/{}", instance.domain, mover.username)
         } else {
@@ -3285,7 +3275,6 @@ pub async fn move_account(
             activity,
             auth.account_id,
             key_id,
-            private_key,
         )
         .await
         {
@@ -3807,7 +3796,7 @@ pub async fn get_directory(
     State(state): State<AppState>,
     Query(q): Query<DirectoryQuery>,
 ) -> AppResult<Json<Vec<ApiAccount>>> {
-    let limit = q.limit.unwrap_or(40).min(80).max(1);
+    let limit = q.limit.unwrap_or(40).clamp(1, 80);
     let offset = q.offset.unwrap_or(0).max(0);
     let local_only = q.local.unwrap_or(true);
     let order = q.order.as_deref().unwrap_or("active");
@@ -4187,7 +4176,7 @@ pub async fn batch_status_polls(
     let now = chrono::Utc::now().naive_utc();
     let mut result = HashMap::new();
     for row in rows {
-        let expired = row.expires_at.map_or(false, |t| t < now);
+        let expired = row.expires_at.is_some_and(|t| t < now);
         let option_titles: Vec<String> = row.options;
         let options: Vec<super::types::PollOption> = option_titles.iter().enumerate().map(|(i, title)| {
             let cnt = *counts_by_poll_option.get(&(row.id, i as i32)).unwrap_or(&0);

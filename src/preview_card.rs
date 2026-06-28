@@ -50,7 +50,7 @@ pub async fn fetch_and_store(db: &PgPool, http: &reqwest::Client, url: &str) -> 
     .bind(url)
     .bind(&title)
     .bind(&description)
-    .bind(&card_type)
+    .bind(card_type)
     .fetch_one(db)
     .await
     .ok()?;

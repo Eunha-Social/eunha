@@ -39,6 +39,12 @@ pub struct StreamBus {
     tx: broadcast::Sender<Arc<Event>>,
 }
 
+impl Default for StreamBus {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StreamBus {
     pub fn new() -> Self {
         let (tx, _) = broadcast::channel(1024);

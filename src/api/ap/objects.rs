@@ -162,18 +162,18 @@ pub async fn actor_json(
     let has_avatar = account
         .avatar_file_name
         .as_ref()
-        .map_or(false, |s| !s.is_empty())
+        .is_some_and(|s| !s.is_empty())
         || account
             .avatar_remote_url
             .as_ref()
-            .map_or(false, |s| !s.is_empty());
+            .is_some_and(|s| !s.is_empty());
     let has_header = account
         .header_file_name
         .as_ref()
-        .map_or(false, |s| !s.is_empty())
-        || account.header_remote_url.is_empty() == false;
-    let avatar_url = crate::api::mastodon::convert::account_avatar_url_for(&account);
-    let header_url = crate::api::mastodon::convert::account_header_url_for(&account);
+        .is_some_and(|s| !s.is_empty())
+        || !account.header_remote_url.is_empty();
+    let avatar_url = crate::api::mastodon::convert::account_avatar_url_for(account);
+    let header_url = crate::api::mastodon::convert::account_header_url_for(account);
 
     let actor = json!({
         "@context": [
