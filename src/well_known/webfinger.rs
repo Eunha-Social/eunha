@@ -62,14 +62,19 @@ pub async fn webfinger(
     };
 
     let account = sqlx::query!(
-        "SELECT id, username FROM accounts WHERE username = $1 AND domain IS NULL",
+        "SELECT id, username, id_scheme FROM accounts WHERE username = $1 AND domain IS NULL",
         username,
     )
     .fetch_optional(&state.db)
     .await?
     .ok_or(AppError::NotFound)?;
 
-    let actor_url = format!("https://{}/users/{}", instance.domain, account.username);
+    let actor_url = crate::federation::tag::account_uri(
+        &instance.domain,
+        account.id,
+        account.id_scheme,
+        &account.username,
+    );
     let profile_url = format!("https://{}/@{}", instance.domain, account.username);
     let subject = format!("acct:{}@{}", account.username, instance.domain);
 

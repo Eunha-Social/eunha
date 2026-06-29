@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id FROM accounts WHERE domain IS NULL AND uri = $1 LIMIT 1",
+  "query": "SELECT id FROM accounts WHERE domain IS NULL AND id = $1",
   "describe": {
     "columns": [
       {
@@ -11,12 +11,12 @@
     ],
     "parameters": {
       "Left": [
-        "Text"
+        "Int8"
       ]
     },
     "nullable": [
       false
     ]
   },
-  "hash": "4508c79a4cf1dfd3b877100d2fa9ee90a3577de16f1f034dc21cd1a9b57acc5b"
+  "hash": "9c988d425a3fbec22daa71f911deddf2a2ee10efebfaaa2684f5daa3374a769d"
 }

@@ -7,6 +7,17 @@ use super::types;
 static DEFAULT_AVATAR: OnceLock<String> = OnceLock::new();
 static DEFAULT_HEADER: OnceLock<String> = OnceLock::new();
 static MEDIA_BASE_URL: OnceLock<String> = OnceLock::new();
+static LOCAL_DOMAIN: OnceLock<String> = OnceLock::new();
+
+/// Call once at startup to record this instance's domain, used to build the
+/// human-facing `/@username` URLs for local accounts and statuses.
+pub fn init_local_domain(domain: String) {
+    LOCAL_DOMAIN.set(domain).ok();
+}
+
+fn local_domain() -> &'static str {
+    LOCAL_DOMAIN.get().map(|s| s.as_str()).unwrap_or("")
+}
 
 /// Call once at startup (before serving requests) to set the default avatar/header
 /// URLs from the configured media storage base URL.
@@ -116,9 +127,13 @@ fn status_url_from_uri(uri: &str) -> Option<String> {
 }
 
 pub fn account_from_db(a: &models::Account) -> types::Account {
-    let (url, uri) = if a.domain.is_none() && !a.uri.is_empty() {
-        // Local accounts: uri is authoritative; derive url from it
-        (a.uri.replace("/users/", "/@"), a.uri.clone())
+    let (url, uri) = if a.domain.is_none() {
+        // Local accounts: the human url is /@username; the AP uri follows the
+        // account's id_scheme (/users/{username} or /ap/users/{id}).
+        (
+            format!("https://{}/@{}", local_domain(), a.username),
+            crate::federation::tag::account_uri(local_domain(), a.id, a.id_scheme, &a.username),
+        )
     } else {
         (a.url.clone().unwrap_or_default(), a.uri.clone())
     };
@@ -334,7 +349,14 @@ pub fn status_from_db_with_app(
         visibility: crate::db::models::vis::to_str(s.visibility).to_owned(),
         language: s.language.clone(),
         uri: s.uri.clone().unwrap_or_else(|| s.id.to_string()),
-        url: {
+        url: if account.domain.is_none() {
+            // Local status: human permalink is /@username/{id}; prefer a stored
+            // non-AP url, otherwise derive from the (id_scheme-independent) username.
+            Some(
+                s.url.clone().filter(|u| !u.is_empty() && Some(u.as_str()) != s.uri.as_deref())
+                    .unwrap_or_else(|| format!("https://{}/@{}/{}", local_domain(), account.username, s.id)),
+            )
+        } else {
             let uri_str = s.uri.as_deref();
             s.url.as_deref()
                 .filter(|&u| uri_str != Some(u))

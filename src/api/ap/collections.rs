@@ -16,7 +16,7 @@ use axum::{
 };
 use serde_json::{json, Value};
 
-use super::objects::CONTENT_TYPE;
+use super::objects::{AccountRef, CONTENT_TYPE};
 use crate::{
     error::{AppError, AppResult},
     middleware::ResolvedInstance,
@@ -48,15 +48,26 @@ fn item_uri(domain: &str, collection_id: i64, item_id: i64) -> String {
     format!("https://{domain}/collections/{collection_id}/items/{item_id}")
 }
 
+/// Username-scheme local actor URI, for collection/featured contexts that only
+/// carry the username. (Numeric-scheme accounts have no local collections to
+/// serve, so the username form is sufficient here.)
 fn actor_uri(domain: &str, username: &str) -> String {
     format!("https://{domain}/users/{username}")
 }
 
-/// Prefer a stored actor URI; fall back to the derived local URI when empty
-/// (local accounts created before `uri` was populated).
-fn resolve_actor_uri(domain: &str, stored: String, username: &str) -> String {
-    if stored.is_empty() {
-        actor_uri(domain, username)
+/// Resolve a member account's actor URI. Local accounts use their id_scheme-aware
+/// canonical URI (the stored `uri` is empty for Mastodon-imported locals); remote
+/// accounts use their stored `uri`.
+fn resolve_actor_uri(
+    domain: &str,
+    stored: String,
+    is_local: bool,
+    id: i64,
+    id_scheme: Option<i32>,
+    username: &str,
+) -> String {
+    if is_local {
+        crate::federation::tag::account_uri(domain, id, id_scheme, username)
     } else {
         stored
     }
@@ -385,7 +396,7 @@ pub async fn get_followers(
     Path(username): Path<String>,
     axum::extract::Query(q): axum::extract::Query<PageQuery>,
 ) -> AppResult<Response> {
-    relation_collection(&state, &instance.domain, &username, Relation::Followers, q).await
+    relation_collection(&state, &instance.domain, AccountRef::Username(&username), Relation::Followers, q).await
 }
 
 /// GET /users/{username}/following — an OrderedCollection of followed actor URIs.
@@ -395,23 +406,37 @@ pub async fn get_following(
     Path(username): Path<String>,
     axum::extract::Query(q): axum::extract::Query<PageQuery>,
 ) -> AppResult<Response> {
-    relation_collection(&state, &instance.domain, &username, Relation::Following, q).await
+    relation_collection(&state, &instance.domain, AccountRef::Username(&username), Relation::Following, q).await
+}
+
+/// Numeric-scheme followers (`/ap/users/{id}/followers`).
+pub async fn get_followers_by_id(
+    State(state): State<AppState>,
+    Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
+    Path(id): Path<i64>,
+    axum::extract::Query(q): axum::extract::Query<PageQuery>,
+) -> AppResult<Response> {
+    relation_collection(&state, &instance.domain, AccountRef::Id(id), Relation::Followers, q).await
+}
+
+/// Numeric-scheme following (`/ap/users/{id}/following`).
+pub async fn get_following_by_id(
+    State(state): State<AppState>,
+    Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
+    Path(id): Path<i64>,
+    axum::extract::Query(q): axum::extract::Query<PageQuery>,
+) -> AppResult<Response> {
+    relation_collection(&state, &instance.domain, AccountRef::Id(id), Relation::Following, q).await
 }
 
 async fn relation_collection(
     state: &AppState,
     domain: &str,
-    username: &str,
+    who: AccountRef<'_>,
     rel: Relation,
     q: PageQuery,
 ) -> AppResult<Response> {
-    let account = sqlx::query!(
-        r#"SELECT id, hide_collections FROM accounts WHERE username = $1 AND domain IS NULL"#,
-        username,
-    )
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or(AppError::NotFound)?;
+    let account = super::objects::load_local_account(state, who).await?;
 
     let (rel_name, total): (&str, i64) = match rel {
         Relation::Followers => (
@@ -436,7 +461,7 @@ async fn relation_collection(
         ),
     };
 
-    let base = format!("{}/{rel_name}", actor_uri(domain, username));
+    let base = format!("{}/{rel_name}", crate::federation::tag::account_uri_of(domain, &account));
     let hidden = account.hide_collections.unwrap_or(false);
 
     // Summary view: advertise the count, and a first page only when not hidden.
@@ -470,7 +495,7 @@ async fn relation_collection(
     // (follow_id, resolved actor uri) pairs, newest follow first.
     let rows: Vec<(i64, String)> = match rel {
         Relation::Followers => sqlx::query!(
-            r#"SELECT f.id, a.uri AS account_uri, a.username
+            r#"SELECT f.id, a.id AS account_id, a.id_scheme, a.uri AS account_uri, a.username, (a.domain IS NULL) AS "is_local!"
                FROM follows f JOIN accounts a ON a.id = f.account_id
                WHERE f.target_account_id = $1 AND ($2::bigint IS NULL OR f.id < $2)
                ORDER BY f.id DESC LIMIT $3"#,
@@ -481,10 +506,10 @@ async fn relation_collection(
         .fetch_all(&state.db)
         .await?
         .into_iter()
-        .map(|r| (r.id, resolve_actor_uri(domain, r.account_uri, &r.username)))
+        .map(|r| (r.id, resolve_actor_uri(domain, r.account_uri, r.is_local, r.account_id, r.id_scheme, &r.username)))
         .collect(),
         Relation::Following => sqlx::query!(
-            r#"SELECT f.id, a.uri AS account_uri, a.username
+            r#"SELECT f.id, a.id AS account_id, a.id_scheme, a.uri AS account_uri, a.username, (a.domain IS NULL) AS "is_local!"
                FROM follows f JOIN accounts a ON a.id = f.target_account_id
                WHERE f.account_id = $1 AND ($2::bigint IS NULL OR f.id < $2)
                ORDER BY f.id DESC LIMIT $3"#,
@@ -495,7 +520,7 @@ async fn relation_collection(
         .fetch_all(&state.db)
         .await?
         .into_iter()
-        .map(|r| (r.id, resolve_actor_uri(domain, r.account_uri, &r.username)))
+        .map(|r| (r.id, resolve_actor_uri(domain, r.account_uri, r.is_local, r.account_id, r.id_scheme, &r.username)))
         .collect(),
     };
 

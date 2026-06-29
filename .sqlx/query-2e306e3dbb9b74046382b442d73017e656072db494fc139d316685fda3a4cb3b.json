@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, locked, username, private_key FROM accounts WHERE uri = $1 AND domain IS NULL",
+  "query": "SELECT id, locked, username, private_key, id_scheme FROM accounts WHERE uri = $1 AND domain IS NULL",
   "describe": {
     "columns": [
       {
@@ -22,6 +22,11 @@
         "ordinal": 3,
         "name": "private_key",
         "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "id_scheme",
+        "type_info": "Int4"
       }
     ],
     "parameters": {
@@ -33,8 +38,9 @@
       false,
       false,
       false,
+      true,
       true
     ]
   },
-  "hash": "960f08e8724f9670b6c3095d0f25a7bbbe8c0bd13327974e516fc655d046acc8"
+  "hash": "2e306e3dbb9b74046382b442d73017e656072db494fc139d316685fda3a4cb3b"
 }

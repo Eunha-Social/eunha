@@ -240,7 +240,9 @@ pub async fn post_status(
     let content = render_content(&text, &instance.domain, &mention_map);
 
     let status_id = crate::snowflake::next_id();
-    let uri = format!("https://{}/users/{}/statuses/{}", instance.domain, account.username, status_id);
+    let uri = crate::federation::tag::status_uri(&instance.domain, account.id, account.id_scheme, &account.username, status_id);
+    // Human permalink — always the /@username form, independent of id_scheme.
+    let human_url = format!("https://{}/@{}/{}", instance.domain, account.username, status_id);
 
     // Validate media_ids before inserting the status — fail early so no cleanup is needed
     let parsed_media_ids: Vec<i64> = if let Some(ref ids) = form.media_ids {
@@ -278,8 +280,8 @@ pub async fn post_status(
         r#"INSERT INTO statuses
              (id, account_id, application_id, text, spoiler_text, visibility,
               language, sensitive, in_reply_to_id, in_reply_to_account_id, reply, uri, url,
-              quote_approval_policy, created_at, updated_at)
-           VALUES ($1,$2,$10,$3,$4,$5,$6,$7,$8,$9,$12,$11,$11,$13, now(), now())
+              quote_approval_policy, local, created_at, updated_at)
+           VALUES ($1,$2,$10,$3,$4,$5,$6,$7,$8,$9,$12,$11,$14,$13, true, now(), now())
            RETURNING *"#,
         status_id,
         account.id,
@@ -294,6 +296,7 @@ pub async fn post_status(
         uri,
         is_reply,
         quote_policy_int,
+        human_url,
     )
     .fetch_one(&state.db)
     .await?;
@@ -666,7 +669,7 @@ pub async fn post_status(
     if matches!(visibility.as_str(), "public" | "unlisted" | "private" | "direct")
         && account.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
             let domain = &instance.domain;
-            let actor_url = format!("https://{}/users/{}", domain, account.username);
+            let actor_url = crate::federation::tag::account_uri_of(domain, &account);
             let key_id = format!("{}#main-key", actor_url);
 
             // Build the Create(Note) from the persisted status so the wire shape
@@ -1332,7 +1335,7 @@ pub async fn delete_status(
     if account.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
         if let Some(ref status_uri) = status.uri {
             let domain = &state.instance.domain;
-            let actor_url = format!("https://{}/users/{}", domain, account.username);
+            let actor_url = crate::federation::tag::account_uri_of(domain, &account);
             let delete_id = format!("https://{}/activities/{}", domain, crate::snowflake::next_id());
             let activity = crate::federation::activity::delete(&delete_id, &actor_url, status_uri)?;
             let key_id = format!("{}#main-key", actor_url);
@@ -1407,7 +1410,7 @@ pub async fn favourite_status(
     if account.domain.is_some()
         && from_account.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
             let domain = state.instance.domain.clone();
-            let actor_url = format!("https://{}/users/{}", domain, from_account.username);
+            let actor_url = crate::federation::tag::account_uri_of(&domain, &from_account);
             let like_id = format!("https://{}/users/{}/likes/{}", domain, from_account.username, id);
             let status_uri = status.uri.clone().unwrap_or_default();
             let like = crate::federation::activity::like(&like_id, &actor_url, &status_uri)?;
@@ -1462,13 +1465,13 @@ pub async fn unfavourite_status(
     // Send Undo(Like) to remote status author
     if account.domain.is_some() {
         if let Some(actor_row) = sqlx::query!(
-            "SELECT username, private_key, inbox_url, shared_inbox_url FROM accounts WHERE id = $1 AND domain IS NULL",
+            "SELECT username, private_key, inbox_url, shared_inbox_url, id_scheme FROM accounts WHERE id = $1 AND domain IS NULL",
             auth.account_id,
         ).fetch_optional(&state.db).await? {
             if actor_row.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
                 let domain = state.instance.domain.clone();
-                let actor_url = format!("https://{}/users/{}", domain, actor_row.username);
-                let like_id = format!("https://{}/users/{}/likes/{}", domain, actor_row.username, id);
+                let actor_url = crate::federation::tag::account_uri(&domain, auth.account_id, actor_row.id_scheme, &actor_row.username);
+                let like_id = format!("{actor_url}/likes/{id}");
                 let status_uri = s.uri.clone().unwrap_or_default();
                 let undo_id = format!("{}#undo", like_id);
                 let undo = crate::federation::activity::undo_like(&undo_id, &actor_url, &like_id, &status_uri)?;
@@ -1563,8 +1566,8 @@ pub async fn reblog_status(
     let boost_id = crate::snowflake::next_id();
     let boost = sqlx::query_as!(
         DbStatus,
-        r#"INSERT INTO statuses (id, account_id, text, visibility, reblog_of_id, created_at, updated_at)
-           VALUES ($1,$2,'',$3,$4, now(), now())
+        r#"INSERT INTO statuses (id, account_id, text, visibility, reblog_of_id, local, created_at, updated_at)
+           VALUES ($1,$2,'',$3,$4, true, now(), now())
            RETURNING *"#,
         boost_id,
         auth.account_id,
@@ -1631,7 +1634,7 @@ pub async fn reblog_status(
     // Send Announce activity to followers and original status author (if remote)
     if boost_account.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
         let domain = state.instance.domain.clone();
-        let actor_url = format!("https://{}/users/{}", domain, boost_account.username);
+        let actor_url = crate::federation::tag::account_uri_of(&domain, &boost_account);
         let followers_url = format!("{}/followers", actor_url);
         let announce_id = format!("https://{}/users/{}/statuses/{}/activity", domain, boost_account.username, boost_id);
         let original_uri = original.uri.clone().unwrap_or_default();
@@ -1987,13 +1990,13 @@ pub async fn unreblog_status(
         // Send Undo(Announce) to followers and original status author (if remote)
         let boost_id = del.id;
         if let Some(actor_row) = sqlx::query!(
-            "SELECT username, private_key FROM accounts WHERE id = $1 AND domain IS NULL",
+            "SELECT username, private_key, id_scheme FROM accounts WHERE id = $1 AND domain IS NULL",
             auth.account_id,
         ).fetch_optional(&state.db).await? {
             if actor_row.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
                 let domain = state.instance.domain.clone();
-                let actor_url = format!("https://{}/users/{}", domain, actor_row.username);
-                let announce_id = format!("https://{}/users/{}/statuses/{}/activity", domain, actor_row.username, boost_id);
+                let actor_url = crate::federation::tag::account_uri(&domain, auth.account_id, actor_row.id_scheme, &actor_row.username);
+                let announce_id = format!("{actor_url}/statuses/{boost_id}/activity");
                 let original_uri = sqlx::query_scalar!("SELECT uri FROM statuses WHERE id = $1", original_id)
                     .fetch_optional(&state.db).await?.flatten().unwrap_or_default();
                 let undo_id = format!("{}#undo", announce_id);
@@ -2969,7 +2972,7 @@ async fn federate_status_update(
         "cc": bundle.cc,
         "object": bundle.note,
     });
-    let key_id = format!("https://{}/users/{}#main-key", state.instance.domain, account.username);
+    let key_id = crate::federation::tag::key_id_of(&state.instance.domain, account);
 
     let mention_inboxes: Vec<String> = sqlx::query!(
         r#"SELECT DISTINCT

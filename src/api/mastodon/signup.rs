@@ -218,15 +218,23 @@ pub async fn confirm_email(
     };
 
     let instance_domain = &state.instance.domain;
-    let uri = format!("https://{}/users/{}", instance_domain, pending.username);
     let url = format!("https://{}/@{}", instance_domain, pending.username);
 
     let new_account_id = crate::snowflake::next_id();
+    // New local accounts use Mastodon's default `numeric_ap_id` scheme: the
+    // ActivityPub actor is served at /ap/users/{id}. Build the canonical URI
+    // (and its inbox/outbox) from the new account id.
+    let uri = crate::federation::tag::account_uri(
+        instance_domain,
+        new_account_id,
+        Some(crate::federation::tag::NUMERIC_AP_ID),
+        &pending.username,
+    );
     let account_id = match sqlx::query_scalar!(
         r#"INSERT INTO accounts
              (id, username, url, uri, private_key, public_key,
-              inbox_url, outbox_url, shared_inbox_url, created_at, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now(), now())
+              inbox_url, outbox_url, shared_inbox_url, id_scheme, created_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, 1, now(), now())
            RETURNING id"#,
         new_account_id,
         pending.username, url, uri, private_key, public_key,

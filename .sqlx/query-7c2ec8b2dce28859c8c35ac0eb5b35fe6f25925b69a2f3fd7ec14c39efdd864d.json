@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO statuses\n             (id, account_id, text, spoiler_text, visibility,\n              language, sensitive, in_reply_to_id, in_reply_to_account_id, reply, uri, url, created_at, updated_at)\n           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11, now(), now())\n           RETURNING *",
+  "query": "INSERT INTO statuses\n             (id, account_id, text, spoiler_text, visibility,\n              language, sensitive, in_reply_to_id, in_reply_to_account_id, reply, uri, url, local, created_at, updated_at)\n           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11, true, now(), now())\n           RETURNING *",
   "describe": {
     "columns": [
       {
@@ -172,5 +172,5 @@
       false
     ]
   },
-  "hash": "5b4b161106460b215e3e4a448fe2c323c656ea38c3784e369cc219e2a332cc6e"
+  "hash": "7c2ec8b2dce28859c8c35ac0eb5b35fe6f25925b69a2f3fd7ec14c39efdd864d"
 }

@@ -8,7 +8,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use crate::{
-    error::{AppError, AppResult},
+    error::AppResult,
     middleware::ResolvedInstance,
     state::AppState,
 };
@@ -27,15 +27,39 @@ pub async fn get_outbox(
     Path(username): Path<String>,
     Query(q): Query<OutboxQuery>,
 ) -> AppResult<Response> {
-    let account = sqlx::query!(
-        "SELECT a.id, COALESCE(st.statuses_count, 0) AS statuses_count FROM accounts a LEFT JOIN account_stats st ON st.account_id = a.id WHERE a.username = $1 AND a.domain IS NULL",
-        username,
+    outbox_for(&state, &instance.domain, super::objects::AccountRef::Username(&username), q).await
+}
+
+/// Numeric-scheme outbox (`/ap/users/{id}/outbox`).
+pub async fn get_outbox_by_id(
+    State(state): State<AppState>,
+    Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
+    Path(id): Path<i64>,
+    Query(q): Query<OutboxQuery>,
+) -> AppResult<Response> {
+    outbox_for(&state, &instance.domain, super::objects::AccountRef::Id(id), q).await
+}
+
+async fn outbox_for(
+    state: &AppState,
+    domain: &str,
+    who: super::objects::AccountRef<'_>,
+    q: OutboxQuery,
+) -> AppResult<Response> {
+    let account = super::objects::load_local_account(state, who).await?;
+    let statuses_count = sqlx::query_scalar!(
+        "SELECT COALESCE(statuses_count, 0) FROM account_stats WHERE account_id = $1",
+        account.id,
     )
     .fetch_optional(&state.db)
     .await?
-    .ok_or(AppError::NotFound)?;
+    .flatten()
+    .unwrap_or(0);
 
-    let base_url = format!("https://{}/users/{}/outbox", instance.domain, username);
+    let base_url = format!(
+        "{}/outbox",
+        crate::federation::tag::account_uri_of(domain, &account)
+    );
 
     if q.page != Some(true) {
         // Return the OrderedCollection summary
@@ -43,7 +67,7 @@ pub async fn get_outbox(
             "@context": "https://www.w3.org/ns/activitystreams",
             "id": base_url,
             "type": "OrderedCollection",
-            "totalItems": account.statuses_count,
+            "totalItems": statuses_count,
             "first": format!("{}?page=true", base_url),
             "last": format!("{}?page=true&min_id=0", base_url),
         });
@@ -71,7 +95,7 @@ pub async fn get_outbox(
 
     let mut items: Vec<Value> = Vec::with_capacity(status_ids.len());
     for id in &status_ids {
-        if let Some(bundle) = super::note::build_note(&state, &instance.domain, *id).await? {
+        if let Some(bundle) = super::note::build_note(state, domain, *id).await? {
             items.push(bundle.into_create());
         }
     }

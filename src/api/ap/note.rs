@@ -82,7 +82,7 @@ pub async fn build_note(
         r#"SELECT s.id, s.account_id, s.text, s.spoiler_text, s.visibility, s.sensitive,
                   s.created_at, s.edited_at, s.uri, s.url, s.in_reply_to_id, s.language,
                   s.quote_approval_policy,
-                  a.username, a.uri AS account_uri,
+                  a.username, a.uri AS account_uri, a.id_scheme,
                   quoted_s.uri AS "quote_uri?"
            FROM statuses s
            JOIN accounts a ON a.id = s.account_id
@@ -96,11 +96,9 @@ pub async fn build_note(
     .await?;
     let Some(s) = s else { return Ok(None) };
 
-    let actor_url = if s.account_uri.is_empty() {
-        format!("https://{domain}/users/{}", s.username)
-    } else {
-        s.account_uri.clone()
-    };
+    // Local author (the query enforces `a.domain IS NULL`): build the canonical
+    // actor URI from its id_scheme rather than the (empty for imports) uri column.
+    let actor_url = crate::federation::tag::account_uri(domain, s.account_id, s.id_scheme, &s.username);
     let note_uri = s
         .uri
         .clone()

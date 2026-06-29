@@ -538,9 +538,9 @@ pub async fn seed_account_and_token(
         r#"INSERT INTO accounts
              (id, username, display_name, note,
               url, uri, public_key, inbox_url, outbox_url, shared_inbox_url, discoverable,
-              created_at, updated_at)
+              id_scheme, created_at, updated_at)
            VALUES ($1,$2,$2,'', $3,$4::text,'test-public-key',$4::text||'/inbox',$4::text||'/outbox',''::text, true,
-                   now(), now())
+                   0, now(), now())
            RETURNING id"#,
         eunha::snowflake::next_id(),
         username,

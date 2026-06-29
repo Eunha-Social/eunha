@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, username, suspended_at FROM accounts WHERE uri = $1 AND domain IS NULL",
+  "query": "SELECT id, username, suspended_at, id_scheme FROM accounts WHERE uri = $1 AND domain IS NULL",
   "describe": {
     "columns": [
       {
@@ -17,6 +17,11 @@
         "ordinal": 2,
         "name": "suspended_at",
         "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 3,
+        "name": "id_scheme",
+        "type_info": "Int4"
       }
     ],
     "parameters": {
@@ -27,8 +32,9 @@
     "nullable": [
       false,
       false,
+      true,
       true
     ]
   },
-  "hash": "33a453b6ccf2a540fc4cf045e2e78c499dbf867fc408a255453c16d9b83a2910"
+  "hash": "38fcdbce948696b14d9d246b869c01901094c5c16fefaaee346ee3064d837333"
 }

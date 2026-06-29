@@ -778,10 +778,7 @@ pub async fn follow_account(
             tracing::warn!(username = %requester.username, "local account has no private key; cannot deliver Follow");
         }
         if has_signing_key {
-            let actor_url = format!(
-                "https://{}/users/{}",
-                state.instance.domain, requester.username
-            );
+            let actor_url = crate::federation::tag::account_uri_of(&state.instance.domain, &requester);
             let key_id = format!("{}#main-key", actor_url);
             let follow_activity =
                 crate::federation::activity::follow(&follow_uri, &actor_url, &target.uri)?;
@@ -941,10 +938,7 @@ pub async fn unfollow_account(
     if target.domain.is_some() {
         let requester = fetch_account(&state, auth.account_id).await?;
         if requester.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
-            let actor_url = format!(
-                "https://{}/users/{}",
-                state.instance.domain, requester.username
-            );
+            let actor_url = crate::federation::tag::account_uri_of(&state.instance.domain, &requester);
             let key_id = format!("{}#main-key", actor_url);
             let follow_uri = deleted
                 .and_then(|r| r.uri)
@@ -1704,11 +1698,7 @@ async fn distribute_account_update(state: &AppState, domain: &str, account: &Acc
     if account.domain.is_some() {
         return;
     }
-    let actor_url = if account.uri.is_empty() {
-        format!("https://{}/users/{}", domain, account.username)
-    } else {
-        account.uri.clone()
-    };
+    let actor_url = crate::federation::tag::account_uri_of(domain, account);
     let Ok(actor) = crate::api::ap::objects::actor_json(state, domain, account).await else {
         return;
     };
@@ -1942,12 +1932,12 @@ pub async fn block_account(
     ).fetch_optional(&state.db).await? {
         if target.domain.is_some() {
             if let Some(actor_row) = sqlx::query!(
-                "SELECT username, private_key FROM accounts WHERE id = $1 AND domain IS NULL",
+                "SELECT username, private_key, id_scheme FROM accounts WHERE id = $1 AND domain IS NULL",
                 auth.account_id,
             ).fetch_optional(&state.db).await? {
                 if actor_row.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
                     let domain = state.instance.domain.clone();
-                    let actor_url = format!("https://{}/users/{}", domain, actor_row.username);
+                    let actor_url = crate::federation::tag::account_uri(&domain, auth.account_id, actor_row.id_scheme, &actor_row.username);
                     let block_id = format!("https://{}/users/{}/blocks/{}", domain, actor_row.username, target_id);
                     let target_uri = target.uri.clone();
                     let block_act =
@@ -1996,12 +1986,12 @@ pub async fn unblock_account(
     ).fetch_optional(&state.db).await? {
         if target.domain.is_some() {
             if let Some(actor_row) = sqlx::query!(
-                "SELECT username, private_key FROM accounts WHERE id = $1 AND domain IS NULL",
+                "SELECT username, private_key, id_scheme FROM accounts WHERE id = $1 AND domain IS NULL",
                 auth.account_id,
             ).fetch_optional(&state.db).await? {
                 if actor_row.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
                     let domain = state.instance.domain.clone();
-                    let actor_url = format!("https://{}/users/{}", domain, actor_row.username);
+                    let actor_url = crate::federation::tag::account_uri(&domain, auth.account_id, actor_row.id_scheme, &actor_row.username);
                     let block_id = format!("https://{}/users/{}/blocks/{}", domain, actor_row.username, target_id);
                     let target_uri = target.uri.clone();
                     let undo_id = format!("{}#undo", block_id);
@@ -2297,10 +2287,7 @@ pub async fn authorize_follow_request(
             let requester = fetch_account(&state, requester_id).await?;
             if requester.domain.is_some()
                 && accepter.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
-                    let accepter_actor_url = format!(
-                        "https://{}/users/{}",
-                        state.instance.domain, accepter.username
-                    );
+                    let accepter_actor_url = crate::federation::tag::account_uri_of(&state.instance.domain, &accepter);
                     let key_id = format!("{}#main-key", accepter_actor_url);
                     let accept_id = format!(
                         "https://{}/activities/{}",
@@ -2369,10 +2356,7 @@ pub async fn reject_follow_request(
             if requester.domain.is_some() {
                 let rejecter = fetch_account(&state, auth.account_id).await?;
                 if rejecter.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
-                    let rejecter_actor_url = format!(
-                        "https://{}/users/{}",
-                        state.instance.domain, rejecter.username
-                    );
+                    let rejecter_actor_url = crate::federation::tag::account_uri_of(&state.instance.domain, &rejecter);
                     let key_id = format!("{}#main-key", rejecter_actor_url);
                     let reject_id = format!(
                         "https://{}/activities/{}",
@@ -3256,17 +3240,13 @@ pub async fn move_account(
 
     // Announce the Move to followers so they re-follow the new account.
     let mover = sqlx::query!(
-        "SELECT username, uri, private_key FROM accounts WHERE id = $1",
+        "SELECT username, uri, private_key, id_scheme FROM accounts WHERE id = $1",
         auth.account_id,
     )
     .fetch_one(&state.db)
     .await?;
     if !new_uri.is_empty() && mover.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
-        let actor_url = if mover.uri.is_empty() {
-            format!("https://{}/users/{}", instance.domain, mover.username)
-        } else {
-            mover.uri
-        };
+        let actor_url = crate::federation::tag::account_uri(&instance.domain, auth.account_id, mover.id_scheme, &mover.username);
         let move_id = format!("{actor_url}#moves/{}", crate::snowflake::next_id());
         let activity = crate::federation::activity::move_actor(&move_id, &actor_url, &actor_url, &new_uri);
         let key_id = format!("{actor_url}#main-key");

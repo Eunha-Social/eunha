@@ -29,6 +29,15 @@ pub fn router() -> Router<AppState> {
             "/users/{username}/quote_authorizations/{id}",
             get(collections::get_quote_authorization),
         )
+        // Numeric AP-ID scheme (Mastodon `numeric_ap_id`): actors served under
+        // /ap/users/{id}. Sub-resources mirror the username routes above.
+        .route("/ap/users/{id}", get(objects::get_actor_by_id))
+        .route("/ap/users/{id}/inbox", post(inbox::shared_inbox))
+        .route("/ap/users/{id}/outbox", get(outbox::get_outbox_by_id))
+        .route("/ap/users/{id}/statuses/{status_id}", get(objects::get_status_by_id))
+        .route("/ap/users/{id}/statuses/{status_id}/activity", get(objects::get_status_activity_by_id))
+        .route("/ap/users/{id}/followers", get(collections::get_followers_by_id))
+        .route("/ap/users/{id}/following", get(collections::get_following_by_id))
         .route("/collections/{id}", get(collections::get_collection))
         .route("/actor", get(objects::get_instance_actor))
         .route("/inbox", post(inbox::shared_inbox))

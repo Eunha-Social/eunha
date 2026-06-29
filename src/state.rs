@@ -35,6 +35,7 @@ impl AppState {
             storage.missing_avatar_url(),
             storage.missing_header_url(),
         );
+        crate::api::mastodon::convert::init_local_domain(config.instance.domain.clone());
         let email = EmailSender::new(
             http.clone(),
             config.resend.api_key.clone(),

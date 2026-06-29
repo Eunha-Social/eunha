@@ -114,8 +114,8 @@ async fn publish_one(
         crate::db::models::Status,
         r#"INSERT INTO statuses
              (id, account_id, text, spoiler_text, visibility,
-              language, sensitive, in_reply_to_id, in_reply_to_account_id, reply, uri, url, created_at, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11, now(), now())
+              language, sensitive, in_reply_to_id, in_reply_to_account_id, reply, uri, url, local, created_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11, true, now(), now())
            RETURNING *"#,
         status_id, account.id, text, spoiler_text, visibility_int,
         language, sensitive, in_reply_to_id, in_reply_to_account_id, is_reply, uri,

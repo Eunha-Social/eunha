@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO accounts\n             (id, username, display_name, note,\n              url, uri, public_key, inbox_url, outbox_url, shared_inbox_url, discoverable,\n              id_scheme, created_at, updated_at)\n           VALUES ($1,$2,$2,'', $3,$4::text,'test-public-key',$4::text||'/inbox',$4::text||'/outbox',''::text, true,\n                   0, now(), now())\n           RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Varchar",
+        "Varchar",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "57b6fb34f286e2548b013a2e0b9dad81c96a07fc36b4f3ed2c8bee904e021ee6"
+}

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, username FROM accounts WHERE username = $1 AND domain IS NULL",
+  "query": "SELECT id, username, id_scheme FROM accounts WHERE username = $1 AND domain IS NULL",
   "describe": {
     "columns": [
       {
@@ -12,6 +12,11 @@
         "ordinal": 1,
         "name": "username",
         "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "id_scheme",
+        "type_info": "Int4"
       }
     ],
     "parameters": {
@@ -21,8 +26,9 @@
     },
     "nullable": [
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "4579b853a47a57f43d2a8006abfebb04c116fee9fdf8efd56f55d6ed9f8002f8"
+  "hash": "62a45716b03bd56e0deb26ea21b3c4809a8ce98ff7ae7c36309eb54e22ec5578"
 }

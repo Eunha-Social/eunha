@@ -145,18 +145,37 @@ pub async fn deliver_to_inboxes(
 }
 
 /// Resolve the local signing account id from a `key_id` of the form
-/// `{actor_url}#main-key`. `actor_url` is the account's canonical URL, which for
-/// local accounts is always stored verbatim in `accounts.uri` (set at signup),
-/// so this round-trips the value every caller builds the key id from.
+/// `{actor_url}#main-key`. The actor URL follows the account's id_scheme — either
+/// `https://{domain}/users/{username}` or `https://{domain}/ap/users/{id}`
+/// (see [`crate::federation::tag`]) — so match on whichever path shape it is
+/// rather than the (empty for Mastodon imports) `accounts.uri` column.
 async fn signing_account_id(state: &AppState, key_id: &str) -> anyhow::Result<i64> {
     let actor_url = key_id.split('#').next().unwrap_or(key_id);
-    sqlx::query_scalar!(
-        "SELECT id FROM accounts WHERE domain IS NULL AND uri = $1 LIMIT 1",
-        actor_url,
-    )
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or_else(|| anyhow::anyhow!("no local signing account for key_id {key_id:?}"))
+    let url = url::Url::parse(actor_url)
+        .map_err(|e| anyhow::anyhow!("invalid keyId actor URL {actor_url:?}: {e}"))?;
+    let segments: Vec<&str> = url.path_segments().map(|s| s.collect()).unwrap_or_default();
+
+    let id = match segments.as_slice() {
+        ["ap", "users", id] => {
+            let id: i64 = id
+                .parse()
+                .map_err(|_| anyhow::anyhow!("non-numeric ap account id in {actor_url:?}"))?;
+            sqlx::query_scalar!(
+                "SELECT id FROM accounts WHERE domain IS NULL AND id = $1",
+                id,
+            )
+            .fetch_optional(&state.db)
+            .await?
+        }
+        ["users", username] => sqlx::query_scalar!(
+            "SELECT id FROM accounts WHERE domain IS NULL AND username = $1 LIMIT 1",
+            username,
+        )
+        .fetch_optional(&state.db)
+        .await?,
+        _ => None,
+    };
+    id.ok_or_else(|| anyhow::anyhow!("no local signing account for key_id {key_id:?}"))
 }
 
 async fn enqueue_to_inboxes(

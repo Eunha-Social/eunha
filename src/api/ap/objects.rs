@@ -52,53 +52,106 @@ pub async fn get_instance_actor(
         .into_response())
 }
 
-/// Serve a local status as a bare ActivityPub `Note` object at its canonical URI.
+/// Serve a local status as a bare ActivityPub `Note` object — username scheme
+/// (`/users/{username}/statuses/{id}`).
 pub async fn get_status(
     State(state): State<AppState>,
     Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
     Path((username, id)): Path<(String, i64)>,
 ) -> AppResult<Response> {
-    let bundle = status_bundle(&state, &instance.domain, &username, id).await?;
-    Ok((
-        StatusCode::OK,
-        [(header::CONTENT_TYPE, CONTENT_TYPE)],
-        Json(bundle.into_note()),
-    )
-        .into_response())
+    let bundle = status_bundle(&state, &instance.domain, AccountRef::Username(&username), id).await?;
+    Ok(note_response(bundle.into_note()))
 }
 
-/// Serve the `Create(Note)` wrapper at `{status}/activity`.
+/// Numeric-scheme status (`/ap/users/{account_id}/statuses/{id}`).
+pub async fn get_status_by_id(
+    State(state): State<AppState>,
+    Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
+    Path((account_id, id)): Path<(i64, i64)>,
+) -> AppResult<Response> {
+    let bundle = status_bundle(&state, &instance.domain, AccountRef::Id(account_id), id).await?;
+    Ok(note_response(bundle.into_note()))
+}
+
+/// Serve the `Create(Note)` wrapper at `{status}/activity` — username scheme.
 pub async fn get_status_activity(
     State(state): State<AppState>,
     Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
     Path((username, id)): Path<(String, i64)>,
 ) -> AppResult<Response> {
-    let bundle = status_bundle(&state, &instance.domain, &username, id).await?;
-    Ok((
-        StatusCode::OK,
-        [(header::CONTENT_TYPE, CONTENT_TYPE)],
-        Json(bundle.into_create()),
-    )
-        .into_response())
+    let bundle = status_bundle(&state, &instance.domain, AccountRef::Username(&username), id).await?;
+    Ok(note_response(bundle.into_create()))
 }
 
-/// Load a status bundle, enforcing that it belongs to `username` and is publicly
-/// dereferenceable (public or unlisted). Private/direct posts are not served
-/// over unauthenticated AP GET.
+/// Numeric-scheme `{status}/activity`.
+pub async fn get_status_activity_by_id(
+    State(state): State<AppState>,
+    Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
+    Path((account_id, id)): Path<(i64, i64)>,
+) -> AppResult<Response> {
+    let bundle = status_bundle(&state, &instance.domain, AccountRef::Id(account_id), id).await?;
+    Ok(note_response(bundle.into_create()))
+}
+
+fn note_response(body: Value) -> Response {
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, CONTENT_TYPE)],
+        Json(body),
+    )
+        .into_response()
+}
+
+/// How a local account is addressed in a request path: by `username`
+/// (`/users/...`) or by numeric `id` (`/ap/users/...`).
+#[derive(Clone, Copy)]
+pub enum AccountRef<'a> {
+    Username(&'a str),
+    Id(i64),
+}
+
+/// Load a local account addressed by either scheme.
+pub async fn load_local_account(
+    state: &AppState,
+    who: AccountRef<'_>,
+) -> AppResult<crate::db::models::Account> {
+    let account = match who {
+        AccountRef::Username(username) => sqlx::query_as!(
+            crate::db::models::Account,
+            "SELECT * FROM accounts WHERE username = $1 AND domain IS NULL",
+            username,
+        )
+        .fetch_optional(&state.db)
+        .await?,
+        AccountRef::Id(id) => sqlx::query_as!(
+            crate::db::models::Account,
+            "SELECT * FROM accounts WHERE id = $1 AND domain IS NULL",
+            id,
+        )
+        .fetch_optional(&state.db)
+        .await?,
+    };
+    account.ok_or(AppError::NotFound)
+}
+
+/// Load a status bundle, enforcing that it belongs to the addressed account and
+/// is publicly dereferenceable (public or unlisted). Private/direct posts are
+/// not served over unauthenticated AP GET.
 async fn status_bundle(
     state: &AppState,
     domain: &str,
-    username: &str,
+    who: AccountRef<'_>,
     id: i64,
 ) -> AppResult<super::note::NoteBundle> {
+    let account = load_local_account(state, who).await?;
     let owner_ok = sqlx::query_scalar!(
         r#"SELECT EXISTS(
-             SELECT 1 FROM statuses s JOIN accounts a ON a.id = s.account_id
-             WHERE s.id = $1 AND a.username = $2 AND a.domain IS NULL
+             SELECT 1 FROM statuses s
+             WHERE s.id = $1 AND s.account_id = $2
                AND s.deleted_at IS NULL AND s.visibility IN (0, 1)
            )"#,
         id,
-        username,
+        account.id,
     )
     .fetch_one(&state.db)
     .await?
@@ -111,28 +164,26 @@ async fn status_bundle(
         .ok_or(AppError::NotFound)
 }
 
+/// Serve the actor — username scheme (`/users/{username}`).
 pub async fn get_actor(
     State(state): State<AppState>,
     Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
     Path(username): Path<String>,
 ) -> AppResult<Response> {
-    let account = sqlx::query_as!(
-        crate::db::models::Account,
-        "SELECT * FROM accounts WHERE username = $1 AND domain IS NULL",
-        username,
-    )
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or(AppError::NotFound)?;
-
+    let account = load_local_account(&state, AccountRef::Username(&username)).await?;
     let actor = actor_json(&state, &instance.domain, &account).await?;
+    Ok(note_response(actor))
+}
 
-    Ok((
-        StatusCode::OK,
-        [(header::CONTENT_TYPE, CONTENT_TYPE)],
-        Json(actor),
-    )
-        .into_response())
+/// Serve the actor — numeric scheme (`/ap/users/{id}`).
+pub async fn get_actor_by_id(
+    State(state): State<AppState>,
+    Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
+    Path(id): Path<i64>,
+) -> AppResult<Response> {
+    let account = load_local_account(&state, AccountRef::Id(id)).await?;
+    let actor = actor_json(&state, &instance.domain, &account).await?;
+    Ok(note_response(actor))
 }
 
 pub async fn actor_json(
@@ -141,7 +192,7 @@ pub async fn actor_json(
     account: &crate::db::models::Account,
 ) -> AppResult<Value> {
     let base = format!("https://{}", domain);
-    let actor_url = format!("{}/users/{}", base, account.username);
+    let actor_url = crate::federation::tag::account_uri_of(domain, account);
 
     // Account migration metadata: aliases (alsoKnownAs) + movedTo target URI.
     let also_known_as: Vec<String> = sqlx::query_scalar!(

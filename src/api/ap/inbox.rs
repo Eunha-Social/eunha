@@ -266,7 +266,7 @@ async fn handle_follow(
     let activity_uri = activity.get("id").and_then(|i| i.as_str()).unwrap_or("");
 
     let target = sqlx::query!(
-        "SELECT id, locked, username, private_key FROM accounts WHERE uri = $1 AND domain IS NULL",
+        "SELECT id, locked, username, private_key, id_scheme FROM accounts WHERE uri = $1 AND domain IS NULL",
         object_uri,
     )
     .fetch_optional(&state.db)
@@ -388,7 +388,7 @@ async fn handle_follow(
                 };
                 let activity = serde_json::to_value(&accept)
                     .map_err(|e| crate::error::AppError::Internal(e.into()))?;
-                let actor_url = format!("https://{}/users/{}", instance.domain, target.username);
+                let actor_url = crate::federation::tag::account_uri(&instance.domain, target.id, target.id_scheme, &target.username);
                 let key_id = format!("{actor_url}#main-key");
                 tracing::debug!(inbox, actor_uri, "enqueueing Accept");
                 if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
@@ -664,8 +664,8 @@ async fn handle_create(
         r#"INSERT INTO statuses
              (id, account_id, text, spoiler_text, visibility, sensitive,
               uri, url, in_reply_to_id, in_reply_to_account_id, reply,
-              language, created_at, edited_at, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14, now())
+              language, local, created_at, edited_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, false, $13,$14, now())
            ON CONFLICT (uri) WHERE uri IS NOT NULL AND uri != '' DO NOTHING
            RETURNING id"#,
         status_id,
@@ -1224,8 +1224,8 @@ async fn handle_announce(
     let boost_id = crate::snowflake::next_id();
     sqlx::query!(
         r#"INSERT INTO statuses
-             (id, account_id, reblog_of_id, visibility, uri, url, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $5, $6, now())
+             (id, account_id, reblog_of_id, visibility, uri, url, local, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $5, false, $6, now())
            ON CONFLICT (uri) WHERE uri IS NOT NULL AND uri != '' DO NOTHING"#,
         boost_id,
         booster_id,
@@ -2299,7 +2299,7 @@ async fn handle_feature_request(
 
     // The featured account must be local and active.
     let Some(local) = sqlx::query!(
-        "SELECT id, username, suspended_at FROM accounts WHERE uri = $1 AND domain IS NULL",
+        "SELECT id, username, suspended_at, id_scheme FROM accounts WHERE uri = $1 AND domain IS NULL",
         account_uri,
     )
     .fetch_optional(&state.db)
@@ -2404,7 +2404,7 @@ async fn handle_feature_request(
         owner.inbox_url
     };
     if !inbox.is_empty() {
-        let actor_url = format!("https://{domain}/users/{}", local.username);
+        let actor_url = crate::federation::tag::account_uri(domain, local.id, local.id_scheme, &local.username);
         let accept_id = format!("{actor_url}#accepts/feature_requests/{item_id}");
         let owner_uri = owner.uri;
         if let Ok(accept) = crate::federation::consent::accept(
@@ -2547,8 +2547,8 @@ async fn fetch_remote_status_depth(state: &AppState, uri: &str, depth: u8) -> Ap
         r#"INSERT INTO statuses
              (id, account_id, text, spoiler_text, visibility, sensitive,
               uri, url, in_reply_to_id, in_reply_to_account_id, reply,
-              language, created_at, updated_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13, now())
+              language, local, created_at, updated_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12, false, $13, now())
            ON CONFLICT (uri) WHERE uri IS NOT NULL AND uri != '' DO NOTHING
            RETURNING id"#,
         status_id,

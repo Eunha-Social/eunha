@@ -147,7 +147,7 @@ async fn federate_poll_votes(
     }
 
     let voter = sqlx::query!(
-        "SELECT username, private_key FROM accounts WHERE id = $1 AND domain IS NULL",
+        "SELECT username, private_key, id_scheme FROM accounts WHERE id = $1 AND domain IS NULL",
         voter_id,
     )
     .fetch_optional(&state.db)
@@ -182,7 +182,7 @@ async fn federate_poll_votes(
         return Ok(());
     }
 
-    let actor = format!("https://{}/users/{}", state.instance.domain, voter.username);
+    let actor = crate::federation::tag::account_uri(&state.instance.domain, voter_id, voter.id_scheme, &voter.username);
     let key_id = format!("{actor}#main-key");
     let owner_uri = remote.owner_uri;
 
@@ -229,7 +229,7 @@ async fn federate_poll_votes(
 
 pub(crate) async fn federate_poll_update(state: &AppState, status_id: i64) -> anyhow::Result<()> {
     let status = sqlx::query!(
-        r#"SELECT s.account_id, s.visibility, a.username, a.uri AS account_uri,
+        r#"SELECT s.account_id, s.visibility, a.username, a.uri AS account_uri, a.id_scheme,
                   a.private_key, p.updated_at AS poll_updated_at
            FROM statuses s
            JOIN accounts a ON a.id = s.account_id
@@ -264,11 +264,7 @@ pub(crate) async fn federate_poll_update(state: &AppState, status_id: i64) -> an
         "cc": bundle.cc,
         "object": bundle.note,
     });
-    let actor_url = if status.account_uri.is_empty() {
-        format!("https://{}/users/{}", state.instance.domain, status.username)
-    } else {
-        status.account_uri
-    };
+    let actor_url = crate::federation::tag::account_uri(&state.instance.domain, status.account_id, status.id_scheme, &status.username);
     let key_id = format!("{actor_url}#main-key");
 
     let mut inboxes: Vec<String> = sqlx::query!(

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT s.id, s.account_id, s.text, s.spoiler_text, s.visibility, s.sensitive,\n                  s.created_at, s.edited_at, s.uri, s.url, s.in_reply_to_id, s.language,\n                  s.quote_approval_policy,\n                  a.username, a.uri AS account_uri,\n                  quoted_s.uri AS \"quote_uri?\"\n           FROM statuses s\n           JOIN accounts a ON a.id = s.account_id\n           LEFT JOIN quotes qr ON qr.status_id = s.id AND qr.state = 1\n           LEFT JOIN statuses quoted_s ON quoted_s.id = qr.quoted_status_id AND quoted_s.deleted_at IS NULL\n           WHERE s.id = $1 AND s.deleted_at IS NULL AND a.domain IS NULL\n             AND s.reblog_of_id IS NULL",
+  "query": "SELECT s.id, s.account_id, s.text, s.spoiler_text, s.visibility, s.sensitive,\n                  s.created_at, s.edited_at, s.uri, s.url, s.in_reply_to_id, s.language,\n                  s.quote_approval_policy,\n                  a.username, a.uri AS account_uri, a.id_scheme,\n                  quoted_s.uri AS \"quote_uri?\"\n           FROM statuses s\n           JOIN accounts a ON a.id = s.account_id\n           LEFT JOIN quotes qr ON qr.status_id = s.id AND qr.state = 1\n           LEFT JOIN statuses quoted_s ON quoted_s.id = qr.quoted_status_id AND quoted_s.deleted_at IS NULL\n           WHERE s.id = $1 AND s.deleted_at IS NULL AND a.domain IS NULL\n             AND s.reblog_of_id IS NULL",
   "describe": {
     "columns": [
       {
@@ -80,6 +80,11 @@
       },
       {
         "ordinal": 15,
+        "name": "id_scheme",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 16,
         "name": "quote_uri?",
         "type_info": "Varchar"
       }
@@ -105,8 +110,9 @@
       false,
       false,
       false,
+      true,
       true
     ]
   },
-  "hash": "a8972f5db41db68098be76a63009ee6f3358b61bcdfd327d2b76dd35eb7993ba"
+  "hash": "cdb5edd29ce1df4c1665ce245766c4caa1355abd1137a87e4dcad5c32fc70919"
 }
