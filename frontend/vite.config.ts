@@ -1,11 +1,17 @@
+import path from 'node:path'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 
-// The Rust server (axum) serves the built SPA from `frontend/dist` and proxies
-// nothing itself — so in dev we proxy the C2S API and OAuth endpoints to the
-// running eunha server on :3000.
+// The Rust server (axum) serves the built SPA from `frontend/dist`. In dev we
+// proxy the C2S API and OAuth endpoints to the running eunha server on :3000.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: {
+      '@': path.resolve(__dirname, './src'),
+    },
+  },
   build: {
     outDir: 'dist',
   },

@@ -19,8 +19,8 @@ export default function Callback() {
   }, [params, navigate])
 
   return (
-    <div className="app">
-      <p className={error ? 'error' : 'muted'}>
+    <div className="mx-auto max-w-2xl p-4">
+      <p className={error ? 'text-destructive text-sm' : 'text-muted-foreground text-sm'}>
         {error ?? 'Signing you in…'}
       </p>
     </div>

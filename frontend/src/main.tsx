@@ -3,7 +3,10 @@ import { createRoot } from 'react-dom/client'
 import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 import Home from './pages/Home.tsx'
 import Callback from './pages/Callback.tsx'
+import { initTheme } from './theme.ts'
 import './styles.css'
+
+initTheme()
 
 const router = createBrowserRouter([
   { path: '/', element: <Home /> },

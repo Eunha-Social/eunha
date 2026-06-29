@@ -1,82 +1,92 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * eunha brand palette (from the mascot artwork):
+ *   cream #F4F1E6  lavender #9D8CEC  mint #6FE0C5  blue #6E8AF0  navy #0E1A2B
+ *
+ * Light mode = periwinkle background + cream cards.
+ * Dark mode  = navy background (applied via the `.dark` class; see theme.ts,
+ * which follows the OS prefers-color-scheme).
+ */
+
 :root {
-  color-scheme: dark;
+  --radius: 0.65rem;
+
+  --background: #8c98f2; /* periwinkle */
+  --foreground: #0e1a2b; /* navy */
+  --card: #f4f1e6; /* cream */
+  --card-foreground: #0e1a2b;
+  --popover: #f4f1e6;
+  --popover-foreground: #0e1a2b;
+  --primary: #1aa78f; /* deep mint, for contrast on cream */
+  --primary-foreground: #ffffff;
+  --secondary: #6a54d6; /* deep lavender */
+  --secondary-foreground: #ffffff;
+  --muted: #aeb6f5; /* lighter periwinkle */
+  --muted-foreground: #36436e;
+  --accent: #6e8af0; /* brand blue */
+  --accent-foreground: #ffffff;
+  --destructive: #c0392b;
+  --border: #6e7ddb;
+  --input: #6e7ddb;
+  --ring: #1aa78f;
 }
 
-* {
-  box-sizing: border-box;
+.dark {
+  --background: #0e1a2b; /* navy */
+  --foreground: #f4f1e6; /* cream */
+  --card: #16263b;
+  --card-foreground: #f4f1e6;
+  --popover: #16263b;
+  --popover-foreground: #f4f1e6;
+  --primary: #6fe0c5; /* mint */
+  --primary-foreground: #06281f;
+  --secondary: #9d8cec; /* lavender */
+  --secondary-foreground: #0e1a2b;
+  --muted: #1e3149;
+  --muted-foreground: #93a7c4;
+  --accent: #6e8af0; /* brand blue */
+  --accent-foreground: #0e1a2b;
+  --destructive: #ff8a8a;
+  --border: #294159;
+  --input: #294159;
+  --ring: #6fe0c5;
 }
 
-body {
-  margin: 0;
-  font-family: system-ui, sans-serif;
-  background: #0f0f0f;
-  color: #e8e8e8;
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
 }
 
-.app {
-  max-width: 600px;
-  margin: 0 auto;
-  padding: 1rem;
-}
-
-.topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0.75rem 0;
-  border-bottom: 1px solid #1e1e1e;
-  margin-bottom: 1.5rem;
-}
-
-button {
-  background: #1a1a1a;
-  border: 1px solid #333;
-  color: #e8e8e8;
-  padding: 0.4rem 0.9rem;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 0.85rem;
-}
-
-button:hover {
-  border-color: #555;
-}
-
-.muted {
-  color: #888;
-}
-
-.error {
-  color: #ff6b6b;
-}
-
-.intro h1 {
-  margin-bottom: 0.5rem;
-}
-
-.status {
-  padding: 1rem 0;
-  border-bottom: 1px solid #1a1a1a;
-}
-
-.status-head {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  margin-bottom: 0.5rem;
-  font-size: 0.85rem;
-}
-
-.avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
-}
-
-.name {
-  font-weight: 600;
-}
-
-.status-body :where(p) {
-  margin: 0.25rem 0;
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
 }
