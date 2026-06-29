@@ -1,0 +1,7 @@
+.git
+target
+frontend/node_modules
+frontend/dist
+media
+*.rdb
+.DS_Store

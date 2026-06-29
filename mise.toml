@@ -5,6 +5,6 @@ node = "lts"
 description = "Run the Rust server with hot-reload"
 run = "cargo watch -x run -w src -w migrations"
 
-[tasks.elk]
-description = "Build Elk static output"
-run = "cd elk && pnpm install && pnpm generate"
+[tasks.frontend]
+description = "Build the eunha web frontend (SPA) into frontend/dist"
+run = "cd frontend && npm install && npm run build"

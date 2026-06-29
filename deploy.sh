@@ -14,8 +14,6 @@ fi
 export DATABASE_URL="postgres://limeburst@localhost/${DB_NAME}"
 
 git pull
-git submodule sync
-git submodule update --init
 
 # Keep sqlx's _sqlx_migrations bookkeeping table in the eunha schema, matching
 # the app's connection search_path, so the public schema stays a pure Mastodon

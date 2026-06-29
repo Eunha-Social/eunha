@@ -1,0 +1,82 @@
+:root {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  background: #0f0f0f;
+  color: #e8e8e8;
+}
+
+.app {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid #1e1e1e;
+  margin-bottom: 1.5rem;
+}
+
+button {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  color: #e8e8e8;
+  padding: 0.4rem 0.9rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+button:hover {
+  border-color: #555;
+}
+
+.muted {
+  color: #888;
+}
+
+.error {
+  color: #ff6b6b;
+}
+
+.intro h1 {
+  margin-bottom: 0.5rem;
+}
+
+.status {
+  padding: 1rem 0;
+  border-bottom: 1px solid #1a1a1a;
+}
+
+.status-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+}
+
+.name {
+  font-weight: 600;
+}
+
+.status-body :where(p) {
+  margin: 0.25rem 0;
+}

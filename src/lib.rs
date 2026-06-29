@@ -6,7 +6,6 @@ pub mod feed;
 pub mod snowflake;
 pub mod crypto;
 pub mod db;
-pub mod elk;
 pub mod email;
 pub mod error;
 pub mod locale;
@@ -17,6 +16,7 @@ pub mod push;
 pub mod state;
 pub mod streaming;
 pub mod templates;
+pub mod web;
 pub mod well_known;
 
 use axum::{extract::Request, middleware as axum_middleware, response::IntoResponse, Router};
@@ -37,7 +37,7 @@ pub fn build_app(state: state::AppState) -> Router {
                 )
                     .into_response()
             } else {
-                elk::serve(uri).await
+                web::serve(uri).await
             }
         }))
         .layer(CompressionLayer::new());

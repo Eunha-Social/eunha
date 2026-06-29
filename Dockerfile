@@ -1,9 +1,10 @@
-# ── Stage 1: Build Elk ──────────────────────────────────────────────────────
-FROM node:24-alpine AS elk-builder
-RUN corepack enable pnpm
-WORKDIR /elk
-COPY elk/ .
-RUN pnpm install --frozen-lockfile && pnpm generate
+# ── Stage 1: Build the web frontend (SPA) ───────────────────────────────────
+FROM node:24-alpine AS frontend-builder
+WORKDIR /frontend
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci
+COPY frontend/ .
+RUN npm run build
 
 # ── Stage 2a: Install cargo-chef ────────────────────────────────────────────
 FROM rust:1-slim-bookworm AS chef
@@ -37,7 +38,7 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=rust-builder /app/target/release/eunha .
-COPY --from=elk-builder /elk/.output/public/ elk/.output/public/
+COPY --from=frontend-builder /frontend/dist/ frontend/dist/
 COPY migrations/ migrations/
 EXPOSE 3000
 CMD ["./eunha"]
