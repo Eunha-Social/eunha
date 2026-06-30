@@ -8,9 +8,10 @@ export function getInstance(): Promise<mastodon.v2.Instance> {
 
 export async function getHomeTimeline(
   token: string,
+  maxId?: string,
 ): Promise<mastodon.v1.Status[]> {
   // The paginator is awaitable and resolves to the first page.
-  return restClient(token).v1.timelines.home.list({ limit: 40 })
+  return restClient(token).v1.timelines.home.list({ limit: 40, maxId })
 }
 
 export function postStatus(
@@ -55,8 +56,9 @@ export function lookupAccount(
 export async function getAccountStatuses(
   id: string,
   token?: string,
+  maxId?: string,
 ): Promise<mastodon.v1.Status[]> {
-  return restClient(token).v1.accounts.$select(id).statuses.list({ limit: 40 })
+  return restClient(token).v1.accounts.$select(id).statuses.list({ limit: 40, maxId })
 }
 
 export function getStatus(id: string, token?: string): Promise<mastodon.v1.Status> {
@@ -81,4 +83,19 @@ export async function getRelationship(
 export function setFollow(id: string, token: string, on: boolean) {
   const a = restClient(token).v1.accounts.$select(id)
   return on ? a.follow() : a.unfollow()
+}
+
+export async function getPublicTimeline(
+  local: boolean,
+  token?: string,
+  maxId?: string,
+): Promise<mastodon.v1.Status[]> {
+  return restClient(token).v1.timelines.public.list({ local, limit: 40, maxId })
+}
+
+export async function getNotifications(
+  token: string,
+  maxId?: string,
+): Promise<mastodon.v1.Notification[]> {
+  return restClient(token).v1.notifications.list({ limit: 40, maxId })
 }

@@ -3,43 +3,40 @@ import { useEffect, useState } from 'react'
 import { getInstance, getHomeTimeline } from '../api.ts'
 import type { mastodon } from '../masto.ts'
 import { getToken } from '../auth.ts'
+import { useInfiniteFeed } from '../hooks/use-infinite-feed.ts'
 import { TopBar } from '@/components/top-bar.tsx'
+import { TimelineTabs } from '@/components/timeline-tabs.tsx'
 import { Compose } from '@/components/compose.tsx'
 import { StatusCard } from '@/components/status-card.tsx'
+import { InfiniteScroll } from '@/components/infinite-scroll.tsx'
 
 export default function Home() {
   const [instance, setInstance] = useState<mastodon.v2.Instance | null>(null)
-  const [statuses, setStatuses] = useState<mastodon.v1.Status[] | null>(null)
   const [replyTo, setReplyTo] = useState<mastodon.v1.Status | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const token = getToken()
 
+  const feed = useInfiniteFeed<mastodon.v1.Status>(
+    (maxId) => (token ? getHomeTimeline(token, maxId) : Promise.resolve([])),
+    [token],
+  )
+
   useEffect(() => {
-    getInstance().then(setInstance).catch((e) => setError(String(e)))
+    getInstance().then(setInstance).catch(() => {})
   }, [])
-
-  useEffect(() => {
-    if (!token) return
-    getHomeTimeline(token)
-      .then(setStatuses)
-      .catch((e) => setError(String(e)))
-  }, [token])
-
-  const handlePosted = (status: mastodon.v1.Status) => {
-    setStatuses((prev) => [status, ...(prev ?? [])])
-    setReplyTo(null)
-  }
 
   const handleReply = (status: mastodon.v1.Status) => {
     setReplyTo(status)
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
+  const statuses = feed.items
+
   return (
     <div className="mx-auto max-w-2xl p-4">
       <TopBar title={instance?.title} />
+      <TimelineTabs />
 
-      {error && <p className="text-destructive mb-4 text-sm">{error}</p>}
+      {feed.error && <p className="text-destructive mb-4 text-sm">{feed.error}</p>}
 
       {!token && instance && (
         <section className="space-y-2">
@@ -57,10 +54,12 @@ export default function Home() {
             token={token}
             replyTo={replyTo}
             onCancelReply={() => setReplyTo(null)}
-            onPosted={handlePosted}
+            onPosted={(s) => {
+              feed.prepend(s)
+              setReplyTo(null)
+            }}
           />
-          <h2 className="text-secondary text-lg font-semibold">Home</h2>
-          {statuses === null && !error && (
+          {statuses === null && !feed.error && (
             <p className="text-muted-foreground text-sm">Loading…</p>
           )}
           {statuses?.map((s) => (
@@ -75,6 +74,12 @@ export default function Home() {
           {statuses?.length === 0 && (
             <p className="text-muted-foreground text-sm">Your home timeline is empty.</p>
           )}
+          <InfiniteScroll
+            onLoadMore={feed.loadMore}
+            loading={feed.loadingMore}
+            done={feed.done}
+            hasItems={!!statuses?.length}
+          />
         </section>
       )}
     </div>

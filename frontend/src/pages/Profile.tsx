@@ -10,8 +10,10 @@ import {
   setFollow,
 } from '../api.ts'
 import { getToken } from '../auth.ts'
+import { useInfiniteFeed } from '../hooks/use-infinite-feed.ts'
 import { TopBar } from '@/components/top-bar.tsx'
 import { StatusCard } from '@/components/status-card.tsx'
+import { InfiniteScroll } from '@/components/infinite-scroll.tsx'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar.tsx'
 import { Button } from '@/components/ui/button.tsx'
 
@@ -21,22 +23,24 @@ export default function Profile() {
   const token = getToken()
 
   const [account, setAccount] = useState<mastodon.v1.Account | null>(null)
-  const [statuses, setStatuses] = useState<mastodon.v1.Status[] | null>(null)
   const [rel, setRel] = useState<mastodon.v1.Relationship | null>(null)
   const [selfId, setSelfId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  const feed = useInfiniteFeed<mastodon.v1.Status>(
+    (maxId) =>
+      account ? getAccountStatuses(account.id, token ?? undefined, maxId) : Promise.resolve([]),
+    [account?.id, token],
+  )
+  const statuses = feed.items
+
   useEffect(() => {
     setAccount(null)
-    setStatuses(null)
     setRel(null)
     setError(null)
     lookupAccount(handle, token ?? undefined)
       .then((acc) => {
         setAccount(acc)
-        getAccountStatuses(acc.id, token ?? undefined)
-          .then(setStatuses)
-          .catch((e) => setError(String(e)))
         if (token) {
           getRelationship(acc.id, token).then((r) => setRel(r ?? null)).catch(() => {})
         }
@@ -123,6 +127,12 @@ export default function Profile() {
             {statuses?.length === 0 && (
               <p className="text-muted-foreground text-sm">No posts yet.</p>
             )}
+            <InfiniteScroll
+              onLoadMore={feed.loadMore}
+              loading={feed.loadingMore}
+              done={feed.done}
+              hasItems={!!statuses?.length}
+            />
           </div>
         </>
       )}
