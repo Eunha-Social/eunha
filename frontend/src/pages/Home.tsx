@@ -7,6 +7,7 @@ import { beginLogin, getToken, logout } from '../auth.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Card, CardContent } from '@/components/ui/card.tsx'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar.tsx'
+import { ModeToggle } from '@/components/mode-toggle.tsx'
 
 export default function Home() {
   const [instance, setInstance] = useState<mastodon.v2.Instance | null>(null)
@@ -29,15 +30,18 @@ export default function Home() {
     <div className="mx-auto max-w-2xl p-4">
       <header className="mb-6 flex items-center justify-between border-b pb-3">
         <span className="text-lg font-semibold">{instance?.title ?? 'eunha'}</span>
-        {token ? (
-          <Button variant="outline" size="sm" onClick={() => { logout(); location.reload() }}>
-            <LogOut /> Sign out
-          </Button>
-        ) : (
-          <Button size="sm" onClick={() => beginLogin()}>
-            <LogIn /> Sign in
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {token ? (
+            <Button variant="outline" size="sm" onClick={() => { logout(); location.reload() }}>
+              <LogOut /> Sign out
+            </Button>
+          ) : (
+            <Button size="sm" onClick={() => beginLogin()}>
+              <LogIn /> Sign in
+            </Button>
+          )}
+          <ModeToggle />
+        </div>
       </header>
 
       {error && <p className="text-destructive mb-4 text-sm">{error}</p>}

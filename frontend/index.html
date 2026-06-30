@@ -4,6 +4,20 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>eunha</title>
+    <script>
+      // Set the theme class before first paint to avoid a flash (matches
+      // ThemeProvider's storageKey "eunha-theme").
+      (function () {
+        try {
+          var t = localStorage.getItem('eunha-theme') || 'system'
+          var dark =
+            t === 'dark' ||
+            (t === 'system' &&
+              matchMedia('(prefers-color-scheme: dark)').matches)
+          document.documentElement.classList.add(dark ? 'dark' : 'light')
+        } catch (e) {}
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

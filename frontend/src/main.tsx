@@ -3,10 +3,8 @@ import { createRoot } from 'react-dom/client'
 import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 import Home from './pages/Home.tsx'
 import Callback from './pages/Callback.tsx'
-import { initTheme } from './theme.ts'
+import { ThemeProvider } from './components/theme-provider.tsx'
 import './styles.css'
-
-initTheme()
 
 const router = createBrowserRouter([
   { path: '/', element: <Home /> },
@@ -17,6 +15,8 @@ const router = createBrowserRouter([
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <RouterProvider router={router} />
+    <ThemeProvider defaultTheme="system" storageKey="eunha-theme">
+      <RouterProvider router={router} />
+    </ThemeProvider>
   </StrictMode>,
 )
