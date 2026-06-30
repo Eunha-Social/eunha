@@ -1378,15 +1378,28 @@ pub async fn delete_status(
             let delete_id = format!("https://{}/activities/{}", domain, crate::snowflake::next_id());
             let activity = crate::federation::activity::delete(&delete_id, &actor_url, status_uri)?;
             let key_id = format!("{}#main-key", actor_url);
-            if let Err(e) = crate::federation::delivery::fanout_to_followers(
+            // Reach everyone who received the original (StatusReachFinder, unsafe).
+            use crate::db::models::vis;
+            let inboxes = crate::federation::delivery::status_reach_inboxes(
                 &state,
-                activity,
+                id,
                 account.id,
-                key_id,
+                status.in_reply_to_account_id,
+                matches!(status.visibility, vis::PUBLIC | vis::UNLISTED),
+                true,
+                status.visibility == vis::PUBLIC,
+                matches!(status.visibility, vis::PUBLIC | vis::UNLISTED | vis::PRIVATE),
             )
             .await
-            {
-                tracing::warn!(error = %e, "failed to enqueue Delete fanout");
+            .unwrap_or_default();
+            if !inboxes.is_empty() {
+                if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+                    &state, activity, inboxes, key_id,
+                )
+                .await
+                {
+                    tracing::warn!(error = %e, "failed to enqueue Delete reach");
+                }
             }
         }
     }
@@ -3055,43 +3068,21 @@ async fn federate_status_update(
     });
     let key_id = crate::federation::tag::key_id_of(&state.instance.domain, account);
 
-    let mention_inboxes: Vec<String> = sqlx::query!(
-        r#"SELECT DISTINCT
-             CASE WHEN a.shared_inbox_url IS NOT NULL AND a.shared_inbox_url <> ''
-                  THEN a.shared_inbox_url
-                  ELSE a.inbox_url
-             END AS inbox
-           FROM mentions m
-           JOIN accounts a ON a.id = m.account_id
-           WHERE m.status_id = $1
-             AND a.domain IS NOT NULL
-             AND a.inbox_url <> ''"#,
+    // Reach the same audience that received the original (StatusReachFinder).
+    use crate::db::models::vis;
+    let inboxes = crate::federation::delivery::status_reach_inboxes(
+        state,
         status_id,
+        account.id,
+        status.in_reply_to_account_id,
+        matches!(status.visibility, vis::PUBLIC | vis::UNLISTED),
+        false,
+        status.visibility == vis::PUBLIC,
+        matches!(status.visibility, vis::PUBLIC | vis::UNLISTED | vis::PRIVATE),
     )
-    .fetch_all(&state.db)
-    .await?
-    .into_iter()
-    .filter_map(|r| r.inbox)
-    .collect();
-
-    if !mention_inboxes.is_empty() {
-        crate::federation::delivery::deliver_to_inboxes(
-            state,
-            activity.clone(),
-            mention_inboxes,
-            key_id.clone(),
-        )
-        .await?;
-    }
-
-    if status.visibility != crate::db::models::vis::DIRECT {
-        crate::federation::delivery::fanout_to_followers(
-            state,
-            activity,
-            account.id,
-            key_id,
-        )
-        .await?;
+    .await?;
+    if !inboxes.is_empty() {
+        crate::federation::delivery::deliver_to_inboxes(state, activity, inboxes, key_id).await?;
     }
 
     Ok(())
