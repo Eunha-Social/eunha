@@ -714,19 +714,49 @@ async fn handle_create(
         };
     let mut media_ids: Vec<i64> = Vec::new();
     for att in &attachments {
+        // Mastodon caps a status at MEDIA_ATTACHMENTS_LIMIT (4).
+        if media_ids.len() >= 4 {
+            break;
+        }
         let att_type_str = att.get("type").and_then(|v| v.as_str()).unwrap_or("");
-        let media_type_str = att.get("mediaType").and_then(|v| v.as_str()).unwrap_or("");
-        let att_type: i32 = match att_type_str {
-            "Image" => 0,
-            "Video" => {
-                if media_type_str.contains("gif") { 1 } else { 2 }
-            }
-            "Audio" => 3,
-            _ => 4,
+        // `url` may be a string, a Link object (`{href, mediaType}`), or an
+        // array of links — Mastodon resolves all of these.
+        let Some((remote_url, link_media_type)) =
+            att.get("url").and_then(attachment_url)
+        else {
+            continue;
         };
-        let remote_url = match att.get("url").and_then(|v| v.as_str()) {
-            Some(u) if !u.is_empty() => u,
-            _ => continue,
+        // mediaType: explicit, else from the chosen Link, else guessed from the
+        // URL's extension (matches Mastodon's `mediaType || url_to_media_type`).
+        let media_type_str = att
+            .get("mediaType")
+            .and_then(|v| v.as_str())
+            .map(str::to_owned)
+            .or(link_media_type)
+            .or_else(|| {
+                let path = remote_url.split(['?', '#']).next().unwrap_or(&remote_url);
+                mime_guess::from_path(path).first_raw().map(str::to_owned)
+            })
+            .unwrap_or_default();
+        // Classify from mediaType — Mastodon serializes `type: "Document"` for
+        // everything — falling back to the AP `type` hint for odd peers.
+        let att_type: i32 = if media_type_str == "image/gif" {
+            1
+        } else if media_type_str.starts_with("image/") {
+            0
+        } else if media_type_str.starts_with("video/") {
+            2
+        } else if media_type_str.starts_with("audio/") {
+            3
+        } else {
+            match att_type_str {
+                "Image" => 0,
+                "Video" => {
+                    if media_type_str.contains("gif") { 1 } else { 2 }
+                }
+                "Audio" => 3,
+                _ => 4,
+            }
         };
         let description = att.get("name").and_then(|v| v.as_str()).map(str::to_owned);
         let blurhash = att.get("blurhash").and_then(|v| v.as_str()).map(str::to_owned);
@@ -738,18 +768,31 @@ async fn handle_create(
         let file_content_type = if media_type_str.is_empty() {
             None
         } else {
-            Some(media_type_str.to_owned())
+            Some(media_type_str.clone())
         };
         let width = att.get("width").and_then(|v| v.as_i64());
         let height = att.get("height").and_then(|v| v.as_i64());
         let duration = att.get("duration").and_then(|v| v.as_f64());
-        let file_meta: Option<serde_json::Value> = if width.is_some() || height.is_some() || duration.is_some() {
-            let mut orig = serde_json::Map::new();
-            if let Some(w) = width { orig.insert("width".into(), w.into()); }
-            if let Some(h) = height { orig.insert("height".into(), h.into()); }
-            if let Some(d) = duration { orig.insert("duration".into(), d.into()); }
+        // focalPoint [x, y] -> meta.focus { x, y } (Mastodon's focus).
+        let focus = att.get("focalPoint").and_then(|v| v.as_array()).and_then(|a| {
+            Some((a.first()?.as_f64()?, a.get(1)?.as_f64()?))
+        });
+        let file_meta: Option<serde_json::Value> = if width.is_some()
+            || height.is_some()
+            || duration.is_some()
+            || focus.is_some()
+        {
             let mut meta = serde_json::Map::new();
-            meta.insert("original".into(), serde_json::Value::Object(orig));
+            if width.is_some() || height.is_some() || duration.is_some() {
+                let mut orig = serde_json::Map::new();
+                if let Some(w) = width { orig.insert("width".into(), w.into()); }
+                if let Some(h) = height { orig.insert("height".into(), h.into()); }
+                if let Some(d) = duration { orig.insert("duration".into(), d.into()); }
+                meta.insert("original".into(), serde_json::Value::Object(orig));
+            }
+            if let Some((x, y)) = focus {
+                meta.insert("focus".into(), serde_json::json!({ "x": x, "y": y }));
+            }
             Some(serde_json::Value::Object(meta))
         } else {
             None
@@ -2812,5 +2855,43 @@ mod tests {
         assert!(!date_within_skew(&stale, chrono::Duration::hours(1)));
         assert!(!date_within_skew(&future, chrono::Duration::hours(1)));
         assert!(!date_within_skew("garbage", chrono::Duration::hours(1)));
+    }
+}
+
+/// Extract a usable media href (and its declared `mediaType`, if any) from an AP
+/// attachment `url`, which may be serialized as a string, a Link object
+/// (`{href, mediaType}`), or an array of such links (Mastodon resolves all of
+/// these via `url_to_href`). Prefers a link whose `mediaType` is image/video/audio.
+fn attachment_url(value: &Value) -> Option<(String, Option<String>)> {
+    match value {
+        Value::String(s) if !s.is_empty() => Some((s.clone(), None)),
+        Value::Object(o) => {
+            let href = o
+                .get("href")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())?;
+            let media_type = o.get("mediaType").and_then(|v| v.as_str()).map(str::to_owned);
+            Some((href.to_string(), media_type))
+        }
+        Value::Array(arr) => {
+            let mut fallback: Option<(String, Option<String>)> = None;
+            for el in arr {
+                if let Some((href, media_type)) = attachment_url(el) {
+                    let is_media = media_type.as_deref().is_some_and(|m| {
+                        m.starts_with("image/")
+                            || m.starts_with("video/")
+                            || m.starts_with("audio/")
+                    });
+                    if is_media {
+                        return Some((href, media_type));
+                    }
+                    if fallback.is_none() {
+                        fallback = Some((href, media_type));
+                    }
+                }
+            }
+            fallback
+        }
+        _ => None,
     }
 }

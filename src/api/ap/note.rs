@@ -371,29 +371,34 @@ fn quote_interaction_policy(policy: i32, visibility: i32, followers_url: &str) -
 /// no resolvable URL.
 fn media_attachment_ap(m: &models::MediaAttachment) -> Option<Value> {
     let url = convert::media_url(m)?;
-    let ap_type = match m.r#type.unwrap_or(4) {
-        0 => "Image",
-        1 | 2 => "Video", // gifv + video
-        3 => "Audio",
-        _ => "Document",
-    };
+    // Mastodon serializes every attachment as a generic `Document`; the concrete
+    // kind is conveyed by `mediaType`.
     let mut obj = json!({
-        "type": ap_type,
+        "type": "Document",
         "url": url,
         "mediaType": m.file_content_type,
         "name": m.description,
         "blurhash": m.blurhash,
     });
-    if let Some(preview) = convert::media_preview_url(m) {
-        obj["icon"] = json!({ "type": "Image", "url": preview });
-    }
-    // Surface original width/height when known (helps remote layout).
+    // Surface original width/height/duration when known (helps remote layout).
     if let Some(orig) = m.file_meta.as_ref().and_then(|v| v.get("original")) {
         if let Some(w) = orig.get("width").and_then(Value::as_i64) {
             obj["width"] = json!(w);
         }
         if let Some(h) = orig.get("height").and_then(Value::as_i64) {
             obj["height"] = json!(h);
+        }
+        if let Some(d) = orig.get("duration").and_then(Value::as_f64) {
+            obj["duration"] = json!(d);
+        }
+    }
+    // focalPoint [x, y] when a focus has been set (Mastodon's focal_point).
+    if let Some(focus) = m.file_meta.as_ref().and_then(|v| v.get("focus")) {
+        if let (Some(x), Some(y)) = (
+            focus.get("x").and_then(Value::as_f64),
+            focus.get("y").and_then(Value::as_f64),
+        ) {
+            obj["focalPoint"] = json!([x, y]);
         }
     }
     Some(obj)
