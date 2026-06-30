@@ -2,6 +2,8 @@ use uuid::Uuid;
 
 use crate::{config::MediaStorageConfig, error::{AppError, AppResult}};
 
+pub mod transcode;
+
 pub struct Storage {
     client: aws_sdk_s3::Client,
     bucket: String,

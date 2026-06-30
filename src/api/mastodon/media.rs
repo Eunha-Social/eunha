@@ -20,7 +20,9 @@ pub async fn upload_media(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedUser>,
     mut multipart: Multipart,
-) -> AppResult<Json<MediaAttachment>> {
+) -> AppResult<axum::response::Response> {
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
     auth.require_scope("write:media")?;
     let mut file_field: Option<(String, String, Vec<u8>)> = None;
     let mut description: Option<String> = None;
@@ -45,7 +47,43 @@ pub async fn upload_media(
     let (_, content_type, data) = file_field.ok_or_else(|| AppError::Unprocessable("missing file field".into()))?;
     let media_type = classify_media_type(&content_type);
     let media_id = crate::snowflake::next_id();
-    // Compute filename and S3 key using Mastodon Paperclip convention (id-based path)
+
+    // Video / gifv / audio: transcode in the background (Mastodon's "larger media
+    // formats"). Insert a processing row with no file yet — `url` stays null
+    // until processing completes — and return 202 for the client to poll.
+    if matches!(media_type, "video" | "gifv" | "audio") {
+        let attachment = sqlx::query_as!(
+            crate::db::models::MediaAttachment,
+            r#"INSERT INTO media_attachments
+                 (id, account_id, "type", description, processing, created_at, updated_at)
+               VALUES ($1,$2,$3,$4,1, now(), now())
+               RETURNING *"#,
+            media_id,
+            auth.account_id,
+            media_type_int(media_type),
+            description,
+        )
+        .fetch_one(&state.db)
+        .await?;
+
+        let st = state.clone();
+        let mt = media_type.to_string();
+        tokio::spawn(async move {
+            if let Err(e) = process_media(&st, media_id, &data, &mt).await {
+                tracing::warn!(error = %e, media_id, "media processing failed");
+                let _ = sqlx::query!(
+                    "UPDATE media_attachments SET processing = 3, updated_at = now() WHERE id = $1",
+                    media_id,
+                )
+                .execute(&st.db)
+                .await;
+            }
+        });
+
+        return Ok((StatusCode::ACCEPTED, Json(media_from_db(&attachment))).into_response());
+    }
+
+    // Images: process synchronously and return 200.
     let file_ext = crate::media::ext_for_content_type(&content_type);
     let file_filename = format!("original.{}", file_ext);
     let file_key = format!("media_attachments/files/{}/original/{}", crate::media::int_to_path(media_id), file_filename);
@@ -53,22 +91,15 @@ pub async fn upload_media(
     let data = strip_exif(&data, &content_type);
     state.storage.store(&data, &file_key, &content_type).await?;
 
-    let (file_meta, blurhash, thumbnail_file_name) = if media_type == "image" || media_type == "gifv" {
-        match process_image(&data, &content_type) {
-            Some((orig_dim, small_bytes, small_dim, bh)) => {
-                let small_filename = format!("small.{}", file_ext);
-                let small_key = format!("media_attachments/files/{}/small/{}", crate::media::int_to_path(media_id), small_filename);
-                state.storage.store(&small_bytes, &small_key, &content_type).await?;
-                let meta = serde_json::json!({
-                    "original": orig_dim,
-                    "small": small_dim,
-                });
-                (Some(meta), Some(bh), Some(small_filename))
-            }
-            None => (None, None, None),
+    let (file_meta, blurhash, thumbnail_file_name) = match process_image(&data, &content_type) {
+        Some((orig_dim, small_bytes, small_dim, bh)) => {
+            let small_filename = format!("small.{}", file_ext);
+            let small_key = format!("media_attachments/files/{}/small/{}", crate::media::int_to_path(media_id), small_filename);
+            state.storage.store(&small_bytes, &small_key, &content_type).await?;
+            let meta = serde_json::json!({ "original": orig_dim, "small": small_dim });
+            (Some(meta), Some(bh), Some(small_filename))
         }
-    } else {
-        (None, None, None)
+        None => (None, None, None),
     };
 
     let file_size = data.len() as i32;
@@ -92,7 +123,77 @@ pub async fn upload_media(
     .fetch_one(&state.db)
     .await?;
 
-    Ok(Json(media_from_db(&attachment)))
+    Ok((StatusCode::OK, Json(media_from_db(&attachment))).into_response())
+}
+
+/// Transcode a video/gifv/audio upload (ffmpeg), store the result + thumbnail,
+/// and mark the attachment complete.
+async fn process_media(
+    state: &AppState,
+    media_id: i64,
+    data: &[u8],
+    media_type: &str,
+) -> anyhow::Result<()> {
+    let transcoded = crate::media::transcode::transcode(data, media_type).await?;
+    let orig_filename = format!("original.{}", transcoded.ext);
+    let orig_key = format!(
+        "media_attachments/files/{}/original/{}",
+        crate::media::int_to_path(media_id),
+        orig_filename
+    );
+    state
+        .storage
+        .store(&transcoded.bytes, &orig_key, transcoded.content_type)
+        .await
+        .map_err(|e| anyhow::anyhow!("store original: {e}"))?;
+
+    let mut file_meta = serde_json::json!({ "original": transcoded.meta });
+    let mut thumbnail_filename: Option<String> = None;
+    let mut thumbnail_ct: Option<String> = None;
+    let mut blurhash: Option<String> = None;
+
+    if media_type == "video" || media_type == "gifv" {
+        if let Ok(frame) = crate::media::transcode::extract_frame(data).await {
+            if let Some((_orig, small_bytes, small_dim, bh)) = process_image(&frame, "image/png") {
+                let small_filename = "small.jpg".to_string();
+                let small_key = format!(
+                    "media_attachments/files/{}/small/{}",
+                    crate::media::int_to_path(media_id),
+                    small_filename
+                );
+                state
+                    .storage
+                    .store(&small_bytes, &small_key, "image/jpeg")
+                    .await
+                    .map_err(|e| anyhow::anyhow!("store thumbnail: {e}"))?;
+                file_meta["small"] = small_dim;
+                thumbnail_filename = Some(small_filename);
+                thumbnail_ct = Some("image/jpeg".to_string());
+                blurhash = Some(bh);
+            }
+        }
+    }
+
+    let file_size = transcoded.bytes.len() as i32;
+    sqlx::query!(
+        r#"UPDATE media_attachments
+             SET file_file_name = $2, file_content_type = $3, file_file_size = $4,
+                 thumbnail_file_name = $5, thumbnail_content_type = $6,
+                 file_meta = $7, blurhash = $8, processing = 2, updated_at = now()
+           WHERE id = $1"#,
+        media_id,
+        orig_filename,
+        transcoded.content_type,
+        file_size,
+        thumbnail_filename,
+        thumbnail_ct,
+        file_meta,
+        blurhash,
+    )
+    .execute(&state.db)
+    .await?;
+
+    Ok(())
 }
 
 /// Decode image, compute original + small dimensions and blurhash.
