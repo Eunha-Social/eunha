@@ -1,7 +1,38 @@
 import { useState } from 'react'
 
 import type { mastodon } from '../masto.ts'
+import { Blurhash } from '@/components/blurhash.tsx'
 import { cn } from '@/lib/utils.ts'
+
+function ImageItem({ m }: { m: mastodon.v1.MediaAttachment }) {
+  const [loaded, setLoaded] = useState(false)
+  const preview = m.previewUrl || m.url || ''
+  const full = m.url || m.remoteUrl || preview
+
+  return (
+    <a
+      href={full ?? undefined}
+      target="_blank"
+      rel="noreferrer"
+      className="relative block h-full"
+    >
+      {m.blurhash && !loaded && (
+        <Blurhash hash={m.blurhash} className="absolute inset-0 h-full w-full" />
+      )}
+      <img
+        src={preview}
+        alt={m.description ?? ''}
+        title={m.description ?? undefined}
+        loading="lazy"
+        onLoad={() => setLoaded(true)}
+        className={cn(
+          'relative h-full w-full object-cover transition-opacity',
+          !loaded && 'opacity-0',
+        )}
+      />
+    </a>
+  )
+}
 
 function MediaItem({ m }: { m: mastodon.v1.MediaAttachment }) {
   const preview = m.previewUrl || m.url || ''
@@ -9,17 +40,7 @@ function MediaItem({ m }: { m: mastodon.v1.MediaAttachment }) {
 
   switch (m.type) {
     case 'image':
-      return (
-        <a href={full ?? undefined} target="_blank" rel="noreferrer" className="block h-full">
-          <img
-            src={preview}
-            alt={m.description ?? ''}
-            title={m.description ?? undefined}
-            loading="lazy"
-            className="h-full w-full object-cover"
-          />
-        </a>
-      )
+      return <ImageItem m={m} />
     case 'gifv':
       return (
         <video

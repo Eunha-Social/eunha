@@ -99,3 +99,11 @@ export async function getNotifications(
 ): Promise<mastodon.v1.Notification[]> {
   return restClient(token).v1.notifications.list({ limit: 40, maxId })
 }
+
+export function votePoll(
+  pollId: string,
+  choices: number[],
+  token: string,
+): Promise<mastodon.v1.Poll> {
+  return restClient(token).v1.polls.$select(pollId).votes.create({ choices })
+}

@@ -8,6 +8,7 @@ import { Card, CardContent } from '@/components/ui/card.tsx'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { MediaAttachments } from '@/components/media-attachments.tsx'
+import { Poll } from '@/components/poll.tsx'
 import { cn } from '@/lib/utils.ts'
 
 function ActionButton({
@@ -55,6 +56,7 @@ export function StatusCard({
 }) {
   const [status, setStatus] = useState(initial)
   const [busy, setBusy] = useState(false)
+  const [expanded, setExpanded] = useState(!initial.spoilerText)
   const navigate = useNavigate()
 
   // Boosting a status returns a reblog wrapper around the original; normalize
@@ -101,15 +103,32 @@ export function StatusCard({
             {new Date(status.createdAt).toLocaleString()}
           </Link>
         </div>
-        <div
-          className="text-sm [&_a]:text-accent [&_a]:underline"
-          dangerouslySetInnerHTML={{ __html: status.content }}
-        />
-        {status.mediaAttachments.length > 0 && (
-          <MediaAttachments
-            attachments={status.mediaAttachments}
-            sensitive={status.sensitive}
-          />
+        {status.spoilerText && (
+          <div className="text-sm">
+            <span>{status.spoilerText}</span>
+            <button
+              type="button"
+              onClick={() => setExpanded((e) => !e)}
+              className="text-accent ml-2 text-xs underline"
+            >
+              {expanded ? 'Show less' : 'Show more'}
+            </button>
+          </div>
+        )}
+        {expanded && (
+          <>
+            <div
+              className="text-sm [&_a]:text-accent [&_a]:underline"
+              dangerouslySetInnerHTML={{ __html: status.content }}
+            />
+            {status.mediaAttachments.length > 0 && (
+              <MediaAttachments
+                attachments={status.mediaAttachments}
+                sensitive={status.sensitive}
+              />
+            )}
+            {status.poll && <Poll poll={status.poll} token={token} />}
+          </>
         )}
         <div className="flex items-center gap-1">
           <ActionButton
