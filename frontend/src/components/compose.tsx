@@ -13,7 +13,7 @@ export function Compose({
 }: {
   token: string
   replyTo: mastodon.v1.Status | null
-  onCancelReply: () => void
+  onCancelReply?: () => void
   onPosted: (status: mastodon.v1.Status) => void
 }) {
   const [text, setText] = useState('')
@@ -47,9 +47,11 @@ export function Compose({
         {replyTo && (
           <div className="text-muted-foreground flex items-center justify-between text-xs">
             <span>Replying to @{replyTo.account.acct}</span>
-            <button className="underline" onClick={onCancelReply}>
-              cancel
-            </button>
+            {onCancelReply && (
+              <button className="underline" onClick={onCancelReply}>
+                cancel
+              </button>
+            )}
           </div>
         )}
         <textarea

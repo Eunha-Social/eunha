@@ -1,11 +1,9 @@
 import { useEffect, useState } from 'react'
-import { LogIn, LogOut } from 'lucide-react'
 
 import { getInstance, getHomeTimeline } from '../api.ts'
 import type { mastodon } from '../masto.ts'
-import { beginLogin, getToken, logout } from '../auth.ts'
-import { Button } from '@/components/ui/button.tsx'
-import { ModeToggle } from '@/components/mode-toggle.tsx'
+import { getToken } from '../auth.ts'
+import { TopBar } from '@/components/top-bar.tsx'
 import { Compose } from '@/components/compose.tsx'
 import { StatusCard } from '@/components/status-card.tsx'
 
@@ -39,21 +37,7 @@ export default function Home() {
 
   return (
     <div className="mx-auto max-w-2xl p-4">
-      <header className="mb-6 flex items-center justify-between border-b pb-3">
-        <span className="text-lg font-semibold">{instance?.title ?? 'eunha'}</span>
-        <div className="flex items-center gap-2">
-          {token ? (
-            <Button variant="outline" size="sm" onClick={() => { logout(); location.reload() }}>
-              <LogOut /> Sign out
-            </Button>
-          ) : (
-            <Button size="sm" onClick={() => beginLogin()}>
-              <LogIn /> Sign in
-            </Button>
-          )}
-          <ModeToggle />
-        </div>
-      </header>
+      <TopBar title={instance?.title} />
 
       {error && <p className="text-destructive mb-4 text-sm">{error}</p>}
 

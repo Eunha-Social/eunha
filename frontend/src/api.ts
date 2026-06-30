@@ -40,3 +40,45 @@ export function setBookmark(token: string, id: string, on: boolean) {
   const s = restClient(token).v1.statuses.$select(id)
   return on ? s.bookmark() : s.unbookmark()
 }
+
+export function getCurrentAccount(token: string): Promise<mastodon.v1.AccountCredentials> {
+  return restClient(token).v1.accounts.verifyCredentials()
+}
+
+export function lookupAccount(
+  acct: string,
+  token?: string,
+): Promise<mastodon.v1.Account> {
+  return restClient(token).v1.accounts.lookup({ acct })
+}
+
+export async function getAccountStatuses(
+  id: string,
+  token?: string,
+): Promise<mastodon.v1.Status[]> {
+  return restClient(token).v1.accounts.$select(id).statuses.list({ limit: 40 })
+}
+
+export function getStatus(id: string, token?: string): Promise<mastodon.v1.Status> {
+  return restClient(token).v1.statuses.$select(id).fetch()
+}
+
+export function getStatusContext(
+  id: string,
+  token?: string,
+): Promise<mastodon.v1.Context> {
+  return restClient(token).v1.statuses.$select(id).context.fetch()
+}
+
+export async function getRelationship(
+  id: string,
+  token: string,
+): Promise<mastodon.v1.Relationship | undefined> {
+  const rels = await restClient(token).v1.accounts.relationships.fetch({ id: [id] })
+  return rels[0]
+}
+
+export function setFollow(id: string, token: string, on: boolean) {
+  const a = restClient(token).v1.accounts.$select(id)
+  return on ? a.follow() : a.unfollow()
+}

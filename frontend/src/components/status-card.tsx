@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { Bookmark, Repeat2, Reply, Star } from 'lucide-react'
 
 import type { mastodon } from '../masto.ts'
@@ -49,15 +50,16 @@ export function StatusCard({
   status: mastodon.v1.Status
   token: string
   boostedBy?: mastodon.v1.Account
-  onReply: (status: mastodon.v1.Status) => void
+  onReply?: (status: mastodon.v1.Status) => void
 }) {
   const [status, setStatus] = useState(initial)
   const [busy, setBusy] = useState(false)
+  const navigate = useNavigate()
 
   // Boosting a status returns a reblog wrapper around the original; normalize
   // back to the underlying status so counts/flags stay on the displayed entity.
   const act = async (fn: () => Promise<mastodon.v1.Status>) => {
-    if (busy) return
+    if (busy || !token) return
     setBusy(true)
     try {
       const res = await fn()
@@ -68,6 +70,8 @@ export function StatusCard({
   }
 
   const name = status.account.displayName || status.account.username
+  const profilePath = `/@${status.account.acct}`
+  const threadPath = `/@${status.account.acct}/${status.id}`
 
   return (
     <Card>
@@ -79,15 +83,22 @@ export function StatusCard({
           </p>
         )}
         <div className="flex items-center gap-2 text-sm">
-          <Avatar className="size-9 rounded-lg">
-            <AvatarImage src={status.account.avatar} alt="" />
-            <AvatarFallback>{name.slice(0, 1).toUpperCase()}</AvatarFallback>
-          </Avatar>
-          <span className="font-semibold">{name}</span>
+          <Link to={profilePath}>
+            <Avatar className="size-9 rounded-lg">
+              <AvatarImage src={status.account.avatar} alt="" />
+              <AvatarFallback>{name.slice(0, 1).toUpperCase()}</AvatarFallback>
+            </Avatar>
+          </Link>
+          <Link to={profilePath} className="font-semibold no-underline hover:underline">
+            {name}
+          </Link>
           <span className="text-muted-foreground">@{status.account.acct}</span>
-          <time className="text-muted-foreground ml-auto text-xs">
+          <Link
+            to={threadPath}
+            className="text-muted-foreground ml-auto text-xs no-underline hover:underline"
+          >
             {new Date(status.createdAt).toLocaleString()}
-          </time>
+          </Link>
         </div>
         <div
           className="text-sm [&_a]:text-accent [&_a]:underline"
@@ -98,14 +109,14 @@ export function StatusCard({
             icon={<Reply />}
             count={status.repliesCount}
             label="Reply"
-            onClick={() => onReply(status)}
+            onClick={() => (onReply ? onReply(status) : navigate(threadPath))}
           />
           <ActionButton
             icon={<Repeat2 />}
             count={status.reblogsCount}
             active={status.reblogged ?? false}
             activeClass="text-primary"
-            disabled={busy}
+            disabled={busy || !token}
             label="Boost"
             onClick={() => act(() => setReblog(token, status.id, !status.reblogged))}
           />
@@ -114,7 +125,7 @@ export function StatusCard({
             count={status.favouritesCount}
             active={status.favourited ?? false}
             activeClass="text-yellow-500"
-            disabled={busy}
+            disabled={busy || !token}
             label="Favourite"
             onClick={() => act(() => setFavourite(token, status.id, !status.favourited))}
           />
@@ -122,7 +133,7 @@ export function StatusCard({
             icon={<Bookmark />}
             active={status.bookmarked ?? false}
             activeClass="text-secondary"
-            disabled={busy}
+            disabled={busy || !token}
             label="Bookmark"
             onClick={() => act(() => setBookmark(token, status.id, !status.bookmarked))}
           />
