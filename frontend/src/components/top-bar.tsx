@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { LogIn, LogOut } from 'lucide-react'
+import { LogIn, LogOut, Search } from 'lucide-react'
 
 import { beginLogin, getToken, logout } from '../auth.ts'
 import { Button } from '@/components/ui/button.tsx'
@@ -13,6 +13,11 @@ export function TopBar({ title }: { title?: string }) {
         {title ?? 'eunha'}
       </Link>
       <div className="flex items-center gap-2">
+        <Button asChild variant="ghost" size="icon" aria-label="Search">
+          <Link to="/search">
+            <Search />
+          </Link>
+        </Button>
         {token ? (
           <Button
             variant="outline"

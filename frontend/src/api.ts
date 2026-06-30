@@ -107,3 +107,19 @@ export function votePoll(
 ): Promise<mastodon.v1.Poll> {
   return restClient(token).v1.polls.$select(pollId).votes.create({ choices })
 }
+
+export async function search(
+  q: string,
+  token?: string,
+): Promise<mastodon.v2.Search> {
+  // resolve remote accounts/statuses only for authenticated searches.
+  return restClient(token).v2.search.list({ q, resolve: !!token, limit: 20 })
+}
+
+export async function getTagTimeline(
+  name: string,
+  token?: string,
+  maxId?: string,
+): Promise<mastodon.v1.Status[]> {
+  return restClient(token).v1.timelines.tag.$select(name).list({ limit: 40, maxId })
+}

@@ -7,6 +7,8 @@ import Profile from './pages/Profile.tsx'
 import StatusThread from './pages/StatusThread.tsx'
 import PublicTimeline from './pages/PublicTimeline.tsx'
 import Notifications from './pages/Notifications.tsx'
+import SearchPage from './pages/Search.tsx'
+import TagTimeline from './pages/TagTimeline.tsx'
 import { ThemeProvider } from './components/theme-provider.tsx'
 import './styles.css'
 
@@ -21,6 +23,8 @@ const router = createBrowserRouter([
   { path: '/local', element: <PublicTimeline /> },
   { path: '/public', element: <PublicTimeline /> },
   { path: '/notifications', element: <Notifications /> },
+  { path: '/search', element: <SearchPage /> },
+  { path: '/tags/:name', element: <TagTimeline /> },
   { path: '/:acct', element: <Profile /> },
   { path: '/:acct/:id', element: <StatusThread /> },
   { path: '*', element: <Home /> },
