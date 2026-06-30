@@ -287,6 +287,22 @@ pub async fn create_and_push(
         return;
     }
 
+    // Local-only: Mastodon's LocalNotificationWorker only notifies local
+    // accounts, so never create a notification row for a remote recipient
+    // (e.g. favouriting or boosting a remote author's post).
+    let recipient_local = sqlx::query_scalar!(
+        r#"SELECT (domain IS NULL) AS "local!" FROM accounts WHERE id = $1"#,
+        recipient_id,
+    )
+    .fetch_optional(&db)
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or(false);
+    if !recipient_local {
+        return;
+    }
+
     // Don't notify if there is a block in either direction
     let is_blocked = sqlx::query_scalar!(
         r#"SELECT 1 FROM blocks

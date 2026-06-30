@@ -1577,13 +1577,22 @@ pub async fn reblog_status(
 
     // Determine visibility: hidden originals keep their own visibility;
     // otherwise use the requested visibility or fall back to the user's default.
-    let boost_visibility = if matches!(original.visibility, crate::db::models::vis::PRIVATE | crate::db::models::vis::DIRECT) {
+    let boost_visibility = if matches!(
+        original.visibility,
+        crate::db::models::vis::PRIVATE
+            | crate::db::models::vis::DIRECT
+            | crate::db::models::vis::LIMITED
+    ) {
+        // Hidden originals keep their own visibility (Mastodon: reblogged_status.hidden?).
         original.visibility
     } else {
-        let requested = body.as_ref().and_then(|b| b.visibility.as_deref());
-        match requested {
+        match body.as_ref().and_then(|b| b.visibility.as_deref()) {
             Some(v) => crate::db::models::vis::from_str(v),
-            None => crate::db::models::vis::from_str("public"),
+            // Mastodon falls back to the booster's default posting privacy.
+            None => {
+                let defaults = super::accounts::user_defaults(&state, auth.account_id).await;
+                crate::db::models::vis::from_str(&defaults.privacy)
+            }
         }
     };
 
@@ -1670,6 +1679,22 @@ pub async fn reblog_status(
         });
     }
 
+    // Fan the boost into followers' home feeds (mirrors the post path) so it
+    // appears immediately, not only after a feed repopulate.
+    {
+        let mut redis = state.redis.clone();
+        let db = state.db.clone();
+        let booster_id = boost_account.id;
+        let bid = boost.id;
+        if feed::sync_fanout() {
+            feed::fanout_new_status(&mut redis, &db, booster_id, bid, &[]).await;
+        } else {
+            tokio::spawn(async move {
+                feed::fanout_new_status(&mut redis, &db, booster_id, bid, &[]).await;
+            });
+        }
+    }
+
     // Send Announce activity to followers and original status author (if remote)
     if boost_account.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
         let domain = state.instance.domain.clone();
@@ -1682,10 +1707,14 @@ pub async fn reblog_status(
             original.account_id,
         ).fetch_optional(&state.db).await?;
         let original_author_url = original_account.as_ref().map(|a| a.uri.clone()).unwrap_or_default();
-        let cc_strs: Vec<String> = std::iter::once(followers_url.clone())
-            .chain(std::iter::once(original_author_url.clone()).filter(|s| !s.is_empty()))
-            .collect();
-        let to_refs = vec![crate::federation::activity::AS_PUBLIC];
+        // Address the Announce by the boost's visibility (Mastodon TagManager),
+        // always cc'ing the original author.
+        let (to_strs, mut cc_strs) =
+            crate::db::models::vis::audience(boost_visibility, &followers_url, &[]);
+        if !original_author_url.is_empty() {
+            cc_strs.push(original_author_url.clone());
+        }
+        let to_refs: Vec<&str> = to_strs.iter().map(String::as_str).collect();
         let cc_refs: Vec<&str> = cc_strs.iter().map(String::as_str).collect();
         let published = boost.created_at.and_utc().to_rfc3339();
         let announce = crate::federation::activity::announce(&announce_id, &actor_url, &original_uri, &to_refs, &cc_refs, &published)?;
@@ -1711,6 +1740,19 @@ pub async fn reblog_status(
                         tracing::warn!(error = %e, "failed to enqueue Announce to original author");
                     }
                 }
+            }
+        }
+
+        // Public boosts also reach enabled relays (StatusReachFinder#relay_inboxes).
+        if boost_visibility == crate::db::models::vis::PUBLIC {
+            if let Err(e) = crate::federation::delivery::deliver_to_relays(
+                &state,
+                announce.clone(),
+                key_id.clone(),
+            )
+            .await
+            {
+                tracing::warn!(error = %e, "failed to enqueue Announce relay delivery");
             }
         }
 
