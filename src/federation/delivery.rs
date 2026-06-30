@@ -110,7 +110,8 @@ pub async fn fanout_to_followers(
            JOIN accounts a ON a.id = f.account_id
            WHERE f.target_account_id = $1
              AND a.domain IS NOT NULL
-             AND a.inbox_url <> ''"#,
+             AND a.inbox_url <> ''
+             AND a.suspended_at IS NULL"#,
         actor_account_id,
     )
     .fetch_all(&state.db)
@@ -131,6 +132,84 @@ pub async fn fanout_to_followers(
         })
         .collect();
 
+    enqueue_to_inboxes(state, activity, inboxes, key_id).await
+}
+
+/// Fan out a public/unlisted reply to a *local* account: deliver to the
+/// author's followers **and** the thread (parent) author's followers, matching
+/// Mastodon's `StatusReachFinder#followers_scope`
+/// (`account.followers.or(thread.account.followers.not_domain_blocked_by_account(account))`).
+/// Parent-author followers whose domain the author blocks are excluded; suspended
+/// accounts are excluded everywhere; the inbox set is de-duplicated.
+pub async fn fanout_to_reply_followers(
+    state: &AppState,
+    activity: Value,
+    author_account_id: i64,
+    thread_account_id: i64,
+    key_id: String,
+) -> anyhow::Result<u64> {
+    let inboxes = sqlx::query!(
+        r#"SELECT DISTINCT
+             CASE WHEN a.shared_inbox_url IS NOT NULL AND a.shared_inbox_url <> ''
+                  THEN a.shared_inbox_url
+                  ELSE a.inbox_url
+             END AS inbox
+           FROM accounts a
+           WHERE a.domain IS NOT NULL
+             AND a.inbox_url <> ''
+             AND a.suspended_at IS NULL
+             AND (
+               EXISTS (SELECT 1 FROM follows f
+                       WHERE f.account_id = a.id AND f.target_account_id = $1)
+               OR (
+                 EXISTS (SELECT 1 FROM follows f
+                         WHERE f.account_id = a.id AND f.target_account_id = $2)
+                 AND a.domain NOT IN (
+                   SELECT domain FROM account_domain_blocks WHERE account_id = $1
+                 )
+               )
+             )"#,
+        author_account_id,
+        thread_account_id,
+    )
+    .fetch_all(&state.db)
+    .await?;
+
+    let unavailable = unavailable_domains(state).await;
+    let inboxes = inboxes
+        .into_iter()
+        .filter_map(|row| row.inbox)
+        .filter(|inbox| !inbox.is_empty())
+        .filter(|inbox| !inbox_unavailable(inbox, &unavailable))
+        .collect();
+
+    enqueue_to_inboxes(state, activity, inboxes, key_id).await
+}
+
+/// Deliver a public status to every enabled (accepted) relay's inbox, matching
+/// Mastodon's `StatusReachFinder#relay_inboxes`.
+pub async fn deliver_to_relays(
+    state: &AppState,
+    activity: Value,
+    key_id: String,
+) -> anyhow::Result<u64> {
+    // Mastodon's Relay state enum: accepted == 2 (the `enabled` scope).
+    let rows = sqlx::query_scalar!(
+        "SELECT inbox_url FROM relays WHERE state = 2 AND inbox_url <> ''",
+    )
+    .fetch_all(&state.db)
+    .await?;
+
+    let unavailable = unavailable_domains(state).await;
+    let inboxes: Vec<String> = rows
+        .into_iter()
+        .filter(|inbox| !inbox.is_empty())
+        .filter(|inbox| !inbox_unavailable(inbox, &unavailable))
+        .collect();
+
+    if inboxes.is_empty() {
+        return Ok(0);
+    }
     enqueue_to_inboxes(state, activity, inboxes, key_id).await
 }
 

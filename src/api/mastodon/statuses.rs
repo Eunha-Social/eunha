@@ -792,14 +792,53 @@ pub async fn post_status(
                         tracing::warn!(error = %e, "failed to enqueue mentioned status delivery");
                     }
                 }
-                if let Err(e) = crate::federation::delivery::fanout_to_followers(
-                    &state,
-                    activity,
-                    account.id,
-                    key_id,
-                )
-                .await
-                {
+                // Public statuses also propagate to enabled relays.
+                if visibility == "public" {
+                    if let Err(e) = crate::federation::delivery::deliver_to_relays(
+                        &state,
+                        activity.clone(),
+                        key_id.clone(),
+                    )
+                    .await
+                    {
+                        tracing::warn!(error = %e, "failed to enqueue relay delivery");
+                    }
+                }
+
+                // For public/unlisted replies to a LOCAL account, also reach the
+                // thread author's followers (StatusReachFinder#followers_scope) so
+                // remote servers receive the reply in thread context.
+                let reply_thread_account: Option<i64> =
+                    if matches!(visibility.as_str(), "public" | "unlisted") {
+                        match in_reply_to_account_id {
+                            Some(parent_acct) => sqlx::query_scalar!(
+                                r#"SELECT (domain IS NULL) AS "local!" FROM accounts WHERE id = $1"#,
+                                parent_acct,
+                            )
+                            .fetch_optional(&state.db)
+                            .await
+                            .ok()
+                            .flatten()
+                            .filter(|&local| local)
+                            .map(|_| parent_acct),
+                            None => None,
+                        }
+                    } else {
+                        None
+                    };
+
+                let fanout = if let Some(thread_acct) = reply_thread_account {
+                    crate::federation::delivery::fanout_to_reply_followers(
+                        &state, activity, account.id, thread_acct, key_id,
+                    )
+                    .await
+                } else {
+                    crate::federation::delivery::fanout_to_followers(
+                        &state, activity, account.id, key_id,
+                    )
+                    .await
+                };
+                if let Err(e) = fanout {
                     tracing::warn!(error = %e, "failed to enqueue follower status fanout");
                 }
             }

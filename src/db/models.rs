@@ -338,7 +338,10 @@ pub mod vis {
         let vis = match v {
             PUBLIC => Visibility::Public,
             UNLISTED => Visibility::Unlisted,
-            PRIVATE | LIMITED => Visibility::Private,
+            PRIVATE => Visibility::Private,
+            // Mastodon's TagManager serializes "limited" like "direct": the
+            // recipients go in `to` and `cc` stays empty.
+            LIMITED => return (mentioned.to_vec(), Vec::new()),
             _ => Visibility::Direct,
         };
         feder_core::addressing::audience_for(vis, followers, mentioned)

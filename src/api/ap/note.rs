@@ -118,19 +118,38 @@ pub async fn build_note(
         None
     };
 
+    // A silenced author only addresses mentioned accounts who follow them (or
+    // have a pending follow request) — Mastodon's TagManager narrowing.
+    let author_silenced = sqlx::query_scalar!(
+        r#"SELECT (silenced_at IS NOT NULL) AS "silenced!" FROM accounts WHERE id = $1"#,
+        s.account_id,
+    )
+    .fetch_optional(&state.db)
+    .await?
+    .unwrap_or(false);
+
     // ── Mentions (for tag + addressing) ─────────────────────────────────────
     let mention_rows = sqlx::query!(
-        r#"SELECT a.username, a.domain, a.uri AS account_uri, a.url AS "url?"
+        r#"SELECT a.id AS account_id, a.id_scheme, a.username, a.domain,
+                  a.uri AS account_uri, a.url AS "url?", a.actor_type, a.followers_url,
+                  EXISTS(SELECT 1 FROM follows f
+                         WHERE f.account_id = a.id AND f.target_account_id = $2) AS "is_follower!",
+                  EXISTS(SELECT 1 FROM follow_requests fr
+                         WHERE fr.account_id = a.id AND fr.target_account_id = $2) AS "has_request!"
            FROM mentions m JOIN accounts a ON a.id = m.account_id
            WHERE m.status_id = $1"#,
         s.id,
+        s.account_id,
     )
     .fetch_all(&state.db)
     .await?;
 
     let mut mention_map: std::collections::HashMap<String, (String, String)> =
         std::collections::HashMap::new();
+    // Addressing (to/cc) — narrowed for silenced authors and augmented with
+    // group actors' followers collections.
     let mut mention_uris: Vec<String> = Vec::new();
+    // The `tag` array lists every mention regardless of audience narrowing.
     let mut mention_tags: Vec<Value> = Vec::new();
     for m in &mention_rows {
         let href = if !m.account_uri.is_empty() {
@@ -154,12 +173,32 @@ pub async fn build_note(
                 .entry(format!("{}@{}", m.username.to_lowercase(), d.to_lowercase()))
                 .or_insert_with(|| (url_for_render.clone(), acct.clone()));
         }
-        mention_uris.push(href.clone());
         mention_tags.push(json!({
             "type": "Mention",
-            "href": href,
+            "href": href.clone(),
             "name": format!("@{acct}"),
         }));
+
+        if author_silenced && !(m.is_follower || m.has_request) {
+            continue;
+        }
+        mention_uris.push(href);
+        // Mastodon also addresses a group actor's followers collection.
+        if m.actor_type.as_deref() == Some("Group") {
+            let followers_uri = if m.domain.is_none() {
+                Some(format!(
+                    "{}/followers",
+                    crate::federation::tag::account_uri(domain, m.account_id, m.id_scheme, &m.username)
+                ))
+            } else if !m.followers_url.is_empty() {
+                Some(m.followers_url.clone())
+            } else {
+                None
+            };
+            if let Some(f) = followers_uri {
+                mention_uris.push(f);
+            }
+        }
     }
 
     // ── Hashtags ────────────────────────────────────────────────────────────
