@@ -7,6 +7,7 @@ import { setBookmark, setFavourite, setReblog } from '../api.ts'
 import { Card, CardContent } from '@/components/ui/card.tsx'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar.tsx'
 import { Button } from '@/components/ui/button.tsx'
+import { MediaAttachments } from '@/components/media-attachments.tsx'
 import { cn } from '@/lib/utils.ts'
 
 function ActionButton({
@@ -104,6 +105,12 @@ export function StatusCard({
           className="text-sm [&_a]:text-accent [&_a]:underline"
           dangerouslySetInnerHTML={{ __html: status.content }}
         />
+        {status.mediaAttachments.length > 0 && (
+          <MediaAttachments
+            attachments={status.mediaAttachments}
+            sensitive={status.sensitive}
+          />
+        )}
         <div className="flex items-center gap-1">
           <ActionButton
             icon={<Reply />}
