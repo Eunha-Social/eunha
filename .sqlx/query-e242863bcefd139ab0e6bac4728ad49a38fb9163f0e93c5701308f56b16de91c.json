@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "DELETE FROM follows WHERE (account_id = $1 AND target_account_id = $2) OR (account_id = $2 AND target_account_id = $1) RETURNING account_id, target_account_id",
+  "query": "DELETE FROM follow_requests WHERE (account_id = $1 AND target_account_id = $2) OR (account_id = $2 AND target_account_id = $1) RETURNING account_id, uri",
   "describe": {
     "columns": [
       {
@@ -10,8 +10,8 @@
       },
       {
         "ordinal": 1,
-        "name": "target_account_id",
-        "type_info": "Int8"
+        "name": "uri",
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
@@ -22,8 +22,8 @@
     },
     "nullable": [
       false,
-      false
+      true
     ]
   },
-  "hash": "5b4723daa0243a0787e931181dec857cc083832bdaefbe21b00f4bb10e19eee6"
+  "hash": "e242863bcefd139ab0e6bac4728ad49a38fb9163f0e93c5701308f56b16de91c"
 }

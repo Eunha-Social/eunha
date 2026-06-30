@@ -1906,6 +1906,10 @@ pub async fn mute_account(
     body: Option<Json<MuteParams>>,
 ) -> AppResult<Json<Relationship>> {
     auth.require_scope("write:mutes")?;
+    // Mastodon MuteService: muting yourself is a no-op.
+    if auth.account_id == target_id {
+        return build_relationship(&state, auth.account_id, target_id).await.map(Json);
+    }
     let params = body.map(|Json(p)| p).unwrap_or_default();
     let hide_notifications = params.notifications.unwrap_or(true);
     let expires_at: Option<chrono::NaiveDateTime> = params.duration
@@ -1952,6 +1956,10 @@ pub async fn block_account(
     Extension(auth): Extension<AuthenticatedUser>,
 ) -> AppResult<Json<Relationship>> {
     auth.require_scope("write:blocks")?;
+    // Mastodon BlockService: blocking yourself is a no-op.
+    if auth.account_id == target_id {
+        return build_relationship(&state, auth.account_id, target_id).await.map(Json);
+    }
     sqlx::query!(
         r#"INSERT INTO blocks (account_id, target_account_id, created_at, updated_at) VALUES ($1, $2, now(), now())
            ON CONFLICT (account_id, target_account_id) DO NOTHING"#,
@@ -1960,9 +1968,10 @@ pub async fn block_account(
     .execute(&state.db)
     .await?;
 
-    // Remove accepted follows in both directions and update counts
+    // Remove accepted follows in both directions and update counts. Capture the
+    // direction + Follow activity uri so we can federate the termination.
     let deleted = sqlx::query!(
-        "DELETE FROM follows WHERE (account_id = $1 AND target_account_id = $2) OR (account_id = $2 AND target_account_id = $1) RETURNING account_id, target_account_id",
+        "DELETE FROM follows WHERE (account_id = $1 AND target_account_id = $2) OR (account_id = $2 AND target_account_id = $1) RETURNING account_id, target_account_id, uri",
         auth.account_id, target_id
     )
     .fetch_all(&state.db)
@@ -1977,15 +1986,17 @@ pub async fn block_account(
             row.target_account_id,
         ).execute(&state.db).await;
     }
-    // Also delete any pending follow requests in both directions
-    sqlx::query!(
-        "DELETE FROM follow_requests WHERE (account_id = $1 AND target_account_id = $2) OR (account_id = $2 AND target_account_id = $1)",
+    // Also delete any pending follow requests in both directions, keeping uris.
+    let deleted_requests = sqlx::query!(
+        "DELETE FROM follow_requests WHERE (account_id = $1 AND target_account_id = $2) OR (account_id = $2 AND target_account_id = $1) RETURNING account_id, uri",
         auth.account_id, target_id
     )
-    .execute(&state.db)
+    .fetch_all(&state.db)
     .await?;
 
-    // Send Block activity to remote target
+    // Federate to a remote target (Mastodon BlockService#handle_following_relationships
+    // + the Block itself): Undo(Follow) for our follow, Reject(Follow) for their
+    // follow / pending request.
     if let Some(target) = sqlx::query!(
         "SELECT uri, inbox_url, shared_inbox_url, domain FROM accounts WHERE id = $1",
         target_id,
@@ -1998,22 +2009,56 @@ pub async fn block_account(
                 if actor_row.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
                     let domain = state.instance.domain.clone();
                     let actor_url = crate::federation::tag::account_uri(&domain, auth.account_id, actor_row.id_scheme, &actor_row.username);
-                    let block_id = format!("https://{}/users/{}/blocks/{}", domain, actor_row.username, target_id);
-                    let target_uri = target.uri.clone();
-                    let block_act =
-                        crate::federation::activity::block(&block_id, &actor_url, &target_uri)?;
                     let key_id = format!("{}#main-key", actor_url);
-                    let inbox = if !target.shared_inbox_url.is_empty() { target.shared_inbox_url } else { target.inbox_url };
+                    let inbox = if !target.shared_inbox_url.is_empty() { target.shared_inbox_url.clone() } else { target.inbox_url.clone() };
+
+                    let activity_id = || format!("https://{}/activities/{}", domain, crate::snowflake::next_id());
+                    let mut activities: Vec<serde_json::Value> = Vec::new();
+
+                    for f in &deleted {
+                        let Some(uri) = f.uri.clone().filter(|s| !s.is_empty()) else { continue };
+                        if f.account_id == auth.account_id {
+                            // Our follow of the remote target -> Undo(Follow).
+                            if let Ok(a) = crate::federation::activity::undo_follow(
+                                &activity_id(), &actor_url, &uri, &actor_url, &target.uri,
+                            ) {
+                                activities.push(a);
+                            }
+                        } else {
+                            // The remote target's follow of us -> Reject(Follow).
+                            if let Ok(a) = crate::federation::activity::reject_follow(
+                                &activity_id(), &actor_url, &uri, &target.uri, &actor_url,
+                            ) {
+                                activities.push(a);
+                            }
+                        }
+                    }
+                    for r in &deleted_requests {
+                        // The remote target's pending request to us -> Reject(Follow).
+                        if r.account_id == target_id {
+                            if let Some(uri) = r.uri.clone().filter(|s| !s.is_empty()) {
+                                if let Ok(a) = crate::federation::activity::reject_follow(
+                                    &activity_id(), &actor_url, &uri, &target.uri, &actor_url,
+                                ) {
+                                    activities.push(a);
+                                }
+                            }
+                        }
+                    }
+
+                    // The Block activity itself.
+                    let block_id = format!("https://{}/users/{}/blocks/{}", domain, actor_row.username, target_id);
+                    if let Ok(b) = crate::federation::activity::block(&block_id, &actor_url, &target.uri) {
+                        activities.push(b);
+                    }
+
                     if !inbox.is_empty() {
-                        if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
-                            &state,
-                            block_act,
-                            vec![inbox],
-                            key_id,
-                        )
-                        .await
-                        {
-                            tracing::warn!(error = %e, "failed to enqueue Block");
+                        for act in activities {
+                            if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+                                &state, act, vec![inbox.clone()], key_id.clone(),
+                            ).await {
+                                tracing::warn!(error = %e, "failed to enqueue block-related activity");
+                            }
                         }
                     }
                 }
@@ -2032,12 +2077,17 @@ pub async fn unblock_account(
     Extension(auth): Extension<AuthenticatedUser>,
 ) -> AppResult<Json<Relationship>> {
     auth.require_scope("write:blocks")?;
-    sqlx::query!(
-        "DELETE FROM blocks WHERE account_id = $1 AND target_account_id = $2",
+    // Mastodon UnblockService: a no-op (and no Undo) when not actually blocking.
+    let was_blocking = sqlx::query!(
+        "DELETE FROM blocks WHERE account_id = $1 AND target_account_id = $2 RETURNING account_id",
         auth.account_id, target_id
     )
-    .execute(&state.db)
-    .await?;
+    .fetch_optional(&state.db)
+    .await?
+    .is_some();
+    if !was_blocking {
+        return build_relationship(&state, auth.account_id, target_id).await.map(Json);
+    }
 
     // Send Undo(Block) activity to remote target
     if let Some(target) = sqlx::query!(
