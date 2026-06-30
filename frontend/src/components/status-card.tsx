@@ -1,6 +1,15 @@
 import { useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { Bookmark, Repeat2, Reply, Star } from 'lucide-react'
+import {
+  AtSign,
+  Bookmark,
+  Globe,
+  Lock,
+  LockOpen,
+  Repeat2,
+  Reply,
+  Star,
+} from 'lucide-react'
 
 import type { mastodon } from '../masto.ts'
 import { setBookmark, setFavourite, setReblog } from '../api.ts'
@@ -10,6 +19,25 @@ import { Button } from '@/components/ui/button.tsx'
 import { MediaAttachments } from '@/components/media-attachments.tsx'
 import { Poll } from '@/components/poll.tsx'
 import { cn } from '@/lib/utils.ts'
+
+const VISIBILITY: Record<
+  string,
+  { Icon: typeof Globe; label: string }
+> = {
+  public: { Icon: Globe, label: 'Public' },
+  unlisted: { Icon: LockOpen, label: 'Unlisted' },
+  private: { Icon: Lock, label: 'Followers only' },
+  direct: { Icon: AtSign, label: 'Direct message' },
+}
+
+function VisibilityIcon({ v }: { v: mastodon.v1.StatusVisibility }) {
+  const { Icon, label } = VISIBILITY[v] ?? VISIBILITY.public
+  return (
+    <span title={label} className="inline-flex" aria-label={label}>
+      <Icon className="size-3.5" />
+    </span>
+  )
+}
 
 function ActionButton({
   icon,
@@ -75,6 +103,9 @@ export function StatusCard({
   const name = status.account.displayName || status.account.username
   const profilePath = `/@${status.account.acct}`
   const threadPath = `/@${status.account.acct}/${status.id}`
+  // Private and direct posts can't be boosted (matches Mastodon's web UI).
+  const notBoostable =
+    status.visibility === 'private' || status.visibility === 'direct'
 
   return (
     <Card>
@@ -96,12 +127,12 @@ export function StatusCard({
             {name}
           </Link>
           <span className="text-muted-foreground">@{status.account.acct}</span>
-          <Link
-            to={threadPath}
-            className="text-muted-foreground ml-auto text-xs no-underline hover:underline"
-          >
-            {new Date(status.createdAt).toLocaleString()}
-          </Link>
+          <div className="text-muted-foreground ml-auto flex items-center gap-1 text-xs">
+            <VisibilityIcon v={status.visibility} />
+            <Link to={threadPath} className="no-underline hover:underline">
+              {new Date(status.createdAt).toLocaleString()}
+            </Link>
+          </div>
         </div>
         {status.spoilerText && (
           <div className="text-sm">
@@ -138,12 +169,12 @@ export function StatusCard({
             onClick={() => (onReply ? onReply(status) : navigate(threadPath))}
           />
           <ActionButton
-            icon={<Repeat2 />}
+            icon={notBoostable ? <Lock /> : <Repeat2 />}
             count={status.reblogsCount}
             active={status.reblogged ?? false}
             activeClass="text-primary"
-            disabled={busy || !token}
-            label="Boost"
+            disabled={busy || !token || notBoostable}
+            label={notBoostable ? 'Boosting not allowed' : 'Boost'}
             onClick={() => act(() => setReblog(token, status.id, !status.reblogged))}
           />
           <ActionButton
