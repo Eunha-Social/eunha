@@ -59,6 +59,23 @@ impl Storage {
         self.public_url("headers/original/missing.png")
     }
 
+    pub async fn get(&self, key: &str) -> AppResult<Vec<u8>> {
+        let resp = self
+            .client
+            .get_object()
+            .bucket(&self.bucket)
+            .key(key)
+            .send()
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("S3 get: {}", e)))?;
+        let data = resp
+            .body
+            .collect()
+            .await
+            .map_err(|e| AppError::Internal(anyhow::anyhow!("S3 body: {}", e)))?;
+        Ok(data.into_bytes().to_vec())
+    }
+
     pub async fn delete(&self, key: &str) -> AppResult<()> {
         self.client
             .delete_object()

@@ -52,6 +52,16 @@ pub async fn upload_media(
     // formats"). Insert a processing row with no file yet — `url` stays null
     // until processing completes — and return 202 for the client to poll.
     if matches!(media_type, "video" | "gifv" | "audio") {
+        // Store the source durably and enqueue a transcode job. The worker
+        // (background.rs) drains the queue; this survives restarts.
+        let src_ext = crate::media::ext_for_content_type(&content_type);
+        let source_key = format!(
+            "media_attachments/files/{}/source/source.{}",
+            crate::media::int_to_path(media_id),
+            src_ext
+        );
+        state.storage.store(&data, &source_key, &content_type).await?;
+
         let attachment = sqlx::query_as!(
             crate::db::models::MediaAttachment,
             r#"INSERT INTO media_attachments
@@ -66,19 +76,17 @@ pub async fn upload_media(
         .fetch_one(&state.db)
         .await?;
 
-        let st = state.clone();
-        let mt = media_type.to_string();
-        tokio::spawn(async move {
-            if let Err(e) = process_media(&st, media_id, &data, &mt).await {
-                tracing::warn!(error = %e, media_id, "media processing failed");
-                let _ = sqlx::query!(
-                    "UPDATE media_attachments SET processing = 3, updated_at = now() WHERE id = $1",
-                    media_id,
-                )
-                .execute(&st.db)
-                .await;
-            }
-        });
+        sqlx::query!(
+            r#"INSERT INTO eunha.media_processing_jobs
+                 (media_id, media_type, source_key, content_type)
+               VALUES ($1, $2, $3, $4)"#,
+            media_id,
+            media_type,
+            source_key,
+            content_type,
+        )
+        .execute(&state.db)
+        .await?;
 
         return Ok((StatusCode::ACCEPTED, Json(media_from_db(&attachment))).into_response());
     }
@@ -267,6 +275,126 @@ fn strip_exif(data: &[u8], content_type: &str) -> Vec<u8> {
             }
         }
         _ => data.to_vec(),
+    }
+}
+
+// ── Media processing queue (eunha.media_processing_jobs) ───────────────────
+
+const MEDIA_QUEUE_IDLE: std::time::Duration = std::time::Duration::from_secs(2);
+const MEDIA_QUEUE_ERROR_IDLE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// Drain the durable media-processing queue. Spawned once at startup.
+pub async fn run_media_queue(state: AppState) {
+    let worker_id = format!("media-{}", std::process::id());
+    loop {
+        match run_media_queue_batch(&state, &worker_id).await {
+            Ok(0) => tokio::time::sleep(MEDIA_QUEUE_IDLE).await,
+            Ok(_) => {}
+            Err(e) => {
+                tracing::error!(error = %e, "media processing queue batch failed");
+                tokio::time::sleep(MEDIA_QUEUE_ERROR_IDLE).await;
+            }
+        }
+    }
+}
+
+async fn run_media_queue_batch(state: &AppState, worker_id: &str) -> anyhow::Result<usize> {
+    // Claim due jobs, re-claiming any whose lock went stale (crashed worker).
+    let jobs = sqlx::query!(
+        r#"WITH picked AS (
+             SELECT id FROM eunha.media_processing_jobs
+             WHERE run_at <= now()
+               AND (locked_at IS NULL OR locked_at < now() - interval '10 minutes')
+             ORDER BY run_at ASC, id ASC
+             LIMIT 4
+             FOR UPDATE SKIP LOCKED
+           )
+           UPDATE eunha.media_processing_jobs j
+           SET locked_at = now(), locked_by = $1, updated_at = now()
+           FROM picked
+           WHERE j.id = picked.id
+           RETURNING j.id, j.media_id, j.media_type, j.source_key, j.attempts, j.max_attempts"#,
+        worker_id,
+    )
+    .fetch_all(&state.db)
+    .await?;
+
+    let count = jobs.len();
+    for job in jobs {
+        process_media_job(
+            state,
+            job.id,
+            job.media_id,
+            &job.media_type,
+            &job.source_key,
+            job.attempts,
+            job.max_attempts,
+        )
+        .await;
+    }
+    Ok(count)
+}
+
+async fn process_media_job(
+    state: &AppState,
+    id: i64,
+    media_id: i64,
+    media_type: &str,
+    source_key: &str,
+    attempts: i32,
+    max_attempts: i32,
+) {
+    let result = async {
+        let data = state
+            .storage
+            .get(source_key)
+            .await
+            .map_err(|e| anyhow::anyhow!("fetch source: {e}"))?;
+        process_media(state, media_id, &data, media_type).await
+    }
+    .await;
+
+    match result {
+        Ok(()) => {
+            let _ = state.storage.delete(source_key).await;
+            let _ = sqlx::query!("DELETE FROM eunha.media_processing_jobs WHERE id = $1", id)
+                .execute(&state.db)
+                .await;
+        }
+        Err(e) => {
+            let next = attempts + 1;
+            let err = e.to_string();
+            if next >= max_attempts {
+                tracing::warn!(media_id, error = %err, "media processing failed permanently");
+                let _ = sqlx::query!(
+                    "UPDATE media_attachments SET processing = 3, updated_at = now() WHERE id = $1",
+                    media_id,
+                )
+                .execute(&state.db)
+                .await;
+                let _ = state.storage.delete(source_key).await;
+                let _ = sqlx::query!("DELETE FROM eunha.media_processing_jobs WHERE id = $1", id)
+                    .execute(&state.db)
+                    .await;
+            } else {
+                // Exponential backoff: 30s, 60s, 120s, …
+                let backoff = 30_i64 << (next.clamp(1, 6) - 1);
+                let run_at = chrono::Utc::now() + chrono::Duration::seconds(backoff);
+                let _ = sqlx::query!(
+                    r#"UPDATE eunha.media_processing_jobs
+                       SET attempts = $2, run_at = $3, locked_at = NULL, locked_by = NULL,
+                           last_error = $4, updated_at = now()
+                       WHERE id = $1"#,
+                    id,
+                    next,
+                    run_at,
+                    err,
+                )
+                .execute(&state.db)
+                .await;
+                tracing::warn!(media_id, attempts = next, error = %err, "media processing failed; will retry");
+            }
+        }
     }
 }
 
