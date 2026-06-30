@@ -1,5 +1,7 @@
 # ── Stage 1: Build the web frontend (SPA) ───────────────────────────────────
 FROM node:24-alpine AS frontend-builder
+# The build never runs Playwright, so skip its browser download during install.
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
