@@ -9,6 +9,7 @@ import PublicTimeline from './pages/PublicTimeline.tsx'
 import Notifications from './pages/Notifications.tsx'
 import SearchPage from './pages/Search.tsx'
 import TagTimeline from './pages/TagTimeline.tsx'
+import AccountList from './pages/AccountList.tsx'
 import { ThemeProvider } from './components/theme-provider.tsx'
 import './styles.css'
 
@@ -26,6 +27,10 @@ const router = createBrowserRouter([
   { path: '/search', element: <SearchPage /> },
   { path: '/tags/:name', element: <TagTimeline /> },
   { path: '/:acct', element: <Profile /> },
+  // Static second segments outrank the dynamic `:id` thread route, so these
+  // win over `/:acct/:id` (status ids are numeric and never collide).
+  { path: '/:acct/followers', element: <AccountList /> },
+  { path: '/:acct/following', element: <AccountList /> },
   { path: '/:acct/:id', element: <StatusThread /> },
   { path: '*', element: <Home /> },
 ])

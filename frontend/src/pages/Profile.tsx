@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { Link, useParams } from 'react-router-dom'
 
 import type { mastodon } from '../masto.ts'
 import {
@@ -104,12 +104,18 @@ export default function Profile() {
             <span>
               <b className="text-foreground">{account.statusesCount}</b> posts
             </span>
-            <span>
+            <Link
+              to={`/@${account.acct}/following`}
+              className="no-underline hover:underline"
+            >
               <b className="text-foreground">{account.followingCount}</b> following
-            </span>
-            <span>
+            </Link>
+            <Link
+              to={`/@${account.acct}/followers`}
+              className="no-underline hover:underline"
+            >
               <b className="text-foreground">{account.followersCount}</b> followers
-            </span>
+            </Link>
           </div>
 
           <div className="space-y-3">

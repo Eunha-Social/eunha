@@ -123,3 +123,19 @@ export async function getTagTimeline(
 ): Promise<mastodon.v1.Status[]> {
   return restClient(token).v1.timelines.tag.$select(name).list({ limit: 40, maxId })
 }
+
+export async function getFollowers(
+  id: string,
+  token?: string,
+  maxId?: string,
+): Promise<mastodon.v1.Account[]> {
+  return restClient(token).v1.accounts.$select(id).followers.list({ limit: 40, maxId })
+}
+
+export async function getFollowing(
+  id: string,
+  token?: string,
+  maxId?: string,
+): Promise<mastodon.v1.Account[]> {
+  return restClient(token).v1.accounts.$select(id).following.list({ limit: 40, maxId })
+}
