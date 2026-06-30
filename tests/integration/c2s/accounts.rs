@@ -1879,9 +1879,10 @@ async fn test_verify_app_credentials_without_token_is_401() {
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }
 
-/// Following an account that has blocked you does not create a follow.
+/// Following an account that has blocked you is rejected with 403 (Mastodon
+/// FollowService raises NotPermittedError).
 #[tokio::test]
-async fn test_follow_blocked_by_target_is_silently_rejected() {
+async fn test_follow_blocked_by_target_is_forbidden() {
     let ctx = TestContext::new("follow-blocked-by").await;
 
     // Bob blocks Alice first.
@@ -1891,18 +1892,20 @@ async fn test_follow_blocked_by_target_is_silently_rejected() {
         &json!({}),
     ).await;
 
-    // Alice tries to follow Bob — should return 200 but following=false.
-    let rel: Value = ctx.api.post_json(
+    // Alice tries to follow Bob — not allowed.
+    let resp = ctx.api.post_json(
         &format!("/api/v1/accounts/{}/follow", ctx.bob_id),
         Some(&ctx.alice_token),
         &json!({}),
-    ).await.json().await.unwrap();
+    ).await;
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 
-    assert_eq!(
-        rel["following"].as_bool(),
-        Some(false),
-        "alice should not be following bob after bob blocked her",
-    );
+    // And no follow relationship exists.
+    let rel: Value = ctx.api.get(
+        &format!("/api/v1/accounts/relationships?id[]={}", ctx.bob_id),
+        Some(&ctx.alice_token),
+    ).await.json().await.unwrap();
+    assert_eq!(rel[0]["following"].as_bool(), Some(false));
 }
 
 /// GET /api/v1/accounts/:id for a suspended account returns 200 with suspended=true.

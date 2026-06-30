@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT 1 FROM blocks\n           WHERE (account_id = $1 AND target_account_id = $2)\n              OR (account_id = $2 AND target_account_id = $1)\n           LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "215988ea8d42f4bbecb0a455ec3ca7fdf4270f593f241f51adbba09ff7536c43"
+}

@@ -705,16 +705,46 @@ pub async fn follow_account(
     let notify = params.notify.unwrap_or(false);
     let languages: Vec<String> = params.languages.unwrap_or_default();
 
-    // If the target has blocked the requester, silently return current relationship
-    let blocked_by_target = sqlx::query_scalar!(
-        "SELECT 1 FROM blocks WHERE account_id = $1 AND target_account_id = $2",
-        target_id, auth.account_id,
+    let target = fetch_account(&state, target_id).await?;
+
+    // Mastodon FollowService gating (#following_not_possible? / #following_not_allowed?):
+    // an unavailable target is 404; blocked/blocking, domain-blocked, and moved
+    // targets are not allowed (403).
+    if target.suspended_at.is_some() {
+        return Err(AppError::NotFound);
+    }
+    if target.moved_to_account_id.is_some() {
+        return Err(AppError::Forbidden);
+    }
+    let blocked_either = sqlx::query_scalar!(
+        r#"SELECT 1 FROM blocks
+           WHERE (account_id = $1 AND target_account_id = $2)
+              OR (account_id = $2 AND target_account_id = $1)
+           LIMIT 1"#,
+        auth.account_id, target_id,
     )
     .fetch_optional(&state.db)
     .await?
     .is_some();
-    if blocked_by_target {
-        return build_relationship(&state, auth.account_id, target_id).await.map(Json);
+    if blocked_either {
+        return Err(AppError::Forbidden);
+    }
+    if let Some(ref dom) = target.domain {
+        // Instance-level domain block, or the requester's own account-level block.
+        let domain_blocked = sqlx::query_scalar!(
+            r#"SELECT 1 FROM domain_blocks WHERE domain = $1
+               UNION ALL
+               SELECT 1 FROM account_domain_blocks WHERE account_id = $2 AND domain = $1
+               LIMIT 1"#,
+            dom,
+            auth.account_id,
+        )
+        .fetch_optional(&state.db)
+        .await?
+        .is_some();
+        if domain_blocked {
+            return Err(AppError::Forbidden);
+        }
     }
 
     // Check if accepted follow already exists — update settings only
@@ -748,8 +778,32 @@ pub async fn follow_account(
         return build_relationship(&state, auth.account_id, target_id).await.map(Json);
     }
 
-    let target = fetch_account(&state, target_id).await?;
     let requester = fetch_account(&state, auth.account_id).await?;
+
+    // Mastodon FollowLimitValidator: cap new follows/requests. Free up to LIMIT,
+    // then max(round(followers * RATIO), LIMIT).
+    {
+        const FOLLOW_LIMIT: i64 = 7_500;
+        const FOLLOW_RATIO: f64 = 1.1;
+        let stats = sqlx::query!(
+            "SELECT following_count, followers_count FROM account_stats WHERE account_id = $1",
+            auth.account_id,
+        )
+        .fetch_optional(&state.db)
+        .await?;
+        let following = stats.as_ref().map(|s| s.following_count).unwrap_or(0);
+        let followers = stats.as_ref().map(|s| s.followers_count).unwrap_or(0);
+        let limit = if following < FOLLOW_LIMIT {
+            FOLLOW_LIMIT
+        } else {
+            ((followers as f64 * FOLLOW_RATIO).round() as i64).max(FOLLOW_LIMIT)
+        };
+        if following >= limit {
+            return Err(AppError::Unprocessable(format!(
+                "Validation failed: You are trying to follow too many people (limit: {limit})"
+            )));
+        }
+    }
 
     // Remote account: always use follow_requests and send a Follow activity.
     if target.domain.is_some() {
@@ -831,7 +885,9 @@ pub async fn follow_account(
         return build_relationship(&state, auth.account_id, target_id).await.map(Json);
     }
 
-    if target.locked {
+    // Locked target, or a silenced requester, goes through a follow request
+    // (Mastodon FollowService: target.locked? || source.silenced?).
+    if target.locked || requester.silenced_at.is_some() {
         sqlx::query!(
             r#"INSERT INTO follow_requests (account_id, target_account_id, show_reblogs, notify, languages, created_at, updated_at)
                VALUES ($1, $2, $3, $4, $5, now(), now())"#,
@@ -910,7 +966,7 @@ pub async fn unfollow_account(
     .fetch_optional(&state.db)
     .await?;
 
-    if deleted.is_some() {
+    let follow_uri_opt: Option<String> = if let Some(ref d) = deleted {
         sqlx::query!(
             "UPDATE account_stats SET followers_count = GREATEST(followers_count - 1, 0), updated_at = now() WHERE account_id = $1",
             target_id
@@ -923,15 +979,19 @@ pub async fn unfollow_account(
         )
         .execute(&state.db)
         .await?;
+        d.uri.clone()
     } else {
+        // Canceling a pending request: keep its uri so the Undo(Follow)
+        // references the original Follow activity (matches Mastodon).
         sqlx::query!(
-            "DELETE FROM follow_requests WHERE account_id = $1 AND target_account_id = $2",
+            "DELETE FROM follow_requests WHERE account_id = $1 AND target_account_id = $2 RETURNING uri",
             auth.account_id,
             target_id,
         )
-        .execute(&state.db)
-        .await?;
-    }
+        .fetch_optional(&state.db)
+        .await?
+        .and_then(|r| r.uri)
+    };
 
     // Send Undo(Follow) to remote target
     let target = fetch_account(&state, target_id).await?;
@@ -940,8 +1000,8 @@ pub async fn unfollow_account(
         if requester.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
             let actor_url = crate::federation::tag::account_uri_of(&state.instance.domain, &requester);
             let key_id = format!("{}#main-key", actor_url);
-            let follow_uri = deleted
-                .and_then(|r| r.uri)
+            let follow_uri = follow_uri_opt
+                .clone()
                 .unwrap_or_else(|| actor_url.clone());
             let undo_id = format!(
                 "https://{}/activities/{}",

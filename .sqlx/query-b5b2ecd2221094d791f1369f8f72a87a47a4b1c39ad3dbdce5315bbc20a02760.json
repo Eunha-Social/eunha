@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT following_count, followers_count FROM account_stats WHERE account_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "following_count",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "followers_count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "b5b2ecd2221094d791f1369f8f72a87a47a4b1c39ad3dbdce5315bbc20a02760"
+}
