@@ -20,9 +20,36 @@ export function postStatus(
     status: string
     visibility?: mastodon.v1.StatusVisibility
     inReplyToId?: string
+    mediaIds?: string[]
   },
 ): Promise<mastodon.v1.Status> {
-  return restClient(token).v1.statuses.create(params)
+  const { status, visibility, inReplyToId, mediaIds } = params
+  // With media, masto requires the media-ids variant (status optional).
+  if (mediaIds && mediaIds.length > 0) {
+    return restClient(token).v1.statuses.create({
+      status,
+      visibility,
+      inReplyToId,
+      mediaIds,
+    })
+  }
+  return restClient(token).v1.statuses.create({ status, visibility, inReplyToId })
+}
+
+export function uploadMedia(
+  file: File,
+  token: string,
+  description?: string,
+): Promise<mastodon.v1.MediaAttachment> {
+  return restClient(token).v2.media.create({ file, description })
+}
+
+export function updateMediaDescription(
+  id: string,
+  description: string,
+  token: string,
+): Promise<mastodon.v1.MediaAttachment> {
+  return restClient(token).v1.media.$select(id).update({ description })
 }
 
 // Status interactions. Each returns the updated status; the caller normalizes
