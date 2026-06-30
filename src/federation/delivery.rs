@@ -135,84 +135,6 @@ pub async fn fanout_to_followers(
     enqueue_to_inboxes(state, activity, inboxes, key_id).await
 }
 
-/// Fan out a public/unlisted reply to a *local* account: deliver to the
-/// author's followers **and** the thread (parent) author's followers, matching
-/// Mastodon's `StatusReachFinder#followers_scope`
-/// (`account.followers.or(thread.account.followers.not_domain_blocked_by_account(account))`).
-/// Parent-author followers whose domain the author blocks are excluded; suspended
-/// accounts are excluded everywhere; the inbox set is de-duplicated.
-pub async fn fanout_to_reply_followers(
-    state: &AppState,
-    activity: Value,
-    author_account_id: i64,
-    thread_account_id: i64,
-    key_id: String,
-) -> anyhow::Result<u64> {
-    let inboxes = sqlx::query!(
-        r#"SELECT DISTINCT
-             CASE WHEN a.shared_inbox_url IS NOT NULL AND a.shared_inbox_url <> ''
-                  THEN a.shared_inbox_url
-                  ELSE a.inbox_url
-             END AS inbox
-           FROM accounts a
-           WHERE a.domain IS NOT NULL
-             AND a.inbox_url <> ''
-             AND a.suspended_at IS NULL
-             AND (
-               EXISTS (SELECT 1 FROM follows f
-                       WHERE f.account_id = a.id AND f.target_account_id = $1)
-               OR (
-                 EXISTS (SELECT 1 FROM follows f
-                         WHERE f.account_id = a.id AND f.target_account_id = $2)
-                 AND a.domain NOT IN (
-                   SELECT domain FROM account_domain_blocks WHERE account_id = $1
-                 )
-               )
-             )"#,
-        author_account_id,
-        thread_account_id,
-    )
-    .fetch_all(&state.db)
-    .await?;
-
-    let unavailable = unavailable_domains(state).await;
-    let inboxes = inboxes
-        .into_iter()
-        .filter_map(|row| row.inbox)
-        .filter(|inbox| !inbox.is_empty())
-        .filter(|inbox| !inbox_unavailable(inbox, &unavailable))
-        .collect();
-
-    enqueue_to_inboxes(state, activity, inboxes, key_id).await
-}
-
-/// Deliver a public status to every enabled (accepted) relay's inbox, matching
-/// Mastodon's `StatusReachFinder#relay_inboxes`.
-pub async fn deliver_to_relays(
-    state: &AppState,
-    activity: Value,
-    key_id: String,
-) -> anyhow::Result<u64> {
-    // Mastodon's Relay state enum: accepted == 2 (the `enabled` scope).
-    let rows = sqlx::query_scalar!(
-        "SELECT inbox_url FROM relays WHERE state = 2 AND inbox_url <> ''",
-    )
-    .fetch_all(&state.db)
-    .await?;
-
-    let unavailable = unavailable_domains(state).await;
-    let inboxes: Vec<String> = rows
-        .into_iter()
-        .filter(|inbox| !inbox.is_empty())
-        .filter(|inbox| !inbox_unavailable(inbox, &unavailable))
-        .collect();
-
-    if inboxes.is_empty() {
-        return Ok(0);
-    }
-    enqueue_to_inboxes(state, activity, inboxes, key_id).await
-}
-
 /// Compute the full set of remote inboxes that should receive a status-level
 /// activity (Update/Delete), matching Mastodon's `StatusReachFinder#inboxes`:
 /// followers + mentioned accounts + the replied-to author + the quoted author +
@@ -224,6 +146,9 @@ pub async fn deliver_to_relays(
 /// - `unsafe_reach`: include interactors regardless of visibility (Delete uses this).
 /// - `is_public`: also reach enabled relays.
 /// - `followers_allowed`: include the author's followers (false for direct/limited).
+/// - `reblog_of_account_id`: when set, the status is a reblog — Mastodon's
+///   `StatusReachFinder` then reaches only the original author (plus followers +
+///   relays), skipping the mention/quote/interactor unions.
 #[allow(clippy::too_many_arguments)]
 pub async fn status_reach_inboxes(
     state: &AppState,
@@ -234,35 +159,41 @@ pub async fn status_reach_inboxes(
     unsafe_reach: bool,
     is_public: bool,
     followers_allowed: bool,
+    reblog_of_account_id: Option<i64>,
 ) -> anyhow::Result<Vec<String>> {
     let rows: Vec<String> = sqlx::query_scalar!(
         r#"
         SELECT DISTINCT inbox AS "inbox!" FROM (
-            -- mentioned accounts
+            -- mentioned accounts (non-reblog statuses only)
             SELECT CASE WHEN a.shared_inbox_url <> '' THEN a.shared_inbox_url ELSE a.inbox_url END AS inbox
             FROM mentions m JOIN accounts a ON a.id = m.account_id
-            WHERE m.status_id = $1 AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.inbox_url <> ''
+            WHERE $8::bigint IS NULL AND m.status_id = $1 AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.inbox_url <> ''
             UNION
             -- replied-to author (distributable only)
             SELECT CASE WHEN a.shared_inbox_url <> '' THEN a.shared_inbox_url ELSE a.inbox_url END
             FROM accounts a
-            WHERE $4::bool AND a.id = $3 AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.inbox_url <> ''
+            WHERE $8::bigint IS NULL AND $4::bool AND a.id = $3 AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.inbox_url <> ''
             UNION
             -- quoted author
             SELECT CASE WHEN a.shared_inbox_url <> '' THEN a.shared_inbox_url ELSE a.inbox_url END
             FROM quotes q JOIN accounts a ON a.id = q.quoted_account_id
-            WHERE q.status_id = $1 AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.inbox_url <> ''
+            WHERE $8::bigint IS NULL AND q.status_id = $1 AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.inbox_url <> ''
             UNION
             -- interactors (distributable or unsafe)
             SELECT CASE WHEN a.shared_inbox_url <> '' THEN a.shared_inbox_url ELSE a.inbox_url END
             FROM accounts a
-            WHERE ($4::bool OR $5::bool) AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.inbox_url <> ''
+            WHERE $8::bigint IS NULL AND ($4::bool OR $5::bool) AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.inbox_url <> ''
               AND a.id IN (
                 SELECT account_id FROM statuses WHERE reblog_of_id = $1 AND deleted_at IS NULL
                 UNION SELECT account_id FROM statuses WHERE in_reply_to_id = $1 AND deleted_at IS NULL
                 UNION SELECT account_id FROM favourites WHERE status_id = $1
                 UNION SELECT account_id FROM quotes WHERE quoted_status_id = $1
               )
+            UNION
+            -- reblog: the original author
+            SELECT CASE WHEN a.shared_inbox_url <> '' THEN a.shared_inbox_url ELSE a.inbox_url END
+            FROM accounts a
+            WHERE a.id = $8 AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.inbox_url <> ''
             UNION
             -- followers (author's; plus a local thread author's followers for distributable replies)
             SELECT CASE WHEN a.shared_inbox_url <> '' THEN a.shared_inbox_url ELSE a.inbox_url END
@@ -290,6 +221,7 @@ pub async fn status_reach_inboxes(
         unsafe_reach,
         is_public,
         followers_allowed,
+        reblog_of_account_id,
     )
     .fetch_all(&state.db)
     .await?;
