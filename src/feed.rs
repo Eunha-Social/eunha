@@ -666,19 +666,22 @@ pub async fn unmerge_from_home(
     }
 
     let key = feed_key(into_account_id);
-    // Only walk statuses newer than the oldest item currently in the feed;
-    // older ones can't be present. Matches Mastodon's oldest_home_score bound.
-    let oldest_score: i64 = redis
-        .zrange_withscores::<_, Vec<(i64, f64)>>(&key, 0, 0)
+    // The feed's *members* are exact status ids (only the ZSET scores are lossy
+    // f64s), so read the members and keep the ones authored by the ex-followee.
+    // This both bounds the DB scan (the feed holds at most FEED_MAX_ITEMS) and
+    // avoids the snowflake-precision pitfall of comparing against a float score.
+    let members: Vec<i64> = redis
+        .zrange::<_, Vec<i64>>(&key, 0, -1)
         .await
-        .ok()
-        .and_then(|v| v.first().map(|(_, score)| *score as i64))
-        .unwrap_or(0);
+        .unwrap_or_default();
+    if members.is_empty() {
+        return;
+    }
 
     let ids: Vec<i64> = sqlx::query_scalar!(
-        "SELECT id FROM statuses WHERE account_id = $1 AND id > $2",
+        "SELECT id FROM statuses WHERE account_id = $1 AND id = ANY($2::bigint[])",
         from_account_id,
-        oldest_score,
+        &members,
     )
     .fetch_all(db)
     .await

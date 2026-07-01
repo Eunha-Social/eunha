@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id FROM statuses WHERE account_id = $1 AND id > $2",
+  "query": "SELECT id FROM statuses WHERE account_id = $1 AND id = ANY($2::bigint[])",
   "describe": {
     "columns": [
       {
@@ -12,12 +12,12 @@
     "parameters": {
       "Left": [
         "Int8",
-        "Int8"
+        "Int8Array"
       ]
     },
     "nullable": [
       false
     ]
   },
-  "hash": "746693d9e5a2b56ba1ba4ef48754ea6f1c4e5ae48c21afb7f9319b8694e14401"
+  "hash": "87ce701d609a278c14e1d08b1a50224f8cbd606920aa1ff8f794f711977861ac"
 }
