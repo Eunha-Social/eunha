@@ -128,6 +128,35 @@ async fn test_media_get_not_found() {
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
+/// A status may attach at most 4 media (Mastodon `MEDIA_ATTACHMENTS_LIMIT`);
+/// a fifth attachment is rejected while exactly four is accepted.
+#[tokio::test]
+async fn test_status_rejects_more_than_four_media() {
+    let ctx = TestContext::new("media-limit").await;
+
+    let mut ids = Vec::new();
+    for _ in 0..5 {
+        let media: Value = ctx.api.post_multipart_file(
+            "/api/v1/media", &ctx.alice_token, "t.png", "image/png", tiny_png(), &[],
+        ).await.json().await.unwrap();
+        ids.push(media["id"].as_str().unwrap().to_string());
+    }
+
+    let resp = ctx.api.post_json(
+        "/api/v1/statuses",
+        Some(&ctx.alice_token),
+        &serde_json::json!({ "status": "five", "media_ids": ids }),
+    ).await;
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY, "5 media must be rejected");
+
+    let resp = ctx.api.post_json(
+        "/api/v1/statuses",
+        Some(&ctx.alice_token),
+        &serde_json::json!({ "status": "four", "media_ids": ids[..4] }),
+    ).await;
+    assert_eq!(resp.status(), StatusCode::OK, "exactly 4 media should be accepted");
+}
+
 /// PUT /api/v1/media/:id updates the description.
 #[tokio::test]
 async fn test_media_update_description() {

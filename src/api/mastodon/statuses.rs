@@ -37,6 +37,9 @@ pub struct PollForm {
     pub hide_totals: Option<bool>,
 }
 
+/// Maximum media attachments per status (Mastodon `Status::MEDIA_ATTACHMENTS_LIMIT`).
+const MEDIA_ATTACHMENTS_LIMIT: usize = 4;
+
 /// Poll limits, matching Mastodon's `PollOptionsValidator` /
 /// `PollExpirationValidator`.
 const POLL_MAX_OPTIONS: usize = 4;
@@ -305,26 +308,54 @@ pub async fn post_status(
     // Human permalink — always the /@username form, independent of id_scheme.
     let human_url = format!("https://{}/@{}/{}", instance.domain, account.username, status_id);
 
-    // Validate media_ids before inserting the status — fail early so no cleanup is needed
+    // Validate media_ids before inserting the status (Mastodon
+    // PostStatusService#validate_media!) — fail early so no cleanup is needed.
     let parsed_media_ids: Vec<i64> = if let Some(ref ids) = form.media_ids {
+        // Reject more than the 4-attachment limit outright.
+        if ids.len() > MEDIA_ATTACHMENTS_LIMIT {
+            return Err(AppError::Unprocessable(format!(
+                "Validation failed: Cannot attach more than {MEDIA_ATTACHMENTS_LIMIT} files"
+            )));
+        }
         let mut parsed = Vec::with_capacity(ids.len());
+        let mut has_audio_or_video = false;
+        let mut any_not_ready = false;
         for id_str in ids {
             let media_id = id_str.parse::<i64>().map_err(|_| {
                 AppError::Unprocessable(format!("media_ids: invalid id '{}'", id_str))
             })?;
-            let valid = sqlx::query_scalar!(
-                "SELECT 1 FROM media_attachments WHERE id = $1 AND account_id = $2 AND status_id IS NULL",
+            let row = sqlx::query!(
+                r#"SELECT "type", processing FROM media_attachments
+                   WHERE id = $1 AND account_id = $2 AND status_id IS NULL"#,
                 media_id, account.id,
             )
             .fetch_optional(&state.db)
-            .await?
-            .is_some();
-            if !valid {
+            .await?;
+            let Some(row) = row else {
                 return Err(AppError::Unprocessable(format!(
                     "media_ids: '{}' not found, already attached, or not owned by you", id_str
                 )));
+            };
+            // audio(3)/video(2) can't be combined with other media (gifv is exempt,
+            // matching MediaAttachment#audio_or_video?).
+            if matches!(row.r#type, 2 | 3) {
+                has_audio_or_video = true;
+            }
+            // processing set and not complete(2) means still processing/failed.
+            if row.processing.is_some_and(|p| p != 2) {
+                any_not_ready = true;
             }
             parsed.push(media_id);
+        }
+        if parsed.len() > 1 && has_audio_or_video {
+            return Err(AppError::Unprocessable(
+                "Validation failed: Cannot attach a video or audio file to a post that contains other media".into(),
+            ));
+        }
+        if any_not_ready {
+            return Err(AppError::Unprocessable(
+                "Validation failed: Cannot attach files that have not finished processing. Try again in a moment!".into(),
+            ));
         }
         parsed
     } else {
