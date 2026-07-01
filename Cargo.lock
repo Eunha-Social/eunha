@@ -1815,6 +1815,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-subscriber",
+ "unicode-segmentation",
  "url",
  "urlencoding",
  "uuid",

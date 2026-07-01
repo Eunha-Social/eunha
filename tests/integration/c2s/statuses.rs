@@ -1706,6 +1706,91 @@ async fn test_create_status_with_poll() {
     assert_eq!(poll["expired"].as_bool(), Some(false));
 }
 
+/// Mastodon `StatusLengthValidator`: a URL counts as 23 characters, so a status
+/// packed with long links well over 500 raw characters is still accepted.
+#[tokio::test]
+async fn test_status_url_counts_as_23_chars() {
+    let ctx = TestContext::new("len-url").await;
+
+    // 19 links × 23 counted chars + 18 spaces = 455 ≤ 500, though the raw text is
+    // well over 500 characters.
+    let url = "https://example.com/some/really/long/path/that/exceeds/twenty-three/chars";
+    let text = vec![url; 19].join(" ");
+    assert!(text.chars().count() > 500, "raw text should exceed 500 chars");
+
+    let resp = ctx.api.post_json(
+        "/api/v1/statuses",
+        Some(&ctx.alice_token),
+        &json!({ "status": text, "visibility": "public" }),
+    ).await;
+    assert_eq!(resp.status(), StatusCode::OK, "URLs must count as 23 chars each");
+}
+
+/// The content warning / spoiler text counts toward the 500-character limit
+/// (Mastodon `combined_text = spoiler_text + countable_text(text)`).
+#[tokio::test]
+async fn test_spoiler_text_counts_toward_limit() {
+    let ctx = TestContext::new("len-spoiler").await;
+
+    let resp = ctx.api.post_json(
+        "/api/v1/statuses",
+        Some(&ctx.alice_token),
+        &json!({
+            "status": "y".repeat(200),
+            "spoiler_text": "x".repeat(400),
+            "visibility": "public",
+        }),
+    ).await;
+    assert_eq!(
+        resp.status(), StatusCode::UNPROCESSABLE_ENTITY,
+        "spoiler_text + body over 500 must be rejected",
+    );
+}
+
+/// Poll option validation parity with Mastodon `PollOptionsValidator` and
+/// `PollExpirationValidator`.
+#[tokio::test]
+async fn test_poll_validation_matches_mastodon() {
+    let ctx = TestContext::new("poll-validate").await;
+
+    let post_poll = |poll: Value| {
+        let ctx = &ctx;
+        async move {
+            ctx.api.post_json(
+                "/api/v1/statuses",
+                Some(&ctx.alice_token),
+                &json!({ "status": "poll", "visibility": "public", "poll": poll }),
+            ).await.status()
+        }
+    };
+
+    // Duplicate options.
+    assert_eq!(
+        post_poll(json!({ "options": ["A", "A"], "expires_in": 86400 })).await,
+        StatusCode::UNPROCESSABLE_ENTITY, "duplicate options must be rejected",
+    );
+    // Option longer than 50 characters.
+    assert_eq!(
+        post_poll(json!({ "options": ["a".repeat(51), "B"], "expires_in": 86400 })).await,
+        StatusCode::UNPROCESSABLE_ENTITY, "over-long option must be rejected",
+    );
+    // Missing expiration (required for local polls).
+    assert_eq!(
+        post_poll(json!({ "options": ["A", "B"] })).await,
+        StatusCode::UNPROCESSABLE_ENTITY, "missing expires_in must be rejected",
+    );
+    // Expiration below the 5-minute minimum.
+    assert_eq!(
+        post_poll(json!({ "options": ["A", "B"], "expires_in": 60 })).await,
+        StatusCode::UNPROCESSABLE_ENTITY, "too-short expiration must be rejected",
+    );
+    // A valid poll still succeeds.
+    assert_eq!(
+        post_poll(json!({ "options": ["A", "B"], "expires_in": 86400 })).await,
+        StatusCode::OK, "valid poll should be accepted",
+    );
+}
+
 /// GET /api/v1/polls/:id returns poll details.
 #[tokio::test]
 async fn test_get_poll() {

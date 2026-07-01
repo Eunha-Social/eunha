@@ -37,6 +37,72 @@ pub struct PollForm {
     pub hide_totals: Option<bool>,
 }
 
+/// Poll limits, matching Mastodon's `PollOptionsValidator` /
+/// `PollExpirationValidator`.
+const POLL_MAX_OPTIONS: usize = 4;
+const POLL_MAX_OPTION_CHARS: usize = 50;
+const POLL_MIN_EXPIRATION: i64 = 5 * 60; // 5 minutes
+const POLL_MAX_EXPIRATION: i64 = 2_629_746; // ActiveSupport `1.month`
+
+/// Validate a poll submission the way Mastodon validates the `Poll` model on a
+/// local status: option count, non-blank, per-option length, uniqueness, and
+/// expiration presence/bounds. Used by both the create and edit paths.
+fn validate_poll_form(poll: &PollForm) -> AppResult<()> {
+    use unicode_segmentation::UnicodeSegmentation;
+
+    if poll.options.len() < 2 {
+        return Err(AppError::Unprocessable(
+            "Validation failed: Poll must have at least 2 options".into(),
+        ));
+    }
+    if poll.options.len() > POLL_MAX_OPTIONS {
+        return Err(AppError::Unprocessable(format!(
+            "Validation failed: Poll can have at most {POLL_MAX_OPTIONS} options"
+        )));
+    }
+    if poll.options.iter().any(|o| o.trim().is_empty()) {
+        return Err(AppError::Unprocessable(
+            "Validation failed: Poll options cannot be blank".into(),
+        ));
+    }
+    if poll
+        .options
+        .iter()
+        .any(|o| o.graphemes(true).count() > POLL_MAX_OPTION_CHARS)
+    {
+        return Err(AppError::Unprocessable(format!(
+            "Validation failed: Poll options cannot be longer than {POLL_MAX_OPTION_CHARS} characters"
+        )));
+    }
+    // Duplicate options (Mastodon: `options.uniq.size == options.size`).
+    let mut seen = std::collections::HashSet::new();
+    if !poll.options.iter().all(|o| seen.insert(o)) {
+        return Err(AppError::Unprocessable(
+            "Validation failed: Poll options must be unique".into(),
+        ));
+    }
+    // Local polls require an expiration, bounded to [5 minutes, 1 month].
+    match poll.expires_in {
+        None => {
+            return Err(AppError::Unprocessable(
+                "Validation failed: Poll expiration can't be blank".into(),
+            ))
+        }
+        Some(secs) if secs < POLL_MIN_EXPIRATION => {
+            return Err(AppError::Unprocessable(
+                "Validation failed: Poll duration is too short".into(),
+            ));
+        }
+        Some(secs) if secs > POLL_MAX_EXPIRATION => {
+            return Err(AppError::Unprocessable(
+                "Validation failed: Poll duration is too long".into(),
+            ));
+        }
+        Some(_) => {}
+    }
+    Ok(())
+}
+
 #[derive(Debug, Deserialize, Default)]
 pub struct PostStatusForm {
     pub status: Option<String>,
@@ -100,24 +166,19 @@ pub async fn post_status(
         }
     }
     let text = form.status.clone().unwrap_or_default();
+    let spoiler_text = form.spoiler_text.clone().unwrap_or_default();
     if text.is_empty() && form.media_ids.as_ref().is_none_or(|m| m.is_empty()) && form.poll.is_none() {
         return Err(AppError::Unprocessable("Status must have text or media".into()));
     }
-    if text.chars().count() > 500 {
+    // Mastodon StatusLengthValidator: spoiler + body, URLs as 23 chars, mentions
+    // without their domain, counted in grapheme clusters.
+    if super::formatting::countable_length(&text, &spoiler_text) > 500 {
         return Err(AppError::Unprocessable("Validation failed: Text character limit of 500 exceeded".into()));
     }
 
     // Validate poll options before inserting anything
     if let Some(ref poll_form) = form.poll {
-        if poll_form.options.len() < 2 {
-            return Err(AppError::Unprocessable("Validation failed: Poll must have at least 2 options".into()));
-        }
-        if poll_form.options.len() > 4 {
-            return Err(AppError::Unprocessable("Validation failed: Poll must have at most 4 options".into()));
-        }
-        if poll_form.options.iter().any(|o| o.trim().is_empty()) {
-            return Err(AppError::Unprocessable("Validation failed: Poll options cannot be blank".into()));
-        }
+        validate_poll_form(poll_form)?;
     }
 
     // Handle scheduled statuses
@@ -2423,10 +2484,12 @@ pub async fn edit_status(
 
     // Compute the proposed new values.
     let new_text = form.status.clone().unwrap_or_else(|| status.text.clone());
-    if new_text.chars().count() > 500 {
+    let new_spoiler = form.spoiler_text.clone().unwrap_or_else(|| status.spoiler_text.clone());
+    // Mastodon StatusLengthValidator: spoiler + body, URLs as 23 chars, mentions
+    // without their domain, counted in grapheme clusters.
+    if super::formatting::countable_length(&new_text, &new_spoiler) > 500 {
         return Err(AppError::Unprocessable("Validation failed: Text character limit of 500 exceeded".into()));
     }
-    let new_spoiler = form.spoiler_text.clone().unwrap_or_else(|| status.spoiler_text.clone());
     // Mastodon forces sensitive when a content warning is present.
     let new_sensitive = form.sensitive.unwrap_or(status.sensitive) || !new_spoiler.is_empty();
     let new_language = form.language.clone().or(status.language.clone());
@@ -2454,16 +2517,7 @@ pub async fn edit_status(
     // Poll editing (Mastodon UpdateStatusService#update_poll!): a poll in the
     // request creates or updates one; changing options resets votes.
     if let Some(Some(pf)) = &form.poll {
-        if pf.options.len() < 2 || pf.options.len() > 4 {
-            return Err(AppError::Unprocessable(
-                "Validation failed: Poll must have between 2 and 4 options".into(),
-            ));
-        }
-        if pf.options.iter().any(|o| o.trim().is_empty()) {
-            return Err(AppError::Unprocessable(
-                "Validation failed: Poll options cannot be blank".into(),
-            ));
-        }
+        validate_poll_form(pf)?;
     }
     let existing_poll = sqlx::query!(
         "SELECT id, options, multiple, hide_totals FROM polls WHERE status_id = $1",

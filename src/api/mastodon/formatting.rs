@@ -1,8 +1,71 @@
 use std::collections::HashMap;
 use once_cell::sync::Lazy;
 use regex::Regex;
+use unicode_segmentation::UnicodeSegmentation;
 
 use super::types::StatusMention;
+
+/// Number of characters a URL counts as, regardless of its real length
+/// (Mastodon `StatusLengthValidator::URL_PLACEHOLDER_CHARS`).
+const URL_PLACEHOLDER_CHARS: usize = 23;
+
+/// Countable length of a status for the 500-char limit, matching Mastodon's
+/// `StatusLengthValidator`: the spoiler/CW text plus the body, where every URL
+/// counts as 23 characters and every mention drops its `@domain` part, measured
+/// in grapheme clusters (not codepoints).
+pub fn countable_length(text: &str, spoiler_text: &str) -> usize {
+    let combined = format!("{spoiler_text}{}", countable_text(text));
+    combined.graphemes(true).count()
+}
+
+/// Rewrite `text` into the form Mastodon counts: URLs → a fixed placeholder,
+/// mentions → `@username` with the domain stripped. Overlapping entities are
+/// resolved earliest-first, mirroring `Extractor.remove_overlapping_entities`.
+fn countable_text(text: &str) -> String {
+    if text.is_empty() {
+        return String::new();
+    }
+
+    struct Entity {
+        start: usize,
+        end: usize,
+        replacement: String,
+    }
+    let mut entities: Vec<Entity> = Vec::new();
+
+    for m in URL_RE.find_iter(text) {
+        entities.push(Entity {
+            start: m.start(),
+            end: m.end(),
+            replacement: "x".repeat(URL_PLACEHOLDER_CHARS),
+        });
+    }
+    for caps in MENTION_RE.captures_iter(text) {
+        // Group 2 is the username; the literal '@' sits one byte before it.
+        let user = caps.get(2).unwrap();
+        let at = user.start() - 1;
+        let end = caps.get(3).map(|g| g.end()).unwrap_or_else(|| user.end());
+        entities.push(Entity {
+            start: at,
+            end,
+            replacement: format!("@{}", user.as_str()),
+        });
+    }
+
+    entities.sort_by_key(|e| e.start);
+    let mut result = String::with_capacity(text.len());
+    let mut last = 0usize;
+    for e in &entities {
+        if e.start < last {
+            continue; // overlaps an already-rewritten entity
+        }
+        result.push_str(&text[last..e.start]);
+        result.push_str(&e.replacement);
+        last = e.end;
+    }
+    result.push_str(&text[last..]);
+    result
+}
 
 pub static HASHTAG_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(^|[\s,.:;!?\(\[\{/])#([a-zA-Z][a-zA-Z0-9_]*)").unwrap()
@@ -189,4 +252,37 @@ pub fn mention_map_from_api(mentions: &[StatusMention]) -> HashMap<String, (Stri
         }
     }
     map
+}
+
+#[cfg(test)]
+mod tests {
+    use super::countable_length;
+
+    #[test]
+    fn plain_text_counts_graphemes() {
+        assert_eq!(countable_length("hello", ""), 5);
+    }
+
+    #[test]
+    fn spoiler_text_is_included() {
+        // 3 (spoiler) + 5 (body) = 8
+        assert_eq!(countable_length("hello", "cw:"), 8);
+    }
+
+    #[test]
+    fn url_counts_as_23_regardless_of_length() {
+        let url = "https://example.com/a/very/long/path/that/is/way/over/23/characters";
+        assert!(url.len() > 23);
+        assert_eq!(countable_length(url, ""), 23);
+        // "see " (4) + url (23) = 27
+        assert_eq!(countable_length(&format!("see {url}"), ""), 27);
+    }
+
+    #[test]
+    fn mention_drops_domain() {
+        // "@alice" (6) + " hi" (3) = 9, the "@remote.example.org" is not counted.
+        assert_eq!(countable_length("@alice@remote.example.org hi", ""), 9);
+        // A local mention (no domain) is unchanged: "@bob" (4) + " hi" (3) = 7.
+        assert_eq!(countable_length("@bob hi", ""), 7);
+    }
 }
