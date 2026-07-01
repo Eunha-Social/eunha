@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM poll_votes WHERE poll_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "558e585fd5c99ad8fa111e2458e401e55e04b17690ff6d2123b199b59e4ad0d6"
+}

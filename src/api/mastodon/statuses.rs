@@ -1286,36 +1286,73 @@ pub async fn delete_status(
         }
     }
 
-    // Federate Delete to remote followers
+    // Mastodon destroys the pin when a status is deleted.
+    let _ = sqlx::query!("DELETE FROM status_pins WHERE status_id = $1", id)
+        .execute(&state.db)
+        .await;
+
+    // Federate the removal (Mastodon RemoveStatusService): a reblog sends
+    // Undo(Announce); any other status sends Delete(Tombstone). Reach is the
+    // full StatusReachFinder (unsafe) audience.
     if account.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
-        if let Some(ref status_uri) = status.uri {
-            let domain = &state.instance.domain;
-            let actor_url = crate::federation::tag::account_uri_of(domain, &account);
-            let delete_id = format!("https://{}/activities/{}", domain, crate::snowflake::next_id());
-            let activity = crate::federation::activity::delete(&delete_id, &actor_url, status_uri)?;
-            let key_id = format!("{}#main-key", actor_url);
-            // Reach everyone who received the original (StatusReachFinder, unsafe).
-            use crate::db::models::vis;
+        let domain = &state.instance.domain;
+        let actor_url = crate::federation::tag::account_uri_of(domain, &account);
+        let key_id = format!("{}#main-key", actor_url);
+        use crate::db::models::vis;
+        let distributable = matches!(status.visibility, vis::PUBLIC | vis::UNLISTED);
+        let is_public = status.visibility == vis::PUBLIC;
+        let followers_allowed =
+            matches!(status.visibility, vis::PUBLIC | vis::UNLISTED | vis::PRIVATE);
+
+        let plan: Option<(serde_json::Value, Option<i64>)> =
+            if let Some(original_id) = status.reblog_of_id {
+                let original = sqlx::query!(
+                    "SELECT account_id, uri FROM statuses WHERE id = $1",
+                    original_id,
+                )
+                .fetch_optional(&state.db)
+                .await?;
+                let original_uri = original.as_ref().and_then(|r| r.uri.clone()).unwrap_or_default();
+                let announce_id = format!("{actor_url}/statuses/{}/activity", id);
+                let undo_id = format!("{announce_id}#undo");
+                let undo = crate::federation::activity::undo_announce(
+                    &undo_id, &actor_url, &announce_id, &original_uri,
+                )?;
+                Some((undo, original.map(|r| r.account_id)))
+            } else if let Some(ref status_uri) = status.uri {
+                let mut activity = crate::federation::activity::delete(
+                    &format!("{status_uri}#delete"),
+                    &actor_url,
+                    status_uri,
+                )?;
+                activity["to"] = serde_json::json!([crate::federation::activity::AS_PUBLIC]);
+                if let Some(obj) = activity.get_mut("object").and_then(|o| o.as_object_mut()) {
+                    obj.insert("atomUri".to_string(), serde_json::json!(status_uri));
+                }
+                Some((activity, None))
+            } else {
+                None
+            };
+
+        if let Some((activity, reblog_of_account_id)) = plan {
             let inboxes = crate::federation::delivery::status_reach_inboxes(
                 &state,
                 id,
                 account.id,
                 status.in_reply_to_account_id,
-                matches!(status.visibility, vis::PUBLIC | vis::UNLISTED),
+                distributable,
                 true,
-                status.visibility == vis::PUBLIC,
-                matches!(status.visibility, vis::PUBLIC | vis::UNLISTED | vis::PRIVATE),
-                None,
+                is_public,
+                followers_allowed,
+                reblog_of_account_id,
             )
             .await
             .unwrap_or_default();
             if !inboxes.is_empty() {
-                if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
-                    &state, activity, inboxes, key_id,
-                )
-                .await
+                if let Err(e) =
+                    crate::federation::delivery::deliver_to_inboxes(&state, activity, inboxes, key_id).await
                 {
-                    tracing::warn!(error = %e, "failed to enqueue Delete reach");
+                    tracing::warn!(error = %e, "failed to enqueue status removal delivery");
                 }
             }
         }
@@ -2353,6 +2390,7 @@ pub struct EditStatusForm {
     pub language: Option<String>,
     pub media_ids: Option<Vec<String>>,
     pub media_attributes: Option<Vec<EditMediaAttribute>>,
+    pub poll: Option<PollForm>,
 }
 
 pub async fn edit_status(
@@ -2378,7 +2416,8 @@ pub async fn edit_status(
         return Err(AppError::Unprocessable("Validation failed: Text character limit of 500 exceeded".into()));
     }
     let new_spoiler = form.spoiler_text.clone().unwrap_or_else(|| status.spoiler_text.clone());
-    let new_sensitive = form.sensitive.unwrap_or(status.sensitive);
+    // Mastodon forces sensitive when a content warning is present.
+    let new_sensitive = form.sensitive.unwrap_or(status.sensitive) || !new_spoiler.is_empty();
     let new_language = form.language.clone().or(status.language.clone());
 
     // Detect whether the attached media set changes (description edits via
@@ -2401,13 +2440,44 @@ pub async fn edit_status(
             None => false,
         };
 
+    // Poll editing (Mastodon UpdateStatusService#update_poll!): a poll in the
+    // request creates or updates one; changing options resets votes.
+    if let Some(ref pf) = form.poll {
+        if pf.options.len() < 2 || pf.options.len() > 4 {
+            return Err(AppError::Unprocessable(
+                "Validation failed: Poll must have between 2 and 4 options".into(),
+            ));
+        }
+        if pf.options.iter().any(|o| o.trim().is_empty()) {
+            return Err(AppError::Unprocessable(
+                "Validation failed: Poll options cannot be blank".into(),
+            ));
+        }
+    }
+    let existing_poll = sqlx::query!(
+        "SELECT id, options, multiple, hide_totals FROM polls WHERE status_id = $1",
+        id,
+    )
+    .fetch_optional(&state.db)
+    .await?;
+    let poll_changed = match (&form.poll, &existing_poll) {
+        (Some(pf), Some(ep)) => {
+            pf.options != ep.options
+                || pf.multiple.unwrap_or(false) != ep.multiple
+                || pf.hide_totals.unwrap_or(false) != ep.hide_totals
+        }
+        (Some(_), None) => true,
+        (None, _) => false,
+    };
+
     // Mastodon only records an edit (and bumps edited_at / notifies) when the
     // submission actually changes the status; a no-op edit returns it as-is.
     let significant = new_text != status.text
         || new_spoiler != status.spoiler_text
         || new_sensitive != status.sensitive
         || new_language != status.language
-        || media_changed;
+        || media_changed
+        || poll_changed;
 
     if !significant {
         let media = fetch_status_media(&state, id).await?;
@@ -2479,21 +2549,61 @@ pub async fn edit_status(
         }
     }
 
-    // Send "update" notifications to users who have interacted with this status
+    // Apply poll create/update (Mastodon resets votes when options change).
+    if let Some(ref pf) = form.poll {
+        let expires_at = pf
+            .expires_in
+            .map(|secs| chrono::Utc::now().naive_utc() + chrono::Duration::seconds(secs));
+        let opts: Vec<String> = pf.options.clone();
+        match &existing_poll {
+            Some(ep) => {
+                let options_changed =
+                    ep.options != opts || ep.multiple != pf.multiple.unwrap_or(false);
+                if options_changed {
+                    let _ = sqlx::query!("DELETE FROM poll_votes WHERE poll_id = $1", ep.id)
+                        .execute(&state.db)
+                        .await;
+                }
+                let _ = sqlx::query!(
+                    r#"UPDATE polls
+                         SET options = $2, multiple = $3, hide_totals = $4, expires_at = $5,
+                             votes_count = (SELECT COUNT(*) FROM poll_votes WHERE poll_id = $1),
+                             cached_tallies = '{}', updated_at = now()
+                       WHERE id = $1"#,
+                    ep.id,
+                    &opts as &[String],
+                    pf.multiple.unwrap_or(false),
+                    pf.hide_totals.unwrap_or(false),
+                    expires_at,
+                )
+                .execute(&state.db)
+                .await;
+            }
+            None => {
+                let _ = sqlx::query!(
+                    r#"INSERT INTO polls (status_id, account_id, options, multiple, hide_totals, expires_at, created_at, updated_at)
+                       VALUES ($1, $2, $3, $4, $5, $6, now(), now())"#,
+                    id,
+                    auth.account_id,
+                    &opts as &[String],
+                    pf.multiple.unwrap_or(false),
+                    pf.hide_totals.unwrap_or(false),
+                    expires_at,
+                )
+                .execute(&state.db)
+                .await;
+            }
+        }
+    }
+
+    // Notify accounts who reblogged this status (Mastodon notify_about_update!).
     let interacted: Vec<i64> = sqlx::query_scalar!(
-        r#"SELECT account_id FROM favourites WHERE status_id = $1
-           UNION
-           SELECT account_id FROM statuses WHERE reblog_of_id = $1 AND deleted_at IS NULL
-           UNION
-           SELECT account_id FROM bookmarks WHERE status_id = $1"#,
+        "SELECT account_id FROM statuses WHERE reblog_of_id = $1 AND deleted_at IS NULL",
         id,
     )
     .fetch_all(&state.db)
     .await
-    .unwrap_or_default()
-    .into_iter()
-    .flatten()
-    .collect();
+    .unwrap_or_default();
 
     let notify_title = format!("{} edited a status", account.display_name);
     for recipient_id in interacted {

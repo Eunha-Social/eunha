@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE polls\n                         SET options = $2, multiple = $3, hide_totals = $4, expires_at = $5,\n                             votes_count = (SELECT COUNT(*) FROM poll_votes WHERE poll_id = $1),\n                             cached_tallies = '{}', updated_at = now()\n                       WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "VarcharArray",
+        "Bool",
+        "Bool",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b8c65823c31c2dba2c1f12bc56f23c6c1a22e749dd6b91446c35875c2fa42146"
+}
