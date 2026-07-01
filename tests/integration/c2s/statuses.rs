@@ -859,6 +859,47 @@ async fn test_status_context_ancestors_and_descendants() {
     assert!(descendant_ids.contains(&c_id), "child not in descendants");
 }
 
+/// Descendants promote the author's self-replies to the front of the list
+/// (Mastodon `descendants(..., promote: true)`), regardless of post time.
+#[tokio::test]
+async fn test_status_context_promotes_self_replies() {
+    let ctx = TestContext::new("ctx-promote").await;
+
+    // Alice posts a root; Bob replies first, then Alice self-replies later.
+    let root = ctx.api.post_status(&ctx.alice_token, "root", "public").await;
+    let root_id = root["id"].as_str().unwrap();
+
+    let bob_reply: Value = ctx.api.post_json(
+        "/api/v1/statuses",
+        Some(&ctx.bob_token),
+        &json!({ "status": "bob reply", "in_reply_to_id": root_id, "visibility": "public" }),
+    ).await.json().await.unwrap();
+    let bob_id = bob_reply["id"].as_str().unwrap().to_string();
+
+    let alice_reply: Value = ctx.api.post_json(
+        "/api/v1/statuses",
+        Some(&ctx.alice_token),
+        &json!({ "status": "alice self-reply", "in_reply_to_id": root_id, "visibility": "public" }),
+    ).await.json().await.unwrap();
+    let alice_id = alice_reply["id"].as_str().unwrap().to_string();
+
+    let context: Value = ctx.api
+        .get(&format!("/api/v1/statuses/{root_id}/context"), None)
+        .await.json().await.unwrap();
+    let descendant_ids: Vec<&str> = context["descendants"]
+        .as_array().unwrap().iter()
+        .filter_map(|s| s["id"].as_str())
+        .collect();
+
+    // Alice's self-reply (posted later, higher id) must come before Bob's reply.
+    let alice_pos = descendant_ids.iter().position(|&d| d == alice_id);
+    let bob_pos = descendant_ids.iter().position(|&d| d == bob_id);
+    assert!(
+        alice_pos < bob_pos,
+        "author self-reply should be promoted before other replies: {descendant_ids:?}",
+    );
+}
+
 // ── status edit & history ────────────────────────────────────────────────────
 
 /// Editing a reblog returns 422 Unprocessable Entity.

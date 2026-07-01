@@ -1865,17 +1865,19 @@ pub async fn get_status_context(
     .fetch_all(&state.db)
     .await?;
 
+    // Descendants are ordered by tree path (depth-first pre-order) so each
+    // subtree stays contiguous, matching Mastodon's `descendant_ids` ORDER BY path.
     let descendant_rows = sqlx::query_as::<_, DbStatus>(
-        r#"WITH RECURSIVE reply_tree AS (
-             SELECT id, 1::int AS depth FROM statuses
+        r#"WITH RECURSIVE reply_tree(id, path, depth) AS (
+             SELECT id, ARRAY[id]::bigint[] AS path, 1::int AS depth FROM statuses
              WHERE in_reply_to_id = $1 AND deleted_at IS NULL
              UNION ALL
-             SELECT s.id, r.depth + 1 FROM statuses s
+             SELECT s.id, r.path || s.id, r.depth + 1 FROM statuses s
                JOIN reply_tree r ON s.in_reply_to_id = r.id
-             WHERE s.deleted_at IS NULL AND r.depth < $3
+             WHERE s.deleted_at IS NULL AND r.depth < $3 AND NOT s.id = ANY(r.path)
            ),
-           bounded AS (SELECT id FROM reply_tree LIMIT $2)
-           SELECT s.* FROM statuses s JOIN bounded b ON s.id = b.id ORDER BY s.id ASC"#
+           bounded AS (SELECT id, path FROM reply_tree ORDER BY path LIMIT $2)
+           SELECT s.* FROM statuses s JOIN bounded b ON s.id = b.id ORDER BY b.path"#
     )
     .bind(id)
     .bind(descendant_limit)
@@ -1928,8 +1930,8 @@ pub async fn get_status_context(
             }
         })
         .collect();
-    let visible_descendants: Vec<&DbStatus> = descendant_rows.iter()
-        .filter(|s| {
+    let visible_descendants: Vec<&DbStatus> = {
+        let filtered = descendant_rows.iter().filter(|s| {
             if viewer_id.is_some_and(|vid| vid != s.account_id) && blocked_accounts.contains(&s.account_id) {
                 return false;
             }
@@ -1938,8 +1940,14 @@ pub async fn get_status_context(
             } else {
                 true
             }
-        })
-        .collect();
+        });
+        // Mastodon `promote: true` — self-replies (author continuing their own
+        // thread) are pulled to the front, preserving relative order (a stable
+        // partition), so the OP's thread reads first.
+        let (self_replies, others): (Vec<&DbStatus>, Vec<&DbStatus>) =
+            filtered.partition(|s| s.in_reply_to_account_id == Some(s.account_id));
+        self_replies.into_iter().chain(others).collect()
+    };
 
     // For private/direct: do the per-status visibility check and compute thread filters.
     let anc_owned: Vec<DbStatus> = {
