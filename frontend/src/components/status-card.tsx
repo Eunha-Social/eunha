@@ -6,16 +6,33 @@ import {
   Globe,
   Lock,
   LockOpen,
+  MoreHorizontal,
+  Pencil,
   Repeat2,
   Reply,
   Star,
+  Trash2,
 } from 'lucide-react'
 
 import type { mastodon } from '../masto.ts'
-import { setBookmark, setFavourite, setReblog } from '../api.ts'
+import {
+  deleteStatus,
+  getStatusSource,
+  setBookmark,
+  setFavourite,
+  setReblog,
+  updateStatus,
+} from '../api.ts'
+import { getMeId } from '../me.ts'
 import { Card, CardContent } from '@/components/ui/card.tsx'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar.tsx'
 import { Button } from '@/components/ui/button.tsx'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu.tsx'
 import { MediaAttachments } from '@/components/media-attachments.tsx'
 import { Poll } from '@/components/poll.tsx'
 import { cn } from '@/lib/utils.ts'
@@ -85,7 +102,54 @@ export function StatusCard({
   const [status, setStatus] = useState(initial)
   const [busy, setBusy] = useState(false)
   const [expanded, setExpanded] = useState(!initial.spoilerText)
+  const [deleted, setDeleted] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [editText, setEditText] = useState('')
+  const [editSpoiler, setEditSpoiler] = useState('')
+  const [saving, setSaving] = useState(false)
   const navigate = useNavigate()
+
+  const isOwn = !!token && getMeId() === status.account.id
+
+  const startEdit = async () => {
+    try {
+      const src = await getStatusSource(status.id, token)
+      setEditText(src.text)
+      setEditSpoiler(src.spoilerText)
+      setEditing(true)
+    } catch {
+      // ignore
+    }
+  }
+
+  const saveEdit = async () => {
+    if (saving) return
+    setSaving(true)
+    try {
+      const updated = await updateStatus(
+        status.id,
+        { status: editText, spoilerText: editSpoiler },
+        token,
+      )
+      setStatus(updated)
+      setExpanded(!updated.spoilerText)
+      setEditing(false)
+    } catch {
+      // ignore
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const onDelete = async () => {
+    if (!window.confirm('Delete this post?')) return
+    try {
+      await deleteStatus(status.id, token)
+      setDeleted(true)
+    } catch {
+      // ignore
+    }
+  }
 
   // Boosting a status returns a reblog wrapper around the original; normalize
   // back to the underlying status so counts/flags stay on the displayed entity.
@@ -106,6 +170,8 @@ export function StatusCard({
   // Private and direct posts can't be boosted (matches Mastodon's web UI).
   const notBoostable =
     status.visibility === 'private' || status.visibility === 'direct'
+
+  if (deleted) return null
 
   return (
     <Card>
@@ -132,33 +198,82 @@ export function StatusCard({
             <Link to={threadPath} className="no-underline hover:underline">
               {new Date(status.createdAt).toLocaleString()}
             </Link>
+            {status.editedAt && <span title="Edited">(edited)</span>}
+            {isOwn && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="More"
+                    className="hover:text-foreground ml-1"
+                  >
+                    <MoreHorizontal className="size-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={startEdit}>
+                    <Pencil /> Edit
+                  </DropdownMenuItem>
+                  <DropdownMenuItem variant="destructive" onClick={onDelete}>
+                    <Trash2 /> Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
         </div>
-        {status.spoilerText && (
-          <div className="text-sm">
-            <span>{status.spoilerText}</span>
-            <button
-              type="button"
-              onClick={() => setExpanded((e) => !e)}
-              className="text-accent ml-2 text-xs underline"
-            >
-              {expanded ? 'Show less' : 'Show more'}
-            </button>
-          </div>
-        )}
-        {expanded && (
-          <>
-            <div
-              className="text-sm [&_a]:text-accent [&_a]:underline"
-              dangerouslySetInnerHTML={{ __html: status.content }}
+        {editing ? (
+          <div className="space-y-2">
+            <input
+              value={editSpoiler}
+              onChange={(e) => setEditSpoiler(e.target.value)}
+              placeholder="Content warning (optional)"
+              className="bg-background w-full rounded-md border px-2 py-1 text-sm outline-none"
             />
-            {status.mediaAttachments.length > 0 && (
-              <MediaAttachments
-                attachments={status.mediaAttachments}
-                sensitive={status.sensitive}
-              />
+            <textarea
+              value={editText}
+              onChange={(e) => setEditText(e.target.value)}
+              rows={4}
+              className="bg-background focus-visible:ring-ring w-full resize-y rounded-md border p-2 text-sm outline-none focus-visible:ring-[3px]"
+            />
+            <div className="flex gap-2">
+              <Button size="sm" disabled={saving || !editText.trim()} onClick={saveEdit}>
+                Save
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+                Cancel
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <>
+            {status.spoilerText && (
+              <div className="text-sm">
+                <span>{status.spoilerText}</span>
+                <button
+                  type="button"
+                  onClick={() => setExpanded((e) => !e)}
+                  className="text-accent ml-2 text-xs underline"
+                >
+                  {expanded ? 'Show less' : 'Show more'}
+                </button>
+              </div>
             )}
-            {status.poll && <Poll poll={status.poll} token={token} />}
+            {expanded && (
+              <>
+                <div
+                  className="text-sm [&_a]:text-accent [&_a]:underline"
+                  dangerouslySetInnerHTML={{ __html: status.content }}
+                />
+                {status.mediaAttachments.length > 0 && (
+                  <MediaAttachments
+                    attachments={status.mediaAttachments}
+                    sensitive={status.sensitive}
+                  />
+                )}
+                {status.poll && <Poll poll={status.poll} token={token} />}
+              </>
+            )}
           </>
         )}
         <div className="flex items-center gap-1">

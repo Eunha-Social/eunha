@@ -99,6 +99,25 @@ export function getStatusContext(
   return restClient(token).v1.statuses.$select(id).context.fetch()
 }
 
+export function deleteStatus(id: string, token: string): Promise<mastodon.v1.Status> {
+  return restClient(token).v1.statuses.$select(id).remove()
+}
+
+export function getStatusSource(
+  id: string,
+  token: string,
+): Promise<mastodon.v1.StatusSource> {
+  return restClient(token).v1.statuses.$select(id).source.fetch()
+}
+
+export function updateStatus(
+  id: string,
+  params: { status: string; spoilerText?: string },
+  token: string,
+): Promise<mastodon.v1.Status> {
+  return restClient(token).v1.statuses.$select(id).update(params)
+}
+
 export async function getRelationship(
   id: string,
   token: string,

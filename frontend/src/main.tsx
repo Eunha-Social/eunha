@@ -11,7 +11,13 @@ import SearchPage from './pages/Search.tsx'
 import TagTimeline from './pages/TagTimeline.tsx'
 import AccountList from './pages/AccountList.tsx'
 import { ThemeProvider } from './components/theme-provider.tsx'
+import { getToken } from './auth.ts'
+import { loadMe } from './me.ts'
 import './styles.css'
+
+// Warm the current-user id cache for edit/delete controls.
+const token = getToken()
+if (token) void loadMe(token)
 
 // Static routes outrank dynamic ones in React Router's ranking, so
 // `/auth/callback`, `/local`, etc. are matched before `/:acct`. `:acct`

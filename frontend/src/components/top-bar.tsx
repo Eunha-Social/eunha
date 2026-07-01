@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom'
 import { LogIn, LogOut, Search } from 'lucide-react'
 
 import { beginLogin, getToken, logout } from '../auth.ts'
+import { clearMe } from '../me.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { ModeToggle } from '@/components/mode-toggle.tsx'
 
@@ -24,6 +25,7 @@ export function TopBar({ title }: { title?: string }) {
             size="sm"
             onClick={() => {
               logout()
+              clearMe()
               location.assign('/')
             }}
           >
