@@ -610,14 +610,23 @@ pub async fn post_status(
     if let Some(ref poll_form) = form.poll {
         let expires_at = poll_form.expires_in.map(|secs| chrono::Utc::now().naive_utc() + chrono::Duration::seconds(secs));
         let poll_options: Vec<String> = poll_form.options.clone();
-        sqlx::query!(
+        let poll_id = sqlx::query_scalar!(
             r#"INSERT INTO polls
                  (status_id, account_id, options, multiple, hide_totals, expires_at, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, $5, $6, now(), now())"#,
+               VALUES ($1, $2, $3, $4, $5, $6, now(), now())
+               RETURNING id"#,
             status.id, account.id, &poll_options as &[String],
             poll_form.multiple.unwrap_or(false),
             poll_form.hide_totals.unwrap_or(false),
             expires_at,
+        )
+        .fetch_one(&state.db)
+        .await?;
+        // Link the poll back onto the status, mirroring the federation ingest
+        // path so `statuses.poll_id` is consistently populated for local polls.
+        sqlx::query!(
+            "UPDATE statuses SET poll_id = $1 WHERE id = $2",
+            poll_id, status.id,
         )
         .execute(&state.db)
         .await?;
@@ -2688,9 +2697,10 @@ pub async fn edit_status(
                     .await;
                 }
                 None => {
-                    let _ = sqlx::query!(
+                    if let Ok(poll_id) = sqlx::query_scalar!(
                         r#"INSERT INTO polls (status_id, account_id, options, multiple, hide_totals, expires_at, created_at, updated_at)
-                           VALUES ($1, $2, $3, $4, $5, $6, now(), now())"#,
+                           VALUES ($1, $2, $3, $4, $5, $6, now(), now())
+                           RETURNING id"#,
                         id,
                         auth.account_id,
                         &opts as &[String],
@@ -2698,14 +2708,25 @@ pub async fn edit_status(
                         pf.hide_totals.unwrap_or(false),
                         expires_at,
                     )
-                    .execute(&state.db)
-                    .await;
+                    .fetch_one(&state.db)
+                    .await
+                    {
+                        let _ = sqlx::query!(
+                            "UPDATE statuses SET poll_id = $1 WHERE id = $2",
+                            poll_id, id,
+                        )
+                        .execute(&state.db)
+                        .await;
+                    }
                 }
             }
         }
         Some(None) => {
             if let Some(ep) = &existing_poll {
                 let _ = sqlx::query!("DELETE FROM poll_votes WHERE poll_id = $1", ep.id)
+                    .execute(&state.db)
+                    .await;
+                let _ = sqlx::query!("UPDATE statuses SET poll_id = NULL WHERE id = $1", id)
                     .execute(&state.db)
                     .await;
                 let _ = sqlx::query!("DELETE FROM polls WHERE id = $1", ep.id)

@@ -433,6 +433,7 @@ pub async fn get_account_statuses(
                  AND (
                    text != ''
                    OR reblog_of_id IS NOT NULL
+                   OR poll_id IS NOT NULL
                    OR EXISTS (SELECT 1 FROM media_attachments WHERE status_id = statuses.id)
                  )
                  AND ($8::boolean IS NOT TRUE OR
@@ -495,6 +496,7 @@ pub async fn get_account_statuses(
                  AND (
                    text != ''
                    OR reblog_of_id IS NOT NULL
+                   OR poll_id IS NOT NULL
                    OR EXISTS (SELECT 1 FROM media_attachments WHERE status_id = statuses.id)
                  )
                  AND ($9::boolean IS NOT TRUE OR

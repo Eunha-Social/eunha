@@ -1791,6 +1791,31 @@ async fn test_poll_validation_matches_mastodon() {
     );
 }
 
+/// A status carrying only a poll (no text, no media) still appears on the
+/// author's profile — Mastodon's AccountStatusesFilter does not drop it.
+#[tokio::test]
+async fn test_poll_only_status_appears_on_profile() {
+    let ctx = TestContext::new("poll-profile").await;
+
+    let resp = ctx.api.post_json(
+        "/api/v1/statuses",
+        Some(&ctx.alice_token),
+        &json!({ "poll": { "options": ["A", "B"], "expires_in": 86400 }, "visibility": "public" }),
+    ).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let status: Value = resp.json().await.unwrap();
+    let sid = status["id"].as_str().unwrap().to_string();
+    assert!(status["poll"].is_object(), "created status should carry a poll");
+
+    let list: Vec<Value> = ctx.api
+        .get(&format!("/api/v1/accounts/{}/statuses", ctx.alice_id), Some(&ctx.alice_token))
+        .await.json().await.unwrap();
+    assert!(
+        list.iter().any(|s| s["id"].as_str() == Some(sid.as_str())),
+        "poll-only status should appear on the profile timeline",
+    );
+}
+
 /// GET /api/v1/polls/:id returns poll details.
 #[tokio::test]
 async fn test_get_poll() {
