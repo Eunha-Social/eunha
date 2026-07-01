@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO polls (status_id, account_id, options, multiple, hide_totals, expires_at, created_at, updated_at)\n                           VALUES ($1, $2, $3, $4, $5, $6, now(), now())",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "VarcharArray",
+        "Bool",
+        "Bool",
+        "Timestamp"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "30ca0cf68971d895df0c9a020b45b4c59fdf4024cde2fb3a87c09fd755d60cee"
+}

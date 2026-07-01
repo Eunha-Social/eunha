@@ -2390,7 +2390,18 @@ pub struct EditStatusForm {
     pub language: Option<String>,
     pub media_ids: Option<Vec<String>>,
     pub media_attributes: Option<Vec<EditMediaAttribute>>,
-    pub poll: Option<PollForm>,
+    // Double-option so we can tell an absent `poll` (no change) from an explicit
+    // `poll: null` (remove the poll) — Mastodon keys off `options.key?(:poll)`.
+    #[serde(default, deserialize_with = "double_option")]
+    pub poll: Option<Option<PollForm>>,
+}
+
+fn double_option<'de, T, D>(de: D) -> Result<Option<Option<T>>, D::Error>
+where
+    T: serde::Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    serde::Deserialize::deserialize(de).map(Some)
 }
 
 pub async fn edit_status(
@@ -2442,7 +2453,7 @@ pub async fn edit_status(
 
     // Poll editing (Mastodon UpdateStatusService#update_poll!): a poll in the
     // request creates or updates one; changing options resets votes.
-    if let Some(ref pf) = form.poll {
+    if let Some(Some(pf)) = &form.poll {
         if pf.options.len() < 2 || pf.options.len() > 4 {
             return Err(AppError::Unprocessable(
                 "Validation failed: Poll must have between 2 and 4 options".into(),
@@ -2461,13 +2472,15 @@ pub async fn edit_status(
     .fetch_optional(&state.db)
     .await?;
     let poll_changed = match (&form.poll, &existing_poll) {
-        (Some(pf), Some(ep)) => {
+        (Some(Some(pf)), Some(ep)) => {
             pf.options != ep.options
                 || pf.multiple.unwrap_or(false) != ep.multiple
                 || pf.hide_totals.unwrap_or(false) != ep.hide_totals
         }
-        (Some(_), None) => true,
-        (None, _) => false,
+        (Some(Some(_)), None) => true, // adding a poll
+        (Some(None), Some(_)) => true, // explicit poll:null removes it
+        (Some(None), None) => false,
+        (None, _) => false, // absent: no change
     };
 
     // Mastodon only records an edit (and bumps edited_at / notifies) when the
@@ -2549,51 +2562,65 @@ pub async fn edit_status(
         }
     }
 
-    // Apply poll create/update (Mastodon resets votes when options change).
-    if let Some(ref pf) = form.poll {
-        let expires_at = pf
-            .expires_in
-            .map(|secs| chrono::Utc::now().naive_utc() + chrono::Duration::seconds(secs));
-        let opts: Vec<String> = pf.options.clone();
-        match &existing_poll {
-            Some(ep) => {
-                let options_changed =
-                    ep.options != opts || ep.multiple != pf.multiple.unwrap_or(false);
-                if options_changed {
-                    let _ = sqlx::query!("DELETE FROM poll_votes WHERE poll_id = $1", ep.id)
-                        .execute(&state.db)
-                        .await;
+    // Apply the poll change (Mastodon resets votes when options change; an
+    // explicit poll:null removes the poll).
+    match &form.poll {
+        Some(Some(pf)) => {
+            let expires_at = pf
+                .expires_in
+                .map(|secs| chrono::Utc::now().naive_utc() + chrono::Duration::seconds(secs));
+            let opts: Vec<String> = pf.options.clone();
+            match &existing_poll {
+                Some(ep) => {
+                    let options_changed =
+                        ep.options != opts || ep.multiple != pf.multiple.unwrap_or(false);
+                    if options_changed {
+                        let _ = sqlx::query!("DELETE FROM poll_votes WHERE poll_id = $1", ep.id)
+                            .execute(&state.db)
+                            .await;
+                    }
+                    let _ = sqlx::query!(
+                        r#"UPDATE polls
+                             SET options = $2, multiple = $3, hide_totals = $4, expires_at = $5,
+                                 votes_count = (SELECT COUNT(*) FROM poll_votes WHERE poll_id = $1),
+                                 cached_tallies = '{}', updated_at = now()
+                           WHERE id = $1"#,
+                        ep.id,
+                        &opts as &[String],
+                        pf.multiple.unwrap_or(false),
+                        pf.hide_totals.unwrap_or(false),
+                        expires_at,
+                    )
+                    .execute(&state.db)
+                    .await;
                 }
-                let _ = sqlx::query!(
-                    r#"UPDATE polls
-                         SET options = $2, multiple = $3, hide_totals = $4, expires_at = $5,
-                             votes_count = (SELECT COUNT(*) FROM poll_votes WHERE poll_id = $1),
-                             cached_tallies = '{}', updated_at = now()
-                       WHERE id = $1"#,
-                    ep.id,
-                    &opts as &[String],
-                    pf.multiple.unwrap_or(false),
-                    pf.hide_totals.unwrap_or(false),
-                    expires_at,
-                )
-                .execute(&state.db)
-                .await;
-            }
-            None => {
-                let _ = sqlx::query!(
-                    r#"INSERT INTO polls (status_id, account_id, options, multiple, hide_totals, expires_at, created_at, updated_at)
-                       VALUES ($1, $2, $3, $4, $5, $6, now(), now())"#,
-                    id,
-                    auth.account_id,
-                    &opts as &[String],
-                    pf.multiple.unwrap_or(false),
-                    pf.hide_totals.unwrap_or(false),
-                    expires_at,
-                )
-                .execute(&state.db)
-                .await;
+                None => {
+                    let _ = sqlx::query!(
+                        r#"INSERT INTO polls (status_id, account_id, options, multiple, hide_totals, expires_at, created_at, updated_at)
+                           VALUES ($1, $2, $3, $4, $5, $6, now(), now())"#,
+                        id,
+                        auth.account_id,
+                        &opts as &[String],
+                        pf.multiple.unwrap_or(false),
+                        pf.hide_totals.unwrap_or(false),
+                        expires_at,
+                    )
+                    .execute(&state.db)
+                    .await;
+                }
             }
         }
+        Some(None) => {
+            if let Some(ep) = &existing_poll {
+                let _ = sqlx::query!("DELETE FROM poll_votes WHERE poll_id = $1", ep.id)
+                    .execute(&state.db)
+                    .await;
+                let _ = sqlx::query!("DELETE FROM polls WHERE id = $1", ep.id)
+                    .execute(&state.db)
+                    .await;
+            }
+        }
+        None => {}
     }
 
     // Notify accounts who reblogged this status (Mastodon notify_about_update!).
@@ -2618,6 +2645,31 @@ pub async fn edit_status(
             super::convert::account_avatar_url_for(&account),
         )
         .await;
+    }
+
+    // Notify accounts whose accepted quotes point at this status (Mastodon's
+    // quoted_update). The notification references the quoting status.
+    if let Ok(quoters) = sqlx::query!(
+        "SELECT account_id, status_id FROM quotes WHERE quoted_status_id = $1 AND state = 1",
+        id,
+    )
+    .fetch_all(&state.db)
+    .await
+    {
+        let quote_title = format!("{} edited a quoted post", account.display_name);
+        for q in quoters {
+            push::create_and_push(
+                &state,
+                q.account_id,
+                auth.account_id,
+                "quoted_update",
+                Some(q.status_id),
+                quote_title.clone(),
+                "".into(),
+                super::convert::account_avatar_url_for(&account),
+            )
+            .await;
+        }
     }
 
     let (updated_status, _) = fetch_status_with_account(&state, id).await?;
