@@ -372,6 +372,39 @@ async fn test_account_statuses_only_media() {
     );
 }
 
+/// ?only_media=true excludes reblogs, even reblogs of media posts — Mastodon's
+/// only_media_scope inner-joins the status's own attachments, and a boost row
+/// has none.
+#[tokio::test]
+async fn test_account_statuses_only_media_excludes_reblogs() {
+    let ctx = TestContext::new("acct-only-media-reblog").await;
+
+    // Bob posts a media status; Alice reblogs it.
+    let media: Value = ctx.api.post_multipart_file(
+        "/api/v1/media", &ctx.bob_token, "t.png", "image/png", crate::helpers::tiny_png(), &[],
+    ).await.json().await.unwrap();
+    let media_id = media["id"].as_str().unwrap();
+    let bob_status = ctx.api.post_json(
+        "/api/v1/statuses",
+        Some(&ctx.bob_token),
+        &json!({ "status": "look", "visibility": "public", "media_ids": [media_id] }),
+    ).await.json::<Value>().await.unwrap();
+    let bob_id = bob_status["id"].as_str().unwrap();
+    let reblog = ctx.api.post_json(&format!("/api/v1/statuses/{bob_id}/reblog"), Some(&ctx.alice_token), &json!({})).await;
+    assert_eq!(reblog.status(), StatusCode::OK);
+    let reblog: Value = reblog.json().await.unwrap();
+    let reblog_id = reblog["id"].as_str().unwrap();
+
+    let statuses: Vec<Value> = ctx.api.get(
+        &format!("/api/v1/accounts/{}/statuses?only_media=true", ctx.alice_id),
+        Some(&ctx.alice_token),
+    ).await.json().await.unwrap();
+    assert!(
+        !statuses.iter().any(|s| s["id"].as_str() == Some(reblog_id)),
+        "a reblog of a media post must not appear with only_media=true",
+    );
+}
+
 // ── follow lifecycle ──────────────────────────────────────────────────────────
 
 /// Following your own account returns 403.

@@ -437,8 +437,7 @@ pub async fn get_account_statuses(
                    OR EXISTS (SELECT 1 FROM media_attachments WHERE status_id = statuses.id)
                  )
                  AND ($8::boolean IS NOT TRUE OR
-                   EXISTS (SELECT 1 FROM media_attachments WHERE status_id = statuses.id) OR
-                   (reblog_of_id IS NOT NULL AND EXISTS (SELECT 1 FROM media_attachments WHERE status_id = reblog_of_id))
+                   EXISTS (SELECT 1 FROM media_attachments WHERE status_id = statuses.id)
                  )
                  AND ($9::text IS NULL OR EXISTS (
                    SELECT 1 FROM statuses_tags st
@@ -500,8 +499,7 @@ pub async fn get_account_statuses(
                    OR EXISTS (SELECT 1 FROM media_attachments WHERE status_id = statuses.id)
                  )
                  AND ($9::boolean IS NOT TRUE OR
-                   EXISTS (SELECT 1 FROM media_attachments WHERE status_id = statuses.id) OR
-                   (reblog_of_id IS NOT NULL AND EXISTS (SELECT 1 FROM media_attachments WHERE status_id = reblog_of_id))
+                   EXISTS (SELECT 1 FROM media_attachments WHERE status_id = statuses.id)
                  )
                  AND ($10::text IS NULL OR EXISTS (
                    SELECT 1 FROM statuses_tags st
