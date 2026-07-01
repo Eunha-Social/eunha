@@ -1883,14 +1883,15 @@ async fn build_credential_account_response(
     .await?
     .unwrap_or(0);
 
-    // User preferences are stored in users.settings (YAML); default to safe values
-    let (default_privacy, default_sensitive, default_language, default_quote_policy) =
-        ("public".to_string(), false, None::<String>, "public".to_string());
+    // Reflect the user's actual stored posting defaults (Mastodon's
+    // CredentialAccountSerializer#source reads the user's settings), not
+    // hardcoded values.
+    let defaults = user_defaults(state, auth.account_id).await;
 
     api_account.source = Some(super::types::AccountSource {
-        privacy: default_privacy,
-        sensitive: default_sensitive,
-        language: default_language,
+        privacy: defaults.privacy,
+        sensitive: defaults.sensitive,
+        language: defaults.language,
         note: account.note.clone(),
         fields: fields.clone(),
         follow_requests_count,
@@ -1898,7 +1899,7 @@ async fn build_credential_account_response(
         indexable: account.indexable,
         hide_collections: account.hide_collections,
         attribution_domains: account.attribution_domains.clone().unwrap_or_default(),
-        quote_policy: default_quote_policy,
+        quote_policy: defaults.quote_policy,
     });
     api_account.roles = fetch_account_roles(state, auth.account_id).await;
     api_account.role = fetch_account_role(state, auth.account_id).await;

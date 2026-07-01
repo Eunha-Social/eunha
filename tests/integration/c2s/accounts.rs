@@ -1057,7 +1057,12 @@ async fn test_update_credentials_source_privacy() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 
-    // Verify via verify_credentials.
+    // The update response itself must reflect the new default, not a hardcoded
+    // "public" (the response builder reads the user's actual settings).
+    let updated: Value = resp.json().await.unwrap();
+    assert_eq!(updated["source"]["privacy"].as_str(), Some("private"), "PATCH response source.privacy stale");
+
+    // And it persists, visible via verify_credentials.
     let creds: Value = ctx.api.get("/api/v1/accounts/verify_credentials", Some(&ctx.alice_token))
         .await.json().await.unwrap();
     assert_eq!(creds["source"]["privacy"].as_str(), Some("private"));
