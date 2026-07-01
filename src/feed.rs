@@ -650,3 +650,47 @@ pub async fn backfill_follow(
     pipe.zremrangebyrank(&key, 0, -(FEED_MAX_ITEMS + 1));
     let _: redis::RedisResult<()> = pipe.query_async(redis).await;
 }
+
+/// Remove the (former) followee's statuses from the follower's home feed.
+/// Mirrors Mastodon's `FeedManager#unmerge_from_home`, called on unfollow and
+/// block so an ex-followee's posts (and their own reblogs) stop lingering in
+/// the cached timeline until the next full repopulate.
+pub async fn unmerge_from_home(
+    redis: &mut ConnectionManager,
+    db: &PgPool,
+    from_account_id: i64,
+    into_account_id: i64,
+) {
+    if !is_feed_populated(redis, into_account_id).await {
+        return;
+    }
+
+    let key = feed_key(into_account_id);
+    // Only walk statuses newer than the oldest item currently in the feed;
+    // older ones can't be present. Matches Mastodon's oldest_home_score bound.
+    let oldest_score: i64 = redis
+        .zrange_withscores::<_, Vec<(i64, f64)>>(&key, 0, 0)
+        .await
+        .ok()
+        .and_then(|v| v.first().map(|(_, score)| *score as i64))
+        .unwrap_or(0);
+
+    let ids: Vec<i64> = sqlx::query_scalar!(
+        "SELECT id FROM statuses WHERE account_id = $1 AND id > $2",
+        from_account_id,
+        oldest_score,
+    )
+    .fetch_all(db)
+    .await
+    .unwrap_or_default();
+
+    if ids.is_empty() {
+        return;
+    }
+
+    let mut pipe = redis::pipe();
+    for id in ids {
+        pipe.zrem(&key, id);
+    }
+    let _: redis::RedisResult<()> = pipe.query_async(redis).await;
+}

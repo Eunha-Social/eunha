@@ -993,6 +993,22 @@ pub async fn unfollow_account(
         .and_then(|r| r.uri)
     };
 
+    // Strip the ex-followee's posts from the home feed (Mastodon UnfollowService
+    // → FeedManager#unmerge_from_home). Only when an accepted follow was removed;
+    // a cancelled request never fanned anything out.
+    if deleted.is_some() {
+        let mut redis = state.redis.clone();
+        let db = state.db.clone();
+        let follower_id = auth.account_id;
+        if feed::sync_fanout() {
+            feed::unmerge_from_home(&mut redis, &db, target_id, follower_id).await;
+        } else {
+            tokio::spawn(async move {
+                feed::unmerge_from_home(&mut redis, &db, target_id, follower_id).await;
+            });
+        }
+    }
+
     // Send Undo(Follow) to remote target
     let target = fetch_account(&state, target_id).await?;
     if target.domain.is_some() {
@@ -1993,6 +2009,21 @@ pub async fn block_account(
     )
     .fetch_all(&state.db)
     .await?;
+
+    // Strip the blocked account's posts from the blocker's home feed
+    // (Mastodon BlockWorker → FeedManager#clear_from_home).
+    {
+        let mut redis = state.redis.clone();
+        let db = state.db.clone();
+        let blocker_id = auth.account_id;
+        if feed::sync_fanout() {
+            feed::unmerge_from_home(&mut redis, &db, target_id, blocker_id).await;
+        } else {
+            tokio::spawn(async move {
+                feed::unmerge_from_home(&mut redis, &db, target_id, blocker_id).await;
+            });
+        }
+    }
 
     // Federate to a remote target (Mastodon BlockService#handle_following_relationships
     // + the Block itself): Undo(Follow) for our follow, Reject(Follow) for their

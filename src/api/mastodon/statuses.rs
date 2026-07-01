@@ -2499,11 +2499,19 @@ pub async fn edit_status(
         return Ok(Json(build_status(&state, &status, &account, media, reblog, Some(ctx)).await?));
     }
 
-    // Save the current version to the edit history before updating.
+    // Save the current version to the edit history before updating. The snapshot
+    // is stamped with the version's own creation time (Mastodon snapshots with
+    // `at_time: edited_at || created_at`), not the moment it is superseded, and
+    // carries that version's media order and poll options so `/history` renders
+    // each past version faithfully.
+    let snapshot_at = status.edited_at.unwrap_or(status.created_at);
+    let snapshot_media = status.ordered_media_attachment_ids.clone();
+    let snapshot_poll = existing_poll.as_ref().map(|p| p.options.clone());
     sqlx::query!(
-        r#"INSERT INTO status_edits (status_id, account_id, text, spoiler_text, sensitive, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, now(), now())"#,
+        r#"INSERT INTO status_edits (status_id, account_id, text, spoiler_text, sensitive, ordered_media_attachment_ids, poll_options, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())"#,
         id, auth.account_id, status.text, status.spoiler_text, status.sensitive,
+        snapshot_media.as_deref(), snapshot_poll.as_deref(), snapshot_at,
     )
     .execute(&state.db)
     .await?;
@@ -2808,11 +2816,23 @@ pub async fn get_status_history(
         }
     }).collect();
 
-    // Current version poll
-    let current_poll = status.poll_id.and({
-        // We don't have poll options in the status itself; omit for now.
-        None::<serde_json::Value>
-    });
+    // Current version poll — render its options so the latest history entry
+    // matches Mastodon (which snapshots poll_options on every edit).
+    let current_poll = if status.poll_id.is_some() {
+        sqlx::query_scalar!(
+            "SELECT options FROM polls WHERE status_id = $1",
+            id,
+        )
+        .fetch_optional(&state.db)
+        .await?
+        .map(|opts: Vec<String>| {
+            serde_json::json!({
+                "options": opts.iter().map(|t| serde_json::json!({ "title": t })).collect::<Vec<_>>()
+            })
+        })
+    } else {
+        None
+    };
 
     // Append current version
     result.push(StatusEdit {

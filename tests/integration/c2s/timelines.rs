@@ -75,6 +75,34 @@ async fn test_home_timeline_excludes_non_followed_accounts() {
     assert!(!ids.contains(&id.as_str()), "non-followed account's post appeared in home timeline");
 }
 
+/// Unfollowing strips the ex-followee's posts from the already-populated home
+/// feed (Mastodon UnfollowService → FeedManager#unmerge_from_home), rather than
+/// leaving them cached until the next full repopulate.
+#[tokio::test]
+async fn test_unfollow_removes_posts_from_home_timeline() {
+    let ctx = TestContext::new("home-unmerge").await;
+
+    // Alice follows Bob; Bob posts; Alice's home feed gets populated with it.
+    ctx.api.follow(&ctx.alice_token, &ctx.bob_id).await;
+    let status = ctx.api.post_status(&ctx.bob_token, "bob before unfollow", "public").await;
+    let id = status["id"].as_str().unwrap().to_string();
+
+    let home = ctx.api.home_timeline(&ctx.alice_token).await;
+    let ids: Vec<&str> = home.iter().filter_map(|s| s["id"].as_str()).collect();
+    assert!(ids.contains(&id.as_str()), "followed account's post should be in home timeline");
+
+    // Alice unfollows Bob.
+    let resp = ctx.api
+        .post_json(&format!("/api/v1/accounts/{}/unfollow", ctx.bob_id), Some(&ctx.alice_token), &serde_json::json!({}))
+        .await;
+    assert_eq!(resp.status().as_u16(), 200);
+
+    // Bob's post must no longer appear in the cached home feed.
+    let home = ctx.api.home_timeline(&ctx.alice_token).await;
+    let ids: Vec<&str> = home.iter().filter_map(|s| s["id"].as_str()).collect();
+    assert!(!ids.contains(&id.as_str()), "ex-followee's post lingered in home timeline after unfollow");
+}
+
 /// Own posts always appear on the home timeline regardless of visibility.
 #[tokio::test]
 async fn test_home_timeline_shows_own_posts_all_visibility() {
