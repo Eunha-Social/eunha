@@ -41,6 +41,22 @@ pub async fn search(
     let search_type = q.search_type.as_deref();
     let viewer_id = auth.as_ref().map(|Extension(a)| a.account_id);
 
+    // Mastodon restricts anonymous search: pagination and remote resolution both
+    // require authentication (SearchController#query_pagination_error /
+    // #remote_resolve_error).
+    if viewer_id.is_none() {
+        if q.offset.is_some() {
+            return Err(crate::error::AppError::UnauthorizedMsg(
+                "Search queries pagination is not supported without authentication".into(),
+            ));
+        }
+        if q.resolve == Some(true) {
+            return Err(crate::error::AppError::UnauthorizedMsg(
+                "Search queries that resolve remote resources are not supported without authentication".into(),
+            ));
+        }
+    }
+
     // URL-based lookup: if the query looks like a URL, try matching by uri/url first
     if q.q.starts_with("http://") || q.q.starts_with("https://") {
         let url = q.q.trim();

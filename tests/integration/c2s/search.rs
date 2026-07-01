@@ -275,3 +275,27 @@ async fn test_search_account_id_filter() {
         "alice's status should appear in filtered search",
     );
 }
+
+/// Anonymous search cannot paginate (Mastodon returns 401 when offset/min_id/
+/// max_id are supplied without a token).
+#[tokio::test]
+async fn test_search_anonymous_pagination_unauthorized() {
+    let ctx = TestContext::new("search-anon-page").await;
+
+    let resp = ctx.api.get("/api/v2/search?q=alice&offset=20", None).await;
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "anon pagination must be 401");
+
+    // Without pagination, anonymous search still works.
+    let resp = ctx.api.get("/api/v2/search?q=alice", None).await;
+    assert_eq!(resp.status(), StatusCode::OK, "anon search without pagination should be 200");
+}
+
+/// Anonymous search cannot resolve remote resources (Mastodon returns 401 when
+/// resolve=true without a token).
+#[tokio::test]
+async fn test_search_anonymous_resolve_unauthorized() {
+    let ctx = TestContext::new("search-anon-resolve").await;
+
+    let resp = ctx.api.get("/api/v2/search?q=alice&resolve=true", None).await;
+    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "anon resolve must be 401");
+}

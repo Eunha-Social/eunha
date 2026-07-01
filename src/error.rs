@@ -11,6 +11,8 @@ pub enum AppError {
     NotFound,
     #[error("unauthorized")]
     Unauthorized,
+    #[error("unauthorized: {0}")]
+    UnauthorizedMsg(String),
     #[error("forbidden")]
     Forbidden,
     #[error("unprocessable entity: {0}")]
@@ -32,6 +34,7 @@ impl IntoResponse for AppError {
         let (status, message) = match &self {
             AppError::NotFound => (StatusCode::NOT_FOUND, "Record not found".to_string()),
             AppError::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()),
+            AppError::UnauthorizedMsg(msg) => (StatusCode::UNAUTHORIZED, msg.clone()),
             AppError::Forbidden => (StatusCode::FORBIDDEN, "This action is not allowed".to_string()),
             AppError::Unprocessable(msg) => (StatusCode::UNPROCESSABLE_ENTITY, msg.clone()),
             AppError::Conflict => (StatusCode::CONFLICT, "Duplicate record".to_string()),
