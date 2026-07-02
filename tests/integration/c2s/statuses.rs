@@ -2497,6 +2497,35 @@ async fn test_create_scheduled_status() {
     assert!(body["params"].is_object(), "params field missing");
 }
 
+/// A scheduled_at less than 5 minutes in the future is rejected (Mastodon
+/// ScheduledStatus MINIMUM_OFFSET), while a past scheduled_at posts immediately.
+#[tokio::test]
+async fn test_scheduled_status_offset_rules() {
+    let ctx = TestContext::new("sched-offset").await;
+
+    // Two minutes out → too soon → 422.
+    let soon = (chrono::Utc::now() + chrono::Duration::minutes(2)).to_rfc3339();
+    let resp = ctx.api.post_json(
+        "/api/v1/statuses",
+        Some(&ctx.alice_token),
+        &json!({ "status": "too soon", "visibility": "public", "scheduled_at": soon }),
+    ).await;
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY, "scheduling <5min out must be 422");
+
+    // A past scheduled_at is ignored and the status posts immediately (returns a
+    // real Status, not a scheduled one).
+    let past = (chrono::Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+    let resp = ctx.api.post_json(
+        "/api/v1/statuses",
+        Some(&ctx.alice_token),
+        &json!({ "status": "post now", "visibility": "public", "scheduled_at": past }),
+    ).await;
+    assert_eq!(resp.status(), StatusCode::OK, "past scheduled_at should post immediately");
+    let body: Value = resp.json().await.unwrap();
+    assert!(body["scheduled_at"].is_null(), "immediate post should not carry scheduled_at");
+    assert_eq!(body["content"].as_str().map(|c| c.contains("post now")), Some(true));
+}
+
 /// Posting a status increments statuses_count; deleting decrements it.
 #[tokio::test]
 async fn test_statuses_count_increments_and_decrements() {
@@ -2658,14 +2687,15 @@ async fn test_delete_scheduled_status() {
 async fn test_scheduled_status_publish_end_to_end() {
     let ctx = TestContext::new("sched-publish").await;
 
-    // Schedule a status in the past so it's immediately due.
+    // Schedule a status validly in the future (Mastodon requires >5 min out).
+    let future = (chrono::Utc::now() + chrono::Duration::hours(2)).to_rfc3339();
     let created: Value = ctx.api.post_json(
         "/api/v1/statuses",
         Some(&ctx.alice_token),
         &json!({
             "status": "This was scheduled and should now be published",
             "visibility": "public",
-            "scheduled_at": "2020-01-01T00:00:00Z"
+            "scheduled_at": future,
         }),
     ).await.json().await.unwrap();
     let sched_id = created["id"].as_str().unwrap();
@@ -2676,6 +2706,16 @@ async fn test_scheduled_status_publish_end_to_end() {
         Some(&ctx.alice_token),
     ).await;
     assert_eq!(pending.status(), StatusCode::OK, "scheduled status should exist before publish");
+
+    // Force it due, then run the background job.
+    let sched_id_num: i64 = sched_id.parse().unwrap();
+    sqlx::query!(
+        "UPDATE scheduled_statuses SET scheduled_at = now() - interval '1 minute' WHERE id = $1",
+        sched_id_num,
+    )
+    .execute(&ctx.db)
+    .await
+    .unwrap();
 
     // Run the background job synchronously.
     eunha::background::publish_due_statuses(&ctx.state).await

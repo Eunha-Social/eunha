@@ -184,41 +184,78 @@ pub async fn post_status(
         validate_poll_form(poll_form)?;
     }
 
-    // Handle scheduled statuses
+    // Handle scheduled statuses. Mastodon's PostStatusService ignores a
+    // scheduled_at in the past (posts immediately); otherwise ScheduledStatus
+    // must be at least MINIMUM_OFFSET (5 min) in the future and is bounded by
+    // total (300) and daily (25) per-account limits.
     if let Some(ref scheduled_at_str) = form.scheduled_at {
         let scheduled_at = chrono::DateTime::parse_from_rfc3339(scheduled_at_str)
             .map(|t| t.with_timezone(&chrono::Utc).naive_utc())
             .map_err(|_| AppError::Unprocessable("Invalid scheduled_at format".into()))?;
-        let params = serde_json::json!({
-            "text": text,
-            "visibility": form.visibility,
-            "spoiler_text": form.spoiler_text,
-            "sensitive": form.sensitive,
-            "language": form.language,
-            "in_reply_to_id": form.in_reply_to_id,
-            "media_ids": form.media_ids,
-            "poll": form.poll.as_ref().map(|p| serde_json::json!({
-                "options": p.options,
-                "expires_in": p.expires_in,
-                "multiple": p.multiple,
-                "hide_totals": p.hide_totals,
-            })),
-        });
-        let row = sqlx::query!(
-            r#"INSERT INTO scheduled_statuses (account_id, scheduled_at, params)
-               VALUES ($1, $2, $3)
-               RETURNING id, scheduled_at"#,
-            account.id, scheduled_at, params,
-        )
-        .fetch_one(&state.db)
-        .await?;
-        let resp = ScheduledStatusResponse {
-            id: row.id.to_string(),
-            scheduled_at: row.scheduled_at.map(super::convert::mastodon_date),
-            params,
-            media_attachments: vec![],
-        };
-        return Ok((axum::http::StatusCode::CREATED, Json(resp)).into_response());
+        let now = chrono::Utc::now().naive_utc();
+        // Past dates fall through and post immediately.
+        if scheduled_at > now {
+            if scheduled_at <= now + chrono::Duration::minutes(5) {
+                return Err(AppError::Unprocessable(
+                    "Validation failed: Scheduled date must be in the future".into(),
+                ));
+            }
+            let total = sqlx::query_scalar!(
+                "SELECT COUNT(*) FROM scheduled_statuses WHERE account_id = $1",
+                account.id,
+            )
+            .fetch_one(&state.db)
+            .await?
+            .unwrap_or(0);
+            if total >= 300 {
+                return Err(AppError::Unprocessable(
+                    "Validation failed: Total number of scheduled statuses exceeded".into(),
+                ));
+            }
+            let daily = sqlx::query_scalar!(
+                "SELECT COUNT(*) FROM scheduled_statuses WHERE account_id = $1 AND scheduled_at::date = $2",
+                account.id,
+                scheduled_at.date(),
+            )
+            .fetch_one(&state.db)
+            .await?
+            .unwrap_or(0);
+            if daily >= 25 {
+                return Err(AppError::Unprocessable(
+                    "Validation failed: Daily number of scheduled statuses exceeded".into(),
+                ));
+            }
+            let params = serde_json::json!({
+                "text": text,
+                "visibility": form.visibility,
+                "spoiler_text": form.spoiler_text,
+                "sensitive": form.sensitive,
+                "language": form.language,
+                "in_reply_to_id": form.in_reply_to_id,
+                "media_ids": form.media_ids,
+                "poll": form.poll.as_ref().map(|p| serde_json::json!({
+                    "options": p.options,
+                    "expires_in": p.expires_in,
+                    "multiple": p.multiple,
+                    "hide_totals": p.hide_totals,
+                })),
+            });
+            let row = sqlx::query!(
+                r#"INSERT INTO scheduled_statuses (account_id, scheduled_at, params)
+                   VALUES ($1, $2, $3)
+                   RETURNING id, scheduled_at"#,
+                account.id, scheduled_at, params,
+            )
+            .fetch_one(&state.db)
+            .await?;
+            let resp = ScheduledStatusResponse {
+                id: row.id.to_string(),
+                scheduled_at: row.scheduled_at.map(super::convert::mastodon_date),
+                params,
+                media_attachments: vec![],
+            };
+            return Ok((axum::http::StatusCode::CREATED, Json(resp)).into_response());
+        }
     }
 
     // Fall back to the user's stored posting defaults when the form omits them.
