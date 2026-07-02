@@ -93,11 +93,11 @@
 
 @layer components {
   .page-frame {
-    @apply mx-auto max-w-2xl p-3;
+    @apply mx-auto min-h-screen max-w-2xl border-x px-3 py-3;
   }
 
   .sidebar-frame {
-    @apply fixed top-0 hidden h-screen w-56 flex-col border-r bg-background px-3 py-4 xl:flex;
+    @apply fixed top-0 hidden h-screen w-56 flex-col bg-background px-3 py-4 xl:flex;
     left: max(1rem, calc(50% - 35.75rem));
   }
 }
