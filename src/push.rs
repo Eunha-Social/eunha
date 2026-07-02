@@ -55,6 +55,7 @@ struct PushPayload<'a> {
 pub async fn deliver(
     state: AppState,
     recipient_id: i64,
+    from_account_id: i64,
     notification_id: i64,
     notification_type: &str,
     icon: &str,
@@ -64,6 +65,7 @@ pub async fn deliver(
     if let Err(e) = try_deliver(
         &state,
         recipient_id,
+        from_account_id,
         notification_id,
         notification_type,
         icon,
@@ -79,6 +81,7 @@ pub async fn deliver(
 async fn try_deliver(
     state: &AppState,
     recipient_id: i64,
+    from_account_id: i64,
     notification_id: i64,
     notification_type: &str,
     icon: &str,
@@ -99,6 +102,10 @@ async fn try_deliver(
         _ => return Ok(()),
     };
 
+    // Honor the subscription's delivery policy (Mastodon
+    // Web::PushSubscription#policy_allows_notification?): all / followed /
+    // follower / none, based on the recipient↔sender relationship. $1 =
+    // recipient, $2 = sender.
     let subs_query = format!(
         r#"SELECT wps.id, wps.endpoint, wps.key_p256dh, wps.key_auth
            FROM web_push_subscriptions wps
@@ -106,7 +113,15 @@ async fn try_deliver(
            JOIN users u ON u.id = oat.resource_owner_id
            WHERE u.account_id = $1
              AND oat.revoked_at IS NULL
-             AND COALESCE((wps.data->'alerts'->>'{}')::boolean, {})"#,
+             AND COALESCE((wps.data->'alerts'->>'{}')::boolean, {})
+             AND (
+               $2 = $1
+               OR COALESCE(wps.data->>'policy', 'all') = 'all'
+               OR (COALESCE(wps.data->>'policy','all') = 'followed'
+                   AND EXISTS (SELECT 1 FROM follows WHERE account_id = $1 AND target_account_id = $2))
+               OR (COALESCE(wps.data->>'policy','all') = 'follower'
+                   AND EXISTS (SELECT 1 FROM follows WHERE account_id = $2 AND target_account_id = $1))
+             )"#,
         alert_key,
         alert_default,
     );
@@ -115,6 +130,7 @@ async fn try_deliver(
         &subs_query,
     )
     .bind(recipient_id)
+    .bind(from_account_id)
     .fetch_all(&state.db)
     .await?;
 
@@ -426,6 +442,7 @@ pub async fn create_and_push(
         deliver(
             state_clone,
             recipient_id,
+            from_account_id,
             notification_id,
             notification_type,
             &icon_s,
