@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE polls SET expires_at = now() - interval '10 seconds' WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2fcd159f77f6da27034f89c89037264199e4d0c74e29cd77a6c3a5e1ce31d81d"
+}

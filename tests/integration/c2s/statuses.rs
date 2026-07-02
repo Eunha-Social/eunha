@@ -1857,6 +1857,47 @@ async fn test_poll_only_status_appears_on_profile() {
     );
 }
 
+/// When a poll ends, both the poll author and its voters get a `poll`
+/// notification — Mastodon exempts `poll` from the self-notification block, so
+/// the author is notified about their own poll.
+#[tokio::test]
+async fn test_poll_ended_notifies_author_and_voters() {
+    let ctx = TestContext::new("poll-ended-notif").await;
+
+    let status: Value = ctx.api.post_json(
+        "/api/v1/statuses",
+        Some(&ctx.alice_token),
+        &json!({ "poll": { "options": ["A", "B"], "expires_in": 86400 }, "visibility": "public" }),
+    ).await.json().await.unwrap();
+    let poll_id = status["poll"]["id"].as_str().unwrap();
+    ctx.api.post_json(
+        &format!("/api/v1/polls/{poll_id}/votes"),
+        Some(&ctx.bob_token),
+        &json!({ "choices": [0] }),
+    ).await;
+
+    // Force the poll to have just expired, then run the expiry notifier.
+    let poll_id_num: i64 = poll_id.parse().unwrap();
+    sqlx::query!(
+        "UPDATE polls SET expires_at = now() - interval '10 seconds' WHERE id = $1",
+        poll_id_num,
+    ).execute(&ctx.db).await.unwrap();
+    eunha::background::notify_expired_polls(&ctx.state).await.unwrap();
+
+    let alice_notifs: Vec<Value> = ctx.api.get("/api/v1/notifications", Some(&ctx.alice_token))
+        .await.json().await.unwrap();
+    assert!(
+        alice_notifs.iter().any(|n| n["type"].as_str() == Some("poll")),
+        "poll author should be notified when their poll ends",
+    );
+    let bob_notifs: Vec<Value> = ctx.api.get("/api/v1/notifications", Some(&ctx.bob_token))
+        .await.json().await.unwrap();
+    assert!(
+        bob_notifs.iter().any(|n| n["type"].as_str() == Some("poll")),
+        "a voter should be notified when the poll ends",
+    );
+}
+
 /// GET /api/v1/polls/:id returns poll details.
 #[tokio::test]
 async fn test_get_poll() {

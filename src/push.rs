@@ -282,8 +282,12 @@ pub async fn create_and_push(
 ) {
     let db = state.db.clone();
 
-    // Don't notify yourself
-    if recipient_id == from_account_id {
+    // Don't notify yourself — except for types Mastodon exempts from its
+    // self-notification block (NotifyService#blocked?), notably `poll`, so the
+    // poll owner is still told when their own poll ends.
+    const SELF_NOTIFIABLE_TYPES: &[&str] =
+        &["poll", "severed_relationships", "moderation_warning", "annual_report"];
+    if recipient_id == from_account_id && !SELF_NOTIFIABLE_TYPES.contains(&notification_type) {
         return;
     }
 

@@ -283,7 +283,7 @@ async fn run_poll_expiry(state: AppState) {
     }
 }
 
-async fn notify_expired_polls(state: &AppState) -> anyhow::Result<()> {
+pub async fn notify_expired_polls(state: &AppState) -> anyhow::Result<()> {
     // Find polls that just expired and haven't had expiry notifications sent yet.
     // We track this with a simple approach: notify all unique voters + the poll author
     // for polls that expired in the last 2 minutes (our tick interval + buffer).
