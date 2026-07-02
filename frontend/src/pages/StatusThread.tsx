@@ -58,7 +58,7 @@ export default function StatusThread() {
         )}
 
         {status && (
-          <div className="ring-primary/40 overflow-hidden rounded-md border bg-card ring-2">
+          <div className="ring-primary/40 overflow-hidden rounded-md border ring-2">
             {render(status)}
           </div>
         )}
