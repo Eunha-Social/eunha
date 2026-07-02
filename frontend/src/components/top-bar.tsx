@@ -1,6 +1,8 @@
+import { useEffect, useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
 import { Bell, Home, LogIn, LogOut, Pencil, Search, Users } from 'lucide-react'
 
+import { getInstance } from '../api.ts'
 import { beginLogin, getToken, logout } from '../auth.ts'
 import { clearMe } from '../me.ts'
 import { Button } from '@/components/ui/button.tsx'
@@ -12,13 +14,13 @@ const navLink =
   'text-muted-foreground hover:text-foreground flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium no-underline'
 const activeNavLink = 'bg-muted text-foreground'
 
-function Sidebar({ token }: { token: string | null }) {
+function Sidebar({ token, title }: { token: string | null; title: string }) {
   const { openCompose } = useComposeModal()
 
   return (
     <aside className="sidebar-frame">
       <Link to="/" className="mb-4 px-3 text-lg font-semibold no-underline">
-        eunha
+        {title}
       </Link>
       <nav className="flex flex-col gap-1">
         <NavLink
@@ -84,12 +86,22 @@ function Sidebar({ token }: { token: string | null }) {
 export function TopBar({ title }: { title?: string }) {
   const token = getToken()
   const { openCompose } = useComposeModal()
+  const [instanceTitle, setInstanceTitle] = useState<string | null>(null)
+  const displayTitle = title ?? instanceTitle ?? 'eunha'
+
+  useEffect(() => {
+    if (title) return
+    getInstance()
+      .then((instance) => setInstanceTitle(instance.title))
+      .catch(() => {})
+  }, [title])
+
   return (
     <>
-      <Sidebar token={token} />
+      <Sidebar token={token} title={displayTitle} />
       <header className="mb-3 flex items-center justify-between border-b pb-2 xl:hidden">
         <Link to="/" className="text-lg font-semibold no-underline">
-          {title ?? 'eunha'}
+          {displayTitle}
         </Link>
         <div className="flex items-center gap-2">
           {token && (
