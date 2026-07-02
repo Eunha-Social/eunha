@@ -308,6 +308,17 @@ fn validate_oauth_scopes(scopes: &str) -> AppResult<()> {
     Ok(())
 }
 
+/// Whether every requested scope is within the granted (app) scope set.
+/// Doorkeeper rejects an authorization requesting scopes the app didn't register.
+fn scope_is_subset(requested: &str, granted: &str) -> bool {
+    let granted_set: std::collections::HashSet<&str> =
+        granted.split(' ').filter(|s| !s.is_empty()).collect();
+    requested
+        .split(' ')
+        .filter(|s| !s.is_empty())
+        .all(|s| granted_set.contains(s))
+}
+
 fn verify_password(password: &str, hash: &str) -> Result<(), AppError> {
     if hash.starts_with("$2a$") || hash.starts_with("$2b$") || hash.starts_with("$2y$") {
         bcrypt::verify(password, hash)
@@ -558,6 +569,14 @@ pub async fn authorize_form(
     let accept_lang = headers.get("accept-language").and_then(|v| v.to_str().ok());
     let locale = crate::locale::Locale::detect(params.lang.as_deref(), accept_lang);
     let scope = params.scope.as_deref().unwrap_or("read");
+    // The requested scope must be within the app's registered scopes.
+    if !scope_is_subset(scope, app.scopes.as_deref().unwrap_or("read")) {
+        return (
+            StatusCode::BAD_REQUEST,
+            "The requested scope is invalid, unknown, or malformed.",
+        )
+            .into_response();
+    }
     let (toggle_en_url, toggle_ko_url) = authorize_toggle_urls(
         &params.client_id, &params.redirect_uri, scope,
     );
@@ -687,6 +706,10 @@ async fn do_authorize(
         .map_err(|_| "Invalid email or password".to_string())?;
 
     let scopes = form.scope.clone().unwrap_or_else(|| app.scopes.clone().unwrap_or_else(|| "read".to_string()));
+    // The granted scope must stay within the app's registered scopes.
+    if !scope_is_subset(&scopes, app.scopes.as_deref().unwrap_or("read")) {
+        return Err("invalid_scope".to_string());
+    }
     let code = generate_token(32);
 
     sqlx::query!(

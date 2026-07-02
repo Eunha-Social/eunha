@@ -28,6 +28,32 @@ async fn test_register_app_returns_credentials() {
     assert_eq!(body["name"].as_str(), Some("Test App"));
 }
 
+/// GET /oauth/authorize rejects a scope broader than the app registered
+/// (Doorkeeper invalid_scope), but accepts a subset.
+#[tokio::test]
+async fn test_authorize_rejects_scope_escalation() {
+    let ctx = TestContext::new("authz-scope").await;
+
+    let app: Value = ctx.api.post_json(
+        "/api/v1/apps",
+        None,
+        &json!({ "client_name": "Narrow App", "redirect_uris": "urn:ietf:wg:oauth:2.0:oob", "scopes": "read" }),
+    ).await.json().await.unwrap();
+    let client_id = app["client_id"].as_str().unwrap();
+
+    let escalate = ctx.api.get(
+        &format!("/oauth/authorize?client_id={client_id}&redirect_uri=urn:ietf:wg:oauth:2.0:oob&scope=read+write&response_type=code"),
+        None,
+    ).await;
+    assert_eq!(escalate.status(), StatusCode::BAD_REQUEST, "requesting an unregistered scope must be rejected");
+
+    let ok = ctx.api.get(
+        &format!("/oauth/authorize?client_id={client_id}&redirect_uri=urn:ietf:wg:oauth:2.0:oob&scope=read&response_type=code"),
+        None,
+    ).await;
+    assert_eq!(ok.status(), StatusCode::OK, "a subset scope should be accepted");
+}
+
 /// POST /api/v1/apps with an unknown scope is rejected (Doorkeeper
 /// enforce_configured_scopes). A granular known scope is still accepted.
 #[tokio::test]
