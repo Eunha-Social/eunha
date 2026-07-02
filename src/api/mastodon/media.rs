@@ -45,6 +45,7 @@ pub async fn upload_media(
     }
 
     let (_, content_type, data) = file_field.ok_or_else(|| AppError::Unprocessable("missing file field".into()))?;
+    validate_media_description(description.as_deref())?;
     let media_type = classify_media_type(&content_type);
     let media_id = crate::snowflake::next_id();
 
@@ -473,6 +474,7 @@ pub async fn update_media(
         focus = body.get("focus").and_then(|v| v.as_str()).map(str::to_owned);
     }
 
+    validate_media_description(description.as_deref())?;
     if let Some(ref desc) = description {
         sqlx::query!(
             "UPDATE media_attachments SET description = $1 WHERE id = $2",
@@ -554,6 +556,18 @@ pub async fn delete_media(
     }
 
     Ok(axum::http::StatusCode::OK)
+}
+
+/// Reject media descriptions over Mastodon's `MediaAttachment::MAX_DESCRIPTION_LENGTH`.
+fn validate_media_description(description: Option<&str>) -> AppResult<()> {
+    if let Some(desc) = description {
+        if desc.chars().count() > 10_000 {
+            return Err(AppError::Unprocessable(
+                "Validation failed: Description is too long (maximum is 10000 characters)".into(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn classify_media_type(content_type: &str) -> &'static str {

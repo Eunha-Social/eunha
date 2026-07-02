@@ -113,6 +113,20 @@ async fn test_media_get_not_found() {
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
+/// A media description over 10000 characters is rejected (Mastodon
+/// MediaAttachment::MAX_DESCRIPTION_LENGTH).
+#[tokio::test]
+async fn test_media_description_too_long() {
+    let ctx = TestContext::new("media-desc-long").await;
+
+    let long = "x".repeat(10_001);
+    let resp = ctx.api.post_multipart_file(
+        "/api/v1/media", &ctx.alice_token, "t.png", "image/png", tiny_png(),
+        &[("description", long.as_str())],
+    ).await;
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY, "over-long description must be rejected");
+}
+
 /// A status may attach at most 4 media (Mastodon `MEDIA_ATTACHMENTS_LIMIT`);
 /// a fifth attachment is rejected while exactly four is accepted.
 #[tokio::test]
