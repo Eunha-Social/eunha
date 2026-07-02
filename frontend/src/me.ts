@@ -1,25 +1,55 @@
-// Caches the signed-in account's id so StatusCard can synchronously decide
-// whether to show edit/delete controls, without a request per card.
+// Caches the signed-in account so UI can synchronously render current-user
+// affordances without a request per component mount.
 import { getCurrentAccount } from './api.ts'
 
-const KEY = 'eunha:me-id'
-let cached: string | null = localStorage.getItem(KEY)
+const ID_KEY = 'eunha:me-id'
+const ACCOUNT_KEY = 'eunha:me-account'
 
-export function getMeId(): string | null {
-  return cached
+export interface MeAccount {
+  id: string
+  acct: string
 }
 
-export async function loadMe(token: string): Promise<void> {
+let cachedId: string | null = localStorage.getItem(ID_KEY)
+let cachedAccount: MeAccount | null = readCachedAccount()
+
+function readCachedAccount(): MeAccount | null {
+  const raw = localStorage.getItem(ACCOUNT_KEY)
+  if (!raw) return null
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<MeAccount>
+    return parsed.id && parsed.acct ? { id: parsed.id, acct: parsed.acct } : null
+  } catch {
+    return null
+  }
+}
+
+export function getMeId(): string | null {
+  return cachedId
+}
+
+export function getMeAccount(): MeAccount | null {
+  return cachedAccount
+}
+
+export async function loadMe(token: string): Promise<MeAccount | null> {
   try {
     const me = await getCurrentAccount(token)
-    cached = me.id
-    localStorage.setItem(KEY, me.id)
+    cachedId = me.id
+    cachedAccount = { id: me.id, acct: me.acct }
+    localStorage.setItem(ID_KEY, me.id)
+    localStorage.setItem(ACCOUNT_KEY, JSON.stringify(cachedAccount))
+    return cachedAccount
   } catch {
     // ignore — controls just won't render until known
+    return cachedAccount
   }
 }
 
 export function clearMe(): void {
-  cached = null
-  localStorage.removeItem(KEY)
+  cachedId = null
+  cachedAccount = null
+  localStorage.removeItem(ID_KEY)
+  localStorage.removeItem(ACCOUNT_KEY)
 }

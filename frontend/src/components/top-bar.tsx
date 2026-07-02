@@ -2,10 +2,9 @@ import { useEffect, useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
 import { Bell, LogIn, LogOut, Pencil, Search, User } from 'lucide-react'
 
-import type { mastodon } from '../masto.ts'
-import { getCurrentAccount, getInstance } from '../api.ts'
+import { getInstance } from '../api.ts'
 import { beginLogin, getToken, logout } from '../auth.ts'
-import { clearMe } from '../me.ts'
+import { clearMe, getMeAccount, loadMe, type MeAccount } from '../me.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { ModeToggle } from '@/components/mode-toggle.tsx'
 import { useComposeModal } from '@/components/compose-modal.tsx'
@@ -22,7 +21,7 @@ function Sidebar({
 }: {
   token: string | null
   title: string
-  account: mastodon.v1.AccountCredentials | null
+  account: MeAccount | null
 }) {
   const { openCompose } = useComposeModal()
 
@@ -88,7 +87,7 @@ export function TopBar({ title }: { title?: string }) {
   const [instanceTitle, setInstanceTitle] = useState<string | null>(() =>
     document.title === 'eunha' ? null : document.title,
   )
-  const [account, setAccount] = useState<mastodon.v1.AccountCredentials | null>(null)
+  const [account, setAccount] = useState<MeAccount | null>(() => getMeAccount())
   const displayTitle = title ?? instanceTitle ?? ''
 
   useEffect(() => {
@@ -105,7 +104,7 @@ export function TopBar({ title }: { title?: string }) {
     }
 
     let cancelled = false
-    getCurrentAccount(token)
+    loadMe(token)
       .then((me) => {
         if (!cancelled) setAccount(me)
       })
