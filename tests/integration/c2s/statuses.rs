@@ -1718,6 +1718,21 @@ async fn test_mute_and_unmute_status() {
     assert_eq!(unmuted["muted"].as_bool(), Some(false));
 }
 
+/// Posting with a content warning forces sensitive=true even if not requested
+/// (Mastodon `sensitive || spoiler_text.present?`).
+#[tokio::test]
+async fn test_post_status_spoiler_forces_sensitive() {
+    let ctx = TestContext::new("cw-sensitive").await;
+
+    let status: Value = ctx.api.post_json(
+        "/api/v1/statuses",
+        Some(&ctx.alice_token),
+        &json!({ "status": "spoilers within", "spoiler_text": "CW: plot", "visibility": "public" }),
+    ).await.json().await.unwrap();
+    assert_eq!(status["sensitive"].as_bool(), Some(true), "a CW must force sensitive=true");
+    assert_eq!(status["spoiler_text"].as_str(), Some("CW: plot"));
+}
+
 /// An unrecognized visibility is rejected, not silently coerced to `direct`.
 #[tokio::test]
 async fn test_post_status_invalid_visibility_rejected() {

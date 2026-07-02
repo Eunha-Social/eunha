@@ -272,7 +272,9 @@ pub async fn post_status(
     // Fall back to the user's stored posting defaults when the form omits them.
     let defaults = super::accounts::user_defaults(&state, auth.account_id).await;
     let visibility = form.visibility.as_deref().map(str::to_owned).unwrap_or(defaults.privacy);
-    let sensitive = form.sensitive.unwrap_or(defaults.sensitive);
+    // Mastodon forces sensitive when a content warning is present
+    // (PostStatusService: `sensitive || spoiler_text.present?`).
+    let sensitive = form.sensitive.unwrap_or(defaults.sensitive) || !spoiler_text.is_empty();
     let language = form.language.clone().or(defaults.language);
     let in_reply_to_id = form.in_reply_to_id.as_deref().and_then(|s| s.parse::<i64>().ok());
 
