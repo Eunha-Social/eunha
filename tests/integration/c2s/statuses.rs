@@ -436,16 +436,17 @@ async fn test_delete_status_response_includes_text() {
     assert!(text.contains("delete and redraft"), "deleted status response should include original text");
 }
 
-/// Only the author can delete their own status; another user gets 403.
+/// Only the author can delete their own status; another user gets 404
+/// (Mastodon scopes deletes to current_account.statuses).
 #[tokio::test]
-async fn test_delete_status_by_non_author_returns_403() {
+async fn test_delete_status_by_non_author_returns_404() {
     let ctx = TestContext::new("del-author").await;
 
     let status = ctx.api.post_status(&ctx.alice_token, "alice status to del", "public").await;
     let id = status["id"].as_str().unwrap();
 
     let resp = ctx.api.delete(&format!("/api/v1/statuses/{id}"), &ctx.bob_token).await;
-    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
 // ── favourites ────────────────────────────────────────────────────────────────
@@ -1091,9 +1092,10 @@ async fn test_status_source_reflects_edit() {
     );
 }
 
-/// Editing a status owned by another user returns 403.
+/// Editing a status owned by another user returns 404 (Mastodon scopes edits to
+/// current_account.statuses).
 #[tokio::test]
-async fn test_edit_status_by_non_author_returns_403() {
+async fn test_edit_status_by_non_author_returns_404() {
     let ctx = TestContext::new("edit-non-author").await;
 
     let status = ctx.api.post_status(&ctx.alice_token, "alice's status", "public").await;
@@ -1104,7 +1106,7 @@ async fn test_edit_status_by_non_author_returns_403() {
         Some(&ctx.bob_token),
         &json!({"status": "bob tries to edit alice's status"}),
     ).await;
-    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
 /// Favouriting a nonexistent status returns 404.

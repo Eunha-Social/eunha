@@ -1317,8 +1317,10 @@ pub async fn delete_status(
 ) -> AppResult<Json<Status>> {
     auth.require_scope("write:statuses")?;
     let (status, account) = fetch_status_with_account(&state, id).await?;
+    // Mastodon scopes to `current_account.statuses.find`, so another user's
+    // status is a 404 (not 403) — it also avoids confirming the status exists.
     if status.account_id != auth.account_id {
-        return Err(AppError::Forbidden);
+        return Err(AppError::NotFound);
     }
 
     // Cascade-delete any reblogs of this status before soft-deleting the original.
@@ -2610,8 +2612,10 @@ pub async fn edit_status(
 ) -> AppResult<Json<Status>> {
     auth.require_scope("write:statuses")?;
     let (status, account) = fetch_status_with_account(&state, id).await?;
+    // Mastodon scopes to `current_account.statuses.find` → 404 for another
+    // user's status.
     if status.account_id != auth.account_id {
-        return Err(AppError::Forbidden);
+        return Err(AppError::NotFound);
     }
     if status.reblog_of_id.is_some() {
         return Err(AppError::Unprocessable("Reblogs cannot be edited".into()));
