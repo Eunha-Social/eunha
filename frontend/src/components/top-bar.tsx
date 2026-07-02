@@ -86,8 +86,10 @@ function Sidebar({ token, title }: { token: string | null; title: string }) {
 export function TopBar({ title }: { title?: string }) {
   const token = getToken()
   const { openCompose } = useComposeModal()
-  const [instanceTitle, setInstanceTitle] = useState<string | null>(null)
-  const displayTitle = title ?? instanceTitle ?? 'eunha'
+  const [instanceTitle, setInstanceTitle] = useState<string | null>(() =>
+    document.title === 'eunha' ? null : document.title,
+  )
+  const displayTitle = title ?? instanceTitle ?? ''
 
   useEffect(() => {
     if (title) return
@@ -97,6 +99,7 @@ export function TopBar({ title }: { title?: string }) {
   }, [title])
 
   useEffect(() => {
+    if (!displayTitle) return
     document.title = displayTitle
   }, [displayTitle])
 
