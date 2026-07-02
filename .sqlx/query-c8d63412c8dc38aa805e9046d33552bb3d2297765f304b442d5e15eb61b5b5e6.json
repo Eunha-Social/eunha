@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT a.* FROM accounts a\n               JOIN follows f1 ON f1.account_id = a.id AND f1.target_account_id = $1\n               JOIN follows f2 ON f2.account_id = $2 AND f2.target_account_id = a.id\n               LIMIT 10",
+  "query": "SELECT a.* FROM accounts a\n                   JOIN follows f1 ON f1.account_id = a.id AND f1.target_account_id = $1\n                   JOIN follows f2 ON f2.account_id = $2 AND f2.target_account_id = a.id\n                   WHERE a.suspended_at IS NULL\n                   LIMIT 10",
   "describe": {
     "columns": [
       {
@@ -349,5 +349,5 @@
       true
     ]
   },
-  "hash": "1a943bbb3245219be034db698210d2075bbc7525d20ef0bdde99558cb299f6bd"
+  "hash": "c8d63412c8dc38aa805e9046d33552bb3d2297765f304b442d5e15eb61b5b5e6"
 }

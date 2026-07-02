@@ -3978,20 +3978,35 @@ pub async fn get_familiar_followers(
 
     let mut result = Vec::with_capacity(ids.len());
     for target_id in &ids {
-        // Find followers of target_id that also follow the viewer (auth.account_id)
-        // Find accounts that: (1) follow the target, and (2) are followed by the viewer
-        let accounts = sqlx::query_as!(
-            crate::db::models::Account,
-            r#"SELECT a.* FROM accounts a
-               JOIN follows f1 ON f1.account_id = a.id AND f1.target_account_id = $1
-               JOIN follows f2 ON f2.account_id = $2 AND f2.target_account_id = a.id
-               LIMIT 10"#,
+        // Accounts the viewer follows that also follow the target. When the
+        // target hides their followers (hide_collections), Mastodon reveals no
+        // familiar followers for it.
+        let target_hides = sqlx::query_scalar!(
+            r#"SELECT COALESCE(hide_collections, false) FROM accounts WHERE id = $1"#,
             target_id,
-            auth.account_id,
         )
-        .fetch_all(&state.db)
-        .await
-        .unwrap_or_default();
+        .fetch_optional(&state.db)
+        .await?
+        .flatten()
+        .unwrap_or(false);
+
+        let accounts = if target_hides {
+            Vec::new()
+        } else {
+            sqlx::query_as!(
+                crate::db::models::Account,
+                r#"SELECT a.* FROM accounts a
+                   JOIN follows f1 ON f1.account_id = a.id AND f1.target_account_id = $1
+                   JOIN follows f2 ON f2.account_id = $2 AND f2.target_account_id = a.id
+                   WHERE a.suspended_at IS NULL
+                   LIMIT 10"#,
+                target_id,
+                auth.account_id,
+            )
+            .fetch_all(&state.db)
+            .await
+            .unwrap_or_default()
+        };
 
         result.push(super::types::FamiliarFollowers {
             id: target_id.to_string(),

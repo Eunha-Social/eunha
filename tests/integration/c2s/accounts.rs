@@ -1314,6 +1314,20 @@ async fn test_familiar_followers_correctness() {
         !familiar.contains(&ctx.alice_id.as_str()),
         "alice should not appear in her own familiar followers list",
     );
+
+    // When Bob hides his followers, no familiar followers are revealed for him
+    // (Mastodon: hides_followers? → empty).
+    let bob_id_num: i64 = ctx.bob_id.parse().unwrap();
+    sqlx::query!("UPDATE accounts SET hide_collections = true WHERE id = $1", bob_id_num)
+        .execute(&ctx.db).await.unwrap();
+    let hidden: Vec<Value> = ctx.api.get(
+        &format!("/api/v1/accounts/familiar_followers?id[]={}", ctx.bob_id),
+        Some(&ctx.alice_token),
+    ).await.json().await.unwrap();
+    assert!(
+        hidden[0]["accounts"].as_array().unwrap().is_empty(),
+        "familiar followers must be empty when the target hides followers",
+    );
 }
 
 // ── suggestions ───────────────────────────────────────────────────────────────
