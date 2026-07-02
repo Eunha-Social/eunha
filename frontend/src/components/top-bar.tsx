@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
-import { Bell, LogIn, LogOut, Pencil, Search } from 'lucide-react'
+import { Bell, LogIn, LogOut, Pencil, Search, User } from 'lucide-react'
 
-import { getInstance } from '../api.ts'
+import type { mastodon } from '../masto.ts'
+import { getCurrentAccount, getInstance } from '../api.ts'
 import { beginLogin, getToken, logout } from '../auth.ts'
 import { clearMe } from '../me.ts'
 import { Button } from '@/components/ui/button.tsx'
@@ -14,7 +15,15 @@ const navLink =
   'text-muted-foreground hover:text-foreground flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium no-underline'
 const activeNavLink = 'bg-muted text-foreground'
 
-function Sidebar({ token, title }: { token: string | null; title: string }) {
+function Sidebar({
+  token,
+  title,
+  account,
+}: {
+  token: string | null
+  title: string
+  account: mastodon.v1.AccountCredentials | null
+}) {
   const { openCompose } = useComposeModal()
 
   return (
@@ -23,6 +32,14 @@ function Sidebar({ token, title }: { token: string | null; title: string }) {
         {title}
       </Link>
       <nav className="flex flex-col gap-1">
+        {token && account && (
+          <NavLink
+            to={`/@${account.acct}`}
+            className={({ isActive }) => cn(navLink, isActive && activeNavLink)}
+          >
+            <User className="size-4" /> Profile
+          </NavLink>
+        )}
         <NavLink
           to="/notifications"
           className={({ isActive }) => cn(navLink, isActive && activeNavLink)}
@@ -71,6 +88,7 @@ export function TopBar({ title }: { title?: string }) {
   const [instanceTitle, setInstanceTitle] = useState<string | null>(() =>
     document.title === 'eunha' ? null : document.title,
   )
+  const [account, setAccount] = useState<mastodon.v1.AccountCredentials | null>(null)
   const displayTitle = title ?? instanceTitle ?? ''
 
   useEffect(() => {
@@ -81,13 +99,33 @@ export function TopBar({ title }: { title?: string }) {
   }, [title])
 
   useEffect(() => {
+    if (!token) {
+      setAccount(null)
+      return
+    }
+
+    let cancelled = false
+    getCurrentAccount(token)
+      .then((me) => {
+        if (!cancelled) setAccount(me)
+      })
+      .catch(() => {
+        if (!cancelled) setAccount(null)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [token])
+
+  useEffect(() => {
     if (!displayTitle) return
     document.title = displayTitle
   }, [displayTitle])
 
   return (
     <>
-      <Sidebar token={token} title={displayTitle} />
+      <Sidebar token={token} title={displayTitle} account={account} />
       <header className="mb-3 flex items-center justify-between border-b pb-2 xl:hidden">
         <Link to="/" className="text-lg font-semibold no-underline">
           {displayTitle}
