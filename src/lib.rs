@@ -1,18 +1,18 @@
 pub mod api;
 pub mod background;
-pub mod federation;
 pub mod config;
-pub mod feed;
-pub mod snowflake;
 pub mod crypto;
 pub mod db;
 pub mod email;
 pub mod error;
+pub mod federation;
+pub mod feed;
 pub mod locale;
 pub mod media;
 pub mod middleware;
 pub mod preview_card;
 pub mod push;
+pub mod snowflake;
 pub mod state;
 pub mod streaming;
 pub mod templates;
@@ -23,6 +23,7 @@ use axum::{extract::Request, middleware as axum_middleware, response::IntoRespon
 use tower_http::{compression::CompressionLayer, cors::CorsLayer, trace::TraceLayer};
 
 pub fn build_app(state: state::AppState) -> Router {
+    let fallback_state = state.clone();
     let compressed = Router::new()
         .merge(well_known::router())
         .merge(api::mastodon::router(state.clone()))
@@ -37,7 +38,7 @@ pub fn build_app(state: state::AppState) -> Router {
                 )
                     .into_response()
             } else {
-                web::serve(uri).await
+                web::serve(axum::extract::State(fallback_state.clone()), uri).await
             }
         }))
         .layer(CompressionLayer::new());
@@ -47,8 +48,14 @@ pub fn build_app(state: state::AppState) -> Router {
         // Streaming WebSocket must be outside CompressionLayer to avoid body wrapping.
         .merge(api::mastodon::streaming_router())
         .layer(axum_middleware::from_fn(middleware::log_failures))
-        .layer(axum_middleware::from_fn_with_state(state.clone(), middleware::authenticate))
-        .layer(axum_middleware::from_fn_with_state(state.clone(), middleware::resolve_instance))
+        .layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            middleware::authenticate,
+        ))
+        .layer(axum_middleware::from_fn_with_state(
+            state.clone(),
+            middleware::resolve_instance,
+        ))
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(state)

@@ -5,13 +5,16 @@
 /// images, manifest, etc.) are served directly; every other path falls back to
 /// `index.html` so the client-side router can take over.
 use axum::{
+    extract::State,
     http::{header, StatusCode, Uri},
     response::{Html, IntoResponse, Response},
 };
 
+use crate::state::AppState;
+
 const DIST: &str = "frontend/dist";
 
-pub async fn serve(uri: Uri) -> Response {
+pub async fn serve(State(state): State<AppState>, uri: Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
 
     // Serve static assets directly. Path traversal guard: reject anything with "..".
@@ -25,10 +28,10 @@ pub async fn serve(uri: Uri) -> Response {
         }
     }
 
-    serve_index().await
+    serve_index(&state).await
 }
 
-async fn serve_index() -> Response {
+async fn serve_index(state: &AppState) -> Response {
     let Ok(html) = tokio::fs::read_to_string(format!("{DIST}/index.html")).await else {
         return (
             StatusCode::SERVICE_UNAVAILABLE,
@@ -37,5 +40,16 @@ async fn serve_index() -> Response {
             .into_response();
     };
 
+    let html = html.replace(
+        "<title>eunha</title>",
+        &format!("<title>{}</title>", escape_html_text(&state.instance.title)),
+    );
+
     Html(html).into_response()
+}
+
+fn escape_html_text(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
 }
