@@ -19,7 +19,7 @@ export default function Callback() {
   }, [params, navigate])
 
   return (
-    <div className="mx-auto max-w-2xl p-4">
+    <div className="mx-auto max-w-2xl p-3">
       <p className={error ? 'text-destructive text-sm' : 'text-muted-foreground text-sm'}>
         {error ?? 'Signing you in…'}
       </p>

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   AtSign,
@@ -112,6 +112,11 @@ export function StatusCard({
 
   const isOwn = !!token && getMeId() === status.account.id
 
+  useEffect(() => {
+    setStatus(initial)
+    setExpanded(!initial.spoilerText)
+  }, [initial])
+
   const startEdit = async () => {
     try {
       const src = await getStatusSource(status.id, token)
@@ -175,8 +180,8 @@ export function StatusCard({
   if (deleted) return null
 
   return (
-    <Card>
-      <CardContent className="space-y-2">
+    <Card className="gap-0 rounded-none border-0 py-0 shadow-none">
+      <CardContent className="space-y-1.5 px-3 py-3 sm:px-4">
         {boostedBy && (
           <p className="text-muted-foreground flex items-center gap-1 text-xs">
             <Repeat2 className="size-3.5" />
@@ -185,7 +190,7 @@ export function StatusCard({
         )}
         <div className="flex items-center gap-2 text-sm">
           <Link to={profilePath}>
-            <Avatar className="size-9 rounded-lg">
+            <Avatar className="size-8 rounded-md">
               <AvatarImage src={status.account.avatar} alt="" />
               <AvatarFallback>{name.slice(0, 1).toUpperCase()}</AvatarFallback>
             </Avatar>
@@ -277,7 +282,7 @@ export function StatusCard({
             )}
           </>
         )}
-        <div className="flex items-center gap-1">
+        <div className="-mb-1 flex items-center gap-1">
           <ActionButton
             icon={<Reply />}
             count={status.repliesCount}

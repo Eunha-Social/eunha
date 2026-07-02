@@ -9,6 +9,7 @@ import { useStatusStreaming } from '../hooks/use-status-streaming.ts'
 import { TopBar } from '@/components/top-bar.tsx'
 import { StatusCard } from '@/components/status-card.tsx'
 import { InfiniteScroll } from '@/components/infinite-scroll.tsx'
+import { TimelineStack } from '@/components/timeline-stack.tsx'
 
 export default function TagTimeline() {
   const { name = '' } = useParams()
@@ -32,22 +33,26 @@ export default function TagTimeline() {
   const statuses = feed.items
 
   return (
-    <div className="mx-auto max-w-2xl p-4">
+    <div className="mx-auto max-w-2xl p-3">
       <TopBar />
       <h1 className="mb-4 text-xl font-bold">#{name}</h1>
       {feed.error && <p className="text-destructive text-sm">{feed.error}</p>}
-      <div className="space-y-3">
+      <div className="space-y-2">
         {statuses === null && !feed.error && (
           <p className="text-muted-foreground text-sm">Loading…</p>
         )}
-        {statuses?.map((s) => (
-          <StatusCard
-            key={s.id}
-            status={s.reblog ?? s}
-            token={token ?? ''}
-            boostedBy={s.reblog ? s.account : undefined}
-          />
-        ))}
+        {!!statuses?.length && (
+          <TimelineStack>
+            {statuses.map((s) => (
+              <StatusCard
+                key={s.id}
+                status={s.reblog ?? s}
+                token={token ?? ''}
+                boostedBy={s.reblog ? s.account : undefined}
+              />
+            ))}
+          </TimelineStack>
+        )}
         {statuses?.length === 0 && (
           <p className="text-muted-foreground text-sm">No posts yet.</p>
         )}

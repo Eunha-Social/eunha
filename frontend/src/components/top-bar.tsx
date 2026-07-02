@@ -9,7 +9,7 @@ import { ModeToggle } from '@/components/mode-toggle.tsx'
 export function TopBar({ title }: { title?: string }) {
   const token = getToken()
   return (
-    <header className="mb-6 flex items-center justify-between border-b pb-3">
+    <header className="mb-3 flex items-center justify-between border-b pb-2">
       <Link to="/" className="text-lg font-semibold no-underline">
         {title ?? 'eunha'}
       </Link>

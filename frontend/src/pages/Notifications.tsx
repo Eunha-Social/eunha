@@ -13,6 +13,7 @@ import { StatusCard } from '@/components/status-card.tsx'
 import { InfiniteScroll } from '@/components/infinite-scroll.tsx'
 import { Card, CardContent } from '@/components/ui/card.tsx'
 import { Button } from '@/components/ui/button.tsx'
+import { TimelineStack } from '@/components/timeline-stack.tsx'
 
 function describe(type: string): { icon: ReactNode; verb: string } {
   switch (type) {
@@ -63,8 +64,8 @@ function NotificationItem({
 
   if (n.status) {
     return (
-      <div className="space-y-1">
-        {header}
+      <div>
+        <div className="px-3 pt-3 sm:px-4">{header}</div>
         <StatusCard
           status={n.status.reblog ?? n.status}
           token={token}
@@ -74,8 +75,8 @@ function NotificationItem({
     )
   }
   return (
-    <Card>
-      <CardContent>{header}</CardContent>
+    <Card className="rounded-none border-0 py-3 shadow-none">
+      <CardContent className="px-3 sm:px-4">{header}</CardContent>
     </Card>
   )
 }
@@ -134,7 +135,7 @@ export default function Notifications() {
   const items = feed.items
 
   return (
-    <div className="mx-auto max-w-2xl p-4">
+    <div className="mx-auto max-w-2xl p-3">
       <TopBar />
       <TimelineTabs />
       {!token ? (
@@ -145,14 +146,18 @@ export default function Notifications() {
           </Button>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {feed.error && <p className="text-destructive text-sm">{feed.error}</p>}
           {items === null && !feed.error && (
             <p className="text-muted-foreground text-sm">Loading…</p>
           )}
-          {items?.map((n) => (
-            <NotificationItem key={n.id} n={n} token={token} />
-          ))}
+          {!!items?.length && (
+            <TimelineStack>
+              {items.map((n) => (
+                <NotificationItem key={n.id} n={n} token={token} />
+              ))}
+            </TimelineStack>
+          )}
           {items?.length === 0 && (
             <p className="text-muted-foreground text-sm">No notifications yet.</p>
           )}

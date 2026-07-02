@@ -10,6 +10,7 @@ import { TimelineTabs } from '@/components/timeline-tabs.tsx'
 import { Compose } from '@/components/compose.tsx'
 import { StatusCard } from '@/components/status-card.tsx'
 import { InfiniteScroll } from '@/components/infinite-scroll.tsx'
+import { TimelineStack } from '@/components/timeline-stack.tsx'
 
 export default function Home() {
   const [instance, setInstance] = useState<mastodon.v2.Instance | null>(null)
@@ -44,7 +45,7 @@ export default function Home() {
   const statuses = feed.items
 
   return (
-    <div className="mx-auto max-w-2xl p-4">
+    <div className="mx-auto max-w-2xl p-3">
       <TopBar title={instance?.title} />
       <TimelineTabs />
 
@@ -61,7 +62,7 @@ export default function Home() {
       )}
 
       {token && (
-        <section className="space-y-3">
+        <section className="space-y-2">
           <Compose
             token={token}
             replyTo={replyTo}
@@ -74,15 +75,19 @@ export default function Home() {
           {statuses === null && !feed.error && (
             <p className="text-muted-foreground text-sm">Loading…</p>
           )}
-          {statuses?.map((s) => (
-            <StatusCard
-              key={s.id}
-              status={s.reblog ?? s}
-              token={token}
-              boostedBy={s.reblog ? s.account : undefined}
-              onReply={handleReply}
-            />
-          ))}
+          {!!statuses?.length && (
+            <TimelineStack>
+              {statuses.map((s) => (
+                <StatusCard
+                  key={s.id}
+                  status={s.reblog ?? s}
+                  token={token}
+                  boostedBy={s.reblog ? s.account : undefined}
+                  onReply={handleReply}
+                />
+              ))}
+            </TimelineStack>
+          )}
           {statuses?.length === 0 && (
             <p className="text-muted-foreground text-sm">Your home timeline is empty.</p>
           )}

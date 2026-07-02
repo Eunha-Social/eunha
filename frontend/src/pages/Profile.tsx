@@ -14,6 +14,7 @@ import { useInfiniteFeed } from '../hooks/use-infinite-feed.ts'
 import { TopBar } from '@/components/top-bar.tsx'
 import { StatusCard } from '@/components/status-card.tsx'
 import { InfiniteScroll } from '@/components/infinite-scroll.tsx'
+import { TimelineStack } from '@/components/timeline-stack.tsx'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar.tsx'
 import { Button } from '@/components/ui/button.tsx'
 
@@ -59,7 +60,7 @@ export default function Profile() {
   const isSelf = account != null && account.id === selfId
 
   return (
-    <div className="mx-auto max-w-2xl p-4">
+    <div className="mx-auto max-w-2xl p-3">
       <TopBar />
       {error && <p className="text-destructive text-sm">{error}</p>}
       {account && (
@@ -118,18 +119,22 @@ export default function Profile() {
             </Link>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-2">
             {statuses === null && !error && (
               <p className="text-muted-foreground text-sm">Loading…</p>
             )}
-            {statuses?.map((s) => (
-              <StatusCard
-                key={s.id}
-                status={s.reblog ?? s}
-                token={token ?? ''}
-                boostedBy={s.reblog ? s.account : undefined}
-              />
-            ))}
+            {!!statuses?.length && (
+              <TimelineStack>
+                {statuses.map((s) => (
+                  <StatusCard
+                    key={s.id}
+                    status={s.reblog ?? s}
+                    token={token ?? ''}
+                    boostedBy={s.reblog ? s.account : undefined}
+                  />
+                ))}
+              </TimelineStack>
+            )}
             {statuses?.length === 0 && (
               <p className="text-muted-foreground text-sm">No posts yet.</p>
             )}

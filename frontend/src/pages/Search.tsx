@@ -7,6 +7,7 @@ import { getToken } from '../auth.ts'
 import { TopBar } from '@/components/top-bar.tsx'
 import { StatusCard } from '@/components/status-card.tsx'
 import { AccountRow } from '@/components/account-row.tsx'
+import { TimelineStack } from '@/components/timeline-stack.tsx'
 
 export default function Search() {
   const [params, setParams] = useSearchParams()
@@ -49,7 +50,7 @@ export default function Search() {
     results.statuses.length === 0
 
   return (
-    <div className="mx-auto max-w-2xl p-4">
+    <div className="mx-auto max-w-2xl p-3">
       <TopBar />
       <form onSubmit={submit} className="mb-4">
         <input
@@ -65,7 +66,7 @@ export default function Search() {
       {loading && <p className="text-muted-foreground text-sm">Searching…</p>}
 
       {results && (
-        <div className="space-y-6">
+        <div className="space-y-4">
           {results.accounts.length > 0 && (
             <section>
               <h2 className="text-secondary mb-2 text-sm font-semibold">People</h2>
@@ -97,7 +98,7 @@ export default function Search() {
           {results.statuses.length > 0 && (
             <section>
               <h2 className="text-secondary mb-2 text-sm font-semibold">Posts</h2>
-              <div className="space-y-3">
+              <TimelineStack>
                 {results.statuses.map((s) => (
                   <StatusCard
                     key={s.id}
@@ -106,7 +107,7 @@ export default function Search() {
                     boostedBy={s.reblog ? s.account : undefined}
                   />
                 ))}
-              </div>
+              </TimelineStack>
             </section>
           )}
 

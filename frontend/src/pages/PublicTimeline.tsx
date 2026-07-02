@@ -10,6 +10,7 @@ import { TopBar } from '@/components/top-bar.tsx'
 import { TimelineTabs } from '@/components/timeline-tabs.tsx'
 import { StatusCard } from '@/components/status-card.tsx'
 import { InfiniteScroll } from '@/components/infinite-scroll.tsx'
+import { TimelineStack } from '@/components/timeline-stack.tsx'
 
 export default function PublicTimeline() {
   const local = useLocation().pathname === '/local'
@@ -33,22 +34,26 @@ export default function PublicTimeline() {
   const statuses = feed.items
 
   return (
-    <div className="mx-auto max-w-2xl p-4">
+    <div className="mx-auto max-w-2xl p-3">
       <TopBar />
       <TimelineTabs />
       {feed.error && <p className="text-destructive text-sm">{feed.error}</p>}
-      <div className="space-y-3">
+      <div className="space-y-2">
         {statuses === null && !feed.error && (
           <p className="text-muted-foreground text-sm">Loading…</p>
         )}
-        {statuses?.map((s) => (
-          <StatusCard
-            key={s.id}
-            status={s.reblog ?? s}
-            token={token ?? ''}
-            boostedBy={s.reblog ? s.account : undefined}
-          />
-        ))}
+        {!!statuses?.length && (
+          <TimelineStack>
+            {statuses.map((s) => (
+              <StatusCard
+                key={s.id}
+                status={s.reblog ?? s}
+                token={token ?? ''}
+                boostedBy={s.reblog ? s.account : undefined}
+              />
+            ))}
+          </TimelineStack>
+        )}
         {statuses?.length === 0 && (
           <p className="text-muted-foreground text-sm">Nothing here yet.</p>
         )}
