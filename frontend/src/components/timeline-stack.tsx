@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 
 export function TimelineStack({ children }: { children: ReactNode }) {
   return (
-    <div className="bg-card overflow-hidden rounded-md border shadow-sm [&>*+*]:border-t [&>*+*]:border-border">
+    <div className="[&>*+*]:border-t [&>*+*]:border-border">
       {children}
     </div>
   )
