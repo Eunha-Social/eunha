@@ -2705,6 +2705,15 @@ async fn test_update_scheduled_status() {
     assert_eq!(resp.status(), StatusCode::OK);
     let body: Value = resp.json().await.unwrap();
     assert!(body["scheduled_at"].as_str().unwrap().contains("2099-10"), "scheduled_at should be updated");
+
+    // Updating to a time under 5 minutes out is rejected.
+    let soon = (chrono::Utc::now() + chrono::Duration::minutes(2)).to_rfc3339();
+    let bad = ctx.api.put_json(
+        &format!("/api/v1/scheduled_statuses/{id}"),
+        Some(&ctx.alice_token),
+        &json!({ "scheduled_at": soon }),
+    ).await;
+    assert_eq!(bad.status(), StatusCode::UNPROCESSABLE_ENTITY, "updating to <5min out must be rejected");
 }
 
 /// DELETE /api/v1/scheduled_statuses/:id cancels a scheduled status.

@@ -141,6 +141,16 @@ pub async fn update_scheduled_status(
         .transpose()
         .map_err(|_| AppError::Unprocessable("Invalid scheduled_at format".into()))?;
 
+    // Mastodon re-runs ScheduledStatus#validate_future_date on update: the new
+    // time must still be at least MINIMUM_OFFSET (5 min) in the future.
+    if let Some(at) = scheduled_at {
+        if at <= chrono::Utc::now().naive_utc() + chrono::Duration::minutes(5) {
+            return Err(AppError::Unprocessable(
+                "Validation failed: Scheduled date must be in the future".into(),
+            ));
+        }
+    }
+
     let row = sqlx::query!(
         r#"UPDATE scheduled_statuses SET scheduled_at = $1
            WHERE id = $2 AND account_id = $3
