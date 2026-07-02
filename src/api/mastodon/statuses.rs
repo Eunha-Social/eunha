@@ -258,6 +258,17 @@ pub async fn post_status(
         }
     }
 
+    // Reject an unrecognized visibility rather than silently coercing it (the
+    // fallback maps unknown strings to `direct`, which would turn a typo into a
+    // DM). Mastodon only accepts these client-settable visibilities.
+    if let Some(v) = form.visibility.as_deref() {
+        if !matches!(v, "public" | "unlisted" | "private" | "direct") {
+            return Err(AppError::Unprocessable(format!(
+                "Validation failed: Visibility is not included in the list: {v}"
+            )));
+        }
+    }
+
     // Fall back to the user's stored posting defaults when the form omits them.
     let defaults = super::accounts::user_defaults(&state, auth.account_id).await;
     let visibility = form.visibility.as_deref().map(str::to_owned).unwrap_or(defaults.privacy);

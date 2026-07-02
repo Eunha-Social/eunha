@@ -1716,6 +1716,19 @@ async fn test_mute_and_unmute_status() {
     assert_eq!(unmuted["muted"].as_bool(), Some(false));
 }
 
+/// An unrecognized visibility is rejected, not silently coerced to `direct`.
+#[tokio::test]
+async fn test_post_status_invalid_visibility_rejected() {
+    let ctx = TestContext::new("vis-invalid").await;
+
+    let resp = ctx.api.post_json(
+        "/api/v1/statuses",
+        Some(&ctx.alice_token),
+        &json!({ "status": "hi", "visibility": "sooper-secret" }),
+    ).await;
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
 // ── polls ──────────────────────────────────────────────────────────────────────
 
 /// POST /api/v1/statuses with a poll returns the poll options in the response.
