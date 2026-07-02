@@ -321,6 +321,34 @@ async fn test_home_timeline_per_follow_language_filter_on_fanout() {
     assert!(!ids.contains(&ja_id), "fan-out: Japanese post should be filtered");
 }
 
+/// A boost of a muted account is hidden from the home timeline — the mute
+/// filter must also apply to the reblogged status's author (Mastodon
+/// filter_from_home checks mutes on reblog.account_id).
+#[tokio::test]
+async fn test_home_timeline_hides_boost_of_muted_account() {
+    let ctx = TestContext::new("home-mute-boost").await;
+
+    let (carol_id, carol_token) =
+        crate::helpers::seed_user(&ctx.db, &ctx.domain, "carolmute", "carolmute@test.invalid").await;
+
+    ctx.api.follow(&ctx.alice_token, &ctx.bob_id).await;
+    // Alice mutes Carol.
+    ctx.api.post_json(&format!("/api/v1/accounts/{carol_id}/mute"), Some(&ctx.alice_token), &json!({})).await;
+
+    // Carol posts; Bob boosts it.
+    let carol_status = ctx.api.post_status(&carol_token, "muted carol post", "public").await;
+    let carol_status_id = carol_status["id"].as_str().unwrap();
+    let boost: Value = ctx.api
+        .post_json(&format!("/api/v1/statuses/{carol_status_id}/reblog"), Some(&ctx.bob_token), &json!({}))
+        .await.json().await.unwrap();
+    let boost_id = boost["id"].as_str().unwrap();
+
+    let home = ctx.api.home_timeline(&ctx.alice_token).await;
+    let ids: Vec<&str> = home.iter().filter_map(|s| s["id"].as_str()).collect();
+    assert!(!ids.contains(&boost_id), "a boost of a muted account must not appear in home");
+    assert!(!ids.contains(&carol_status_id), "the muted account's post must not appear either");
+}
+
 /// Own posts always appear on the home timeline regardless of visibility.
 #[tokio::test]
 async fn test_home_timeline_shows_own_posts_all_visibility() {

@@ -243,6 +243,12 @@ async fn hydrate_home_statuses(
            ))
            AND (s.reblog_of_id IS NULL OR NOT EXISTS (
                SELECT 1 FROM statuses orig
+               JOIN mutes m ON m.account_id = $1 AND m.target_account_id = orig.account_id
+                   AND (m.expires_at IS NULL OR m.expires_at > now())
+               WHERE orig.id = s.reblog_of_id
+           ))
+           AND (s.reblog_of_id IS NULL OR NOT EXISTS (
+               SELECT 1 FROM statuses orig
                JOIN accounts orig_a ON orig_a.id = orig.account_id
                JOIN account_domain_blocks adb ON adb.account_id = $1 AND adb.domain = orig_a.domain
                WHERE orig.id = s.reblog_of_id
@@ -343,6 +349,12 @@ async fn home_timeline_from_db(
                        (b.account_id = $1 AND b.target_account_id = orig.account_id)
                        OR (b.account_id = orig.account_id AND b.target_account_id = $1)
                    )
+                   WHERE orig.id = s.reblog_of_id
+               ))
+               AND (s.reblog_of_id IS NULL OR NOT EXISTS (
+                   SELECT 1 FROM statuses orig
+                   JOIN mutes m ON m.account_id = $1 AND m.target_account_id = orig.account_id
+                       AND (m.expires_at IS NULL OR m.expires_at > now())
                    WHERE orig.id = s.reblog_of_id
                ))
                AND (s.reblog_of_id IS NULL OR NOT EXISTS (
@@ -455,6 +467,12 @@ async fn home_timeline_from_db(
                        (b.account_id = $1 AND b.target_account_id = orig.account_id)
                        OR (b.account_id = orig.account_id AND b.target_account_id = $1)
                    )
+                   WHERE orig.id = s.reblog_of_id
+               ))
+               AND (s.reblog_of_id IS NULL OR NOT EXISTS (
+                   SELECT 1 FROM statuses orig
+                   JOIN mutes m ON m.account_id = $1 AND m.target_account_id = orig.account_id
+                       AND (m.expires_at IS NULL OR m.expires_at > now())
                    WHERE orig.id = s.reblog_of_id
                ))
                AND (s.reblog_of_id IS NULL OR NOT EXISTS (
