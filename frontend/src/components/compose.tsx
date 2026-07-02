@@ -109,7 +109,7 @@ export function Compose({
                   type="button"
                   onClick={() => removeAttachment(a.id)}
                   aria-label="Remove attachment"
-                  className="bg-background/80 absolute top-1 right-1 z-10 rounded-full p-0.5"
+                  className="bg-background/80 absolute top-1 right-1 z-10 p-0.5"
                 >
                   <X className="size-4" />
                 </button>
@@ -117,7 +117,7 @@ export function Compose({
                   <img
                     src={a.previewUrl}
                     alt=""
-                    className="h-24 w-full rounded object-cover"
+                    className="h-24 w-full object-cover"
                   />
                 ) : (
                   <div className="text-muted-foreground flex h-24 items-center justify-center text-xs">
@@ -133,7 +133,7 @@ export function Compose({
                     )
                   }
                   placeholder="Describe for the visually impaired"
-                  className="bg-background mt-1 w-full rounded border px-1.5 py-1 text-xs"
+                  className="bg-background mt-1 w-full border px-1.5 py-1 text-xs"
                 />
               </div>
             ))}

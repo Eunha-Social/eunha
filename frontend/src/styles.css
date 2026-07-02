@@ -13,7 +13,7 @@
  */
 
 :root {
-  --radius: 0.65rem;
+  --radius: 0;
 
   --background: #8c98f2; /* periwinkle */
   --foreground: #0e1a2b; /* navy */
@@ -57,10 +57,10 @@
 }
 
 @theme inline {
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
+  --radius-sm: 0;
+  --radius-md: 0;
+  --radius-lg: 0;
+  --radius-xl: 0;
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
