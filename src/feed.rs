@@ -795,3 +795,43 @@ pub async fn unmerge_from_home(
     }
     let _: redis::RedisResult<()> = pipe.query_async(redis).await;
 }
+
+/// Remove every home-feed entry authored by an account on `domain`, used when a
+/// user blocks a domain (Mastodon AfterBlockDomainFromAccountService clears the
+/// blocker's timelines of that domain's content).
+pub async fn unmerge_domain_from_home(
+    redis: &mut ConnectionManager,
+    db: &PgPool,
+    domain: &str,
+    into_account_id: i64,
+) {
+    if !is_feed_populated(redis, into_account_id).await {
+        return;
+    }
+    let key = feed_key(into_account_id);
+    let members: Vec<i64> = redis
+        .zrange::<_, Vec<i64>>(&key, 0, -1)
+        .await
+        .unwrap_or_default();
+    if members.is_empty() {
+        return;
+    }
+    let ids: Vec<i64> = sqlx::query_scalar!(
+        r#"SELECT s.id FROM statuses s
+           JOIN accounts a ON a.id = s.account_id
+           WHERE s.id = ANY($1::bigint[]) AND a.domain = $2"#,
+        &members,
+        domain,
+    )
+    .fetch_all(db)
+    .await
+    .unwrap_or_default();
+    if ids.is_empty() {
+        return;
+    }
+    let mut pipe = redis::pipe();
+    for id in ids {
+        pipe.zrem(&key, id);
+    }
+    let _: redis::RedisResult<()> = pipe.query_async(redis).await;
+}

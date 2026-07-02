@@ -109,6 +109,43 @@ pub async fn block_domain(
         ).execute(&state.db).await;
     }
 
+    // Drop pending follow requests in either direction with that domain
+    // (Mastodon reject_pending_follow_requests!).
+    let _ = sqlx::query!(
+        r#"DELETE FROM follow_requests
+           WHERE (account_id = $1 AND target_account_id IN (SELECT id FROM accounts WHERE domain = $2))
+              OR (target_account_id = $1 AND account_id IN (SELECT id FROM accounts WHERE domain = $2))"#,
+        auth.account_id, domain,
+    )
+    .execute(&state.db)
+    .await;
+
+    // Clear the blocker's notifications originating from that domain
+    // (Mastodon clear_notifications!).
+    let _ = sqlx::query!(
+        r#"DELETE FROM notifications
+           WHERE account_id = $1
+             AND from_account_id IN (SELECT id FROM accounts WHERE domain = $2)"#,
+        auth.account_id, domain,
+    )
+    .execute(&state.db)
+    .await;
+
+    // Strip that domain's posts from the blocker's cached home feed.
+    {
+        let mut redis = state.redis.clone();
+        let db = state.db.clone();
+        let account_id = auth.account_id;
+        let domain = domain.clone();
+        if crate::feed::sync_fanout() {
+            crate::feed::unmerge_domain_from_home(&mut redis, &db, &domain, account_id).await;
+        } else {
+            tokio::spawn(async move {
+                crate::feed::unmerge_domain_from_home(&mut redis, &db, &domain, account_id).await;
+            });
+        }
+    }
+
     Ok(Json(serde_json::json!({})))
 }
 

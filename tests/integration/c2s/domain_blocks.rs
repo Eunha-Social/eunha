@@ -43,6 +43,57 @@ async fn test_domain_blocks_add_and_list() {
     assert!(body.contains(&"evil.example".to_string()), "blocked domain not listed");
 }
 
+/// Blocking a domain clears the blocker's notifications and pending follow
+/// requests from that domain (Mastodon AfterBlockDomainFromAccountService).
+#[tokio::test]
+async fn test_domain_block_clears_notifications_and_requests() {
+    let ctx = TestContext::new("dblk-cleanup").await;
+    let alice_id: i64 = ctx.alice_id.parse().unwrap();
+
+    // A remote account on evil.example.
+    let carol_id = eunha::snowflake::next_id();
+    sqlx::query!(
+        r#"INSERT INTO accounts
+             (id, username, display_name, note, domain, url, uri, public_key,
+              inbox_url, outbox_url, shared_inbox_url, discoverable, id_scheme, created_at, updated_at)
+           VALUES ($1,'carol','carol','', 'evil.example',
+                   'https://evil.example/carol','https://evil.example/users/carol','k',
+                   'https://evil.example/users/carol/inbox','https://evil.example/users/carol/outbox','',
+                   true, 0, now(), now())"#,
+        carol_id,
+    ).execute(&ctx.db).await.unwrap();
+
+    // A notification and a pending follow request from carol to alice.
+    sqlx::query!(
+        r#"INSERT INTO notifications (id, activity_id, activity_type, account_id, from_account_id, "type", created_at, updated_at)
+           VALUES ($1, $2, 'Follow', $3, $4, 'follow', now(), now())"#,
+        eunha::snowflake::next_id(), eunha::snowflake::next_id(), alice_id, carol_id,
+    ).execute(&ctx.db).await.unwrap();
+    sqlx::query!(
+        "INSERT INTO follow_requests (account_id, target_account_id, created_at, updated_at) VALUES ($1, $2, now(), now())",
+        carol_id, alice_id,
+    ).execute(&ctx.db).await.unwrap();
+
+    // Alice blocks the domain.
+    let resp = ctx.api.post_json(
+        "/api/v1/domain_blocks",
+        Some(&ctx.alice_token),
+        &serde_json::json!({ "domain": "evil.example" }),
+    ).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let carol = carol_id.to_string();
+    let notifs: Vec<serde_json::Value> = ctx.api.get("/api/v1/notifications", Some(&ctx.alice_token))
+        .await.json().await.unwrap();
+    assert!(
+        !notifs.iter().any(|n| n["account"]["id"].as_str() == Some(carol.as_str())),
+        "notification from blocked domain should be cleared",
+    );
+    let reqs: Vec<serde_json::Value> = ctx.api.get("/api/v1/follow_requests", Some(&ctx.alice_token))
+        .await.json().await.unwrap();
+    assert!(reqs.is_empty(), "pending follow request from blocked domain should be removed");
+}
+
 /// POST is idempotent — blocking an already-blocked domain returns 200.
 #[tokio::test]
 async fn test_domain_blocks_idempotent() {

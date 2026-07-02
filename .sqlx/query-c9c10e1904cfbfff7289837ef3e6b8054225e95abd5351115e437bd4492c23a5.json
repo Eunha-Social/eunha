@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO notifications (id, activity_id, activity_type, account_id, from_account_id, \"type\", created_at, updated_at)\n           VALUES ($1, $2, 'Follow', $3, $4, 'follow', now(), now())",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c9c10e1904cfbfff7289837ef3e6b8054225e95abd5351115e437bd4492c23a5"
+}
