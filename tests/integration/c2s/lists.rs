@@ -202,6 +202,68 @@ async fn test_create_list_invalid_replies_policy_returns_422() {
     );
 }
 
+/// POST /api/v1/lists with a title over 256 characters returns 422
+/// (Mastodon List::TITLE_LENGTH_LIMIT).
+#[tokio::test]
+async fn test_create_list_title_too_long_returns_422() {
+    let ctx = TestContext::new("list-long-title").await;
+
+    let resp = ctx.api.post_json(
+        "/api/v1/lists",
+        Some(&ctx.alice_token),
+        &json!({ "title": "x".repeat(257) }),
+    ).await;
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+/// Creating more than 50 lists returns 422 (Mastodon List::PER_ACCOUNT_LIMIT).
+#[tokio::test]
+async fn test_create_list_per_account_limit() {
+    let ctx = TestContext::new("list-limit").await;
+
+    for i in 0..50 {
+        let resp = ctx.api.post_json(
+            "/api/v1/lists",
+            Some(&ctx.alice_token),
+            &json!({ "title": format!("list {i}") }),
+        ).await;
+        assert_eq!(resp.status(), StatusCode::OK, "list {i} should be created");
+    }
+    let resp = ctx.api.post_json(
+        "/api/v1/lists",
+        Some(&ctx.alice_token),
+        &json!({ "title": "one too many" }),
+    ).await;
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY, "51st list should be rejected");
+}
+
+/// PUT /api/v1/lists/:id validates the title and replies_policy too.
+#[tokio::test]
+async fn test_update_list_validates() {
+    let ctx = TestContext::new("list-update-validate").await;
+
+    let list: Value = ctx.api.post_json(
+        "/api/v1/lists",
+        Some(&ctx.alice_token),
+        &json!({ "title": "valid" }),
+    ).await.json().await.unwrap();
+    let list_id = list["id"].as_str().unwrap();
+
+    let empty = ctx.api.put_json(
+        &format!("/api/v1/lists/{list_id}"),
+        Some(&ctx.alice_token),
+        &json!({ "title": "" }),
+    ).await;
+    assert_eq!(empty.status(), StatusCode::UNPROCESSABLE_ENTITY, "empty title on update should be rejected");
+
+    let bad_policy = ctx.api.put_json(
+        &format!("/api/v1/lists/{list_id}"),
+        Some(&ctx.alice_token),
+        &json!({ "title": "valid", "replies_policy": "nonsense" }),
+    ).await;
+    assert_eq!(bad_policy.status(), StatusCode::UNPROCESSABLE_ENTITY, "invalid replies_policy on update should be rejected");
+}
+
 /// PUT /api/v1/lists/:id updates replies_policy and exclusive.
 #[tokio::test]
 async fn test_update_list_replies_policy_and_exclusive() {

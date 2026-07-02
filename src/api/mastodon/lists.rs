@@ -59,21 +59,54 @@ pub struct ListForm {
 
 const VALID_REPLIES_POLICIES: &[&str] = &["followed", "list", "none"];
 
+/// Maximum list title length (Mastodon `List::TITLE_LENGTH_LIMIT`).
+const LIST_TITLE_MAX: usize = 256;
+/// Maximum lists per account (Mastodon `List::PER_ACCOUNT_LIMIT`).
+const LIST_PER_ACCOUNT_LIMIT: i64 = 50;
+
+/// Validate list title + replies_policy the way Mastodon's List model does.
+/// Applies to both create and update.
+fn validate_list_form(form: &ListForm) -> AppResult<()> {
+    if form.title.trim().is_empty() {
+        return Err(AppError::Unprocessable("Title can't be blank".into()));
+    }
+    if form.title.chars().count() > LIST_TITLE_MAX {
+        return Err(AppError::Unprocessable(format!(
+            "Title is too long (maximum is {LIST_TITLE_MAX} characters)"
+        )));
+    }
+    let replies_policy = form.replies_policy.as_deref().unwrap_or("list");
+    if !VALID_REPLIES_POLICIES.contains(&replies_policy) {
+        return Err(AppError::Unprocessable(format!(
+            "Replies policy is not included in the list: {replies_policy}"
+        )));
+    }
+    Ok(())
+}
+
 pub async fn create_list(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedUser>,
     Json(form): Json<ListForm>,
 ) -> AppResult<Json<List>> {
     auth.require_scope("write:lists")?;
-    if form.title.trim().is_empty() {
-        return Err(AppError::Unprocessable("Title can't be blank".into()));
-    }
-    let replies_policy = form.replies_policy.as_deref().unwrap_or("list");
-    if !VALID_REPLIES_POLICIES.contains(&replies_policy) {
+    validate_list_form(&form)?;
+
+    // Per-account list cap (Mastodon validate_account_lists_limit, create only).
+    let list_count = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM lists WHERE account_id = $1",
+        auth.account_id,
+    )
+    .fetch_one(&state.db)
+    .await?
+    .unwrap_or(0);
+    if list_count >= LIST_PER_ACCOUNT_LIMIT {
         return Err(AppError::Unprocessable(
-            format!("Replies policy is not included in the list: {replies_policy}"),
+            "Validation failed: You have reached the maximum number of lists".into(),
         ));
     }
+
+    let replies_policy = form.replies_policy.as_deref().unwrap_or("list");
     let replies_policy_int = models::replies::from_str(replies_policy);
     let list = sqlx::query_as!(
         models::List,
@@ -101,6 +134,7 @@ pub async fn update_list(
 ) -> AppResult<Json<List>> {
     auth.require_scope("write:lists")?;
     fetch_list(&state, id, auth.account_id).await?;
+    validate_list_form(&form)?;
 
     let list = sqlx::query_as!(
         models::List,
