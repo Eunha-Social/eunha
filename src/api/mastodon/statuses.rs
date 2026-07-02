@@ -1689,6 +1689,15 @@ pub async fn reblog_status(
         return Err(AppError::Forbidden);
     }
 
+    // Reject an unrecognized requested visibility rather than coercing to direct.
+    if let Some(v) = body.as_ref().and_then(|b| b.visibility.as_deref()) {
+        if !matches!(v, "public" | "unlisted" | "private" | "direct") {
+            return Err(AppError::Unprocessable(format!(
+                "Validation failed: Visibility is not included in the list: {v}"
+            )));
+        }
+    }
+
     let boost_account = fetch_account(&state, auth.account_id).await?;
 
     // Determine visibility: hidden originals keep their own visibility;
