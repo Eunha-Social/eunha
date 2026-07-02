@@ -73,6 +73,7 @@ pub async fn register_app(
     let client_secret = generate_token(64);
     let redirect_uris = form.redirect_uris.unwrap_or_else(|| "urn:ietf:wg:oauth:2.0:oob".into());
     let scopes = normalize_scopes(&form.scopes.unwrap_or_else(|| "read".into()));
+    validate_oauth_scopes(&scopes)?;
 
     let app = sqlx::query_as!(
         OauthApplication,
@@ -273,6 +274,38 @@ fn normalize_scopes(s: &str) -> String {
         .filter(|t| !t.is_empty())
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// The scopes Mastodon's Doorkeeper accepts (default + optional_scopes). App
+/// registration with any scope outside this set is rejected
+/// (`enforce_configured_scopes`).
+const VALID_OAUTH_SCOPES: &[&str] = &[
+    "read", "write", "follow", "push", "profile",
+    "read:accounts", "read:blocks", "read:bookmarks", "read:collections",
+    "read:favourites", "read:filters", "read:follows", "read:lists", "read:mutes",
+    "read:notifications", "read:search", "read:statuses",
+    "write:accounts", "write:blocks", "write:bookmarks", "write:collections",
+    "write:conversations", "write:favourites", "write:filters", "write:follows",
+    "write:lists", "write:media", "write:mutes", "write:notifications",
+    "write:reports", "write:statuses",
+    "admin:read", "admin:read:accounts", "admin:read:reports",
+    "admin:read:domain_allows", "admin:read:domain_blocks", "admin:read:ip_blocks",
+    "admin:read:email_domain_blocks", "admin:read:canonical_email_blocks",
+    "admin:write", "admin:write:accounts", "admin:write:reports",
+    "admin:write:domain_allows", "admin:write:domain_blocks", "admin:write:ip_blocks",
+    "admin:write:email_domain_blocks", "admin:write:canonical_email_blocks",
+];
+
+/// Reject app registration requesting a scope Mastodon wouldn't configure.
+fn validate_oauth_scopes(scopes: &str) -> AppResult<()> {
+    for scope in scopes.split(' ').filter(|s| !s.is_empty()) {
+        if !VALID_OAUTH_SCOPES.contains(&scope) {
+            return Err(AppError::Unprocessable(
+                "The requested scope is invalid, unknown, or malformed.".into(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn verify_password(password: &str, hash: &str) -> Result<(), AppError> {

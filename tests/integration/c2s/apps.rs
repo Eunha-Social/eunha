@@ -28,6 +28,27 @@ async fn test_register_app_returns_credentials() {
     assert_eq!(body["name"].as_str(), Some("Test App"));
 }
 
+/// POST /api/v1/apps with an unknown scope is rejected (Doorkeeper
+/// enforce_configured_scopes). A granular known scope is still accepted.
+#[tokio::test]
+async fn test_register_app_rejects_unknown_scope() {
+    let ctx = TestContext::new("apps-bad-scope").await;
+
+    let bad = ctx.api.post_json(
+        "/api/v1/apps",
+        None,
+        &json!({ "client_name": "Bad", "scopes": "read write:everything" }),
+    ).await;
+    assert_eq!(bad.status(), StatusCode::UNPROCESSABLE_ENTITY, "unknown scope must be rejected");
+
+    let ok = ctx.api.post_json(
+        "/api/v1/apps",
+        None,
+        &json!({ "client_name": "Good", "scopes": "read:statuses write:statuses push" }),
+    ).await;
+    assert_eq!(ok.status(), StatusCode::OK, "known granular scopes should be accepted");
+}
+
 /// Registered app response includes the redirect_uri and redirect_uris fields.
 #[tokio::test]
 async fn test_register_app_response_shape() {
