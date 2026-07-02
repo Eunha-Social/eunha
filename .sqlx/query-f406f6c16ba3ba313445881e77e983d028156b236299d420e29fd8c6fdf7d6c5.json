@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT COALESCE(ur.position, 0) AS \"pos!: i32\",\n                  COALESCE(ur.permissions, 0) AS \"perms!: i64\"\n           FROM users u\n           LEFT JOIN user_roles ur ON ur.id = u.role_id\n           WHERE u.account_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pos!: i32",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 1,
+        "name": "perms!: i64",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "f406f6c16ba3ba313445881e77e983d028156b236299d420e29fd8c6fdf7d6c5"
+}

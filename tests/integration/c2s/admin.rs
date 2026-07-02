@@ -18,6 +18,43 @@ async fn test_admin_requires_admin_role() {
     assert_eq!(resp.status(), StatusCode::FORBIDDEN, "non-admin should get 403");
 }
 
+/// A Moderator role (position < 100, with manage_reports + manage_users but no
+/// administrator flag) can access the report and account moderation endpoints
+/// but is denied admin-only endpoints like domain blocks — matching Mastodon's
+/// permission-based authorization.
+#[tokio::test]
+async fn test_moderator_permission_scoping() {
+    let ctx = TestContext::new("admin-moderator").await;
+    let alice_uuid: i64 = ctx.alice_id.parse().unwrap();
+
+    // Moderator: position 10, permissions = manage_reports (1<<4) | manage_users (1<<10).
+    let role_id = sqlx::query_scalar!(
+        r#"INSERT INTO user_roles (id, name, position, permissions, highlighted, created_at, updated_at)
+           VALUES ($1, 'Moderator', 10, $2, true, now(), now())
+           RETURNING id"#,
+        eunha::snowflake::next_id(),
+        (1_i64 << 4) | (1_i64 << 10),
+    ).fetch_one(&ctx.db).await.unwrap();
+    sqlx::query!("UPDATE users SET role_id = $1 WHERE account_id = $2", role_id, alice_uuid)
+        .execute(&ctx.db).await.unwrap();
+
+    // Allowed: reports (manage_reports) and account list (manage_users).
+    assert_eq!(
+        ctx.api.get("/api/v1/admin/reports", Some(&ctx.alice_token)).await.status(),
+        StatusCode::OK, "moderator should access reports",
+    );
+    assert_eq!(
+        ctx.api.get("/api/v1/admin/accounts", Some(&ctx.alice_token)).await.status(),
+        StatusCode::OK, "moderator should access account moderation",
+    );
+
+    // Denied: domain blocks require manage_federation / admin.
+    assert_eq!(
+        ctx.api.get("/api/v1/admin/domain_blocks", Some(&ctx.alice_token)).await.status(),
+        StatusCode::FORBIDDEN, "moderator must not access admin-only domain blocks",
+    );
+}
+
 /// GET /api/v1/admin/accounts returns all accounts in the instance.
 #[tokio::test]
 async fn test_admin_list_accounts() {

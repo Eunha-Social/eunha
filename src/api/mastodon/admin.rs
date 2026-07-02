@@ -18,9 +18,25 @@ use super::types::Account as ApiAccount;
 
 // ── Admin auth guard ──────────────────────────────────────────────────────
 
-async fn require_admin(state: &AppState, account_id: i64) -> AppResult<()> {
-    let position: i32 = sqlx::query_scalar!(
-        r#"SELECT COALESCE(ur.position, 0) AS "pos!: i32"
+/// Mastodon UserRole permission flags (subset used for admin-API gating).
+pub mod perm {
+    pub const ADMINISTRATOR: i64 = 1 << 0;
+    pub const MANAGE_REPORTS: i64 = 1 << 4;
+    pub const MANAGE_FEDERATION: i64 = 1 << 5;
+    pub const MANAGE_TAXONOMIES: i64 = 1 << 8;
+    pub const MANAGE_USERS: i64 = 1 << 10;
+    pub const MANAGE_CUSTOM_EMOJIS: i64 = 1 << 14;
+    pub const MANAGE_ROLES: i64 = 1 << 17;
+}
+
+/// Authorize by Mastodon permission bit: the `administrator` flag grants
+/// everything, otherwise the specific permission is required. eunha's existing
+/// position≥100 admin gate is preserved as a superset so current admins keep
+/// access — this only *adds* moderator support for roles carrying the flag.
+async fn require_permission(state: &AppState, account_id: i64, flag: i64) -> AppResult<()> {
+    let row = sqlx::query!(
+        r#"SELECT COALESCE(ur.position, 0) AS "pos!: i32",
+                  COALESCE(ur.permissions, 0) AS "perms!: i64"
            FROM users u
            LEFT JOIN user_roles ur ON ur.id = u.role_id
            WHERE u.account_id = $1"#,
@@ -30,10 +46,31 @@ async fn require_admin(state: &AppState, account_id: i64) -> AppResult<()> {
     .await?
     .ok_or(AppError::Unauthorized)?;
 
-    if position < 100 {
-        return Err(AppError::Forbidden);
+    if row.perms & perm::ADMINISTRATOR != 0 || row.perms & flag != 0 || row.pos >= 100 {
+        return Ok(());
     }
-    Ok(())
+    Err(AppError::Forbidden)
+}
+
+/// Full-admin gate (position≥100 or the administrator flag). Used for endpoints
+/// Mastodon restricts to admin-level permissions eunha doesn't split out.
+async fn require_admin(state: &AppState, account_id: i64) -> AppResult<()> {
+    let row = sqlx::query!(
+        r#"SELECT COALESCE(ur.position, 0) AS "pos!: i32",
+                  COALESCE(ur.permissions, 0) AS "perms!: i64"
+           FROM users u
+           LEFT JOIN user_roles ur ON ur.id = u.role_id
+           WHERE u.account_id = $1"#,
+        account_id,
+    )
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::Unauthorized)?;
+
+    if row.pos >= 100 || row.perms & perm::ADMINISTRATOR != 0 {
+        return Ok(());
+    }
+    Err(AppError::Forbidden)
 }
 
 // ── Admin Account type ────────────────────────────────────────────────────
@@ -209,7 +246,7 @@ pub async fn list_admin_accounts(
     uri: Uri,
     req_headers: HeaderMap,
 ) -> AppResult<impl IntoResponse> {
-    require_admin(&state, auth.account_id).await?;
+    require_permission(&state, auth.account_id, perm::MANAGE_USERS).await?;
 
     let limit = params.limit.unwrap_or(40).clamp(1, 80);
     let max_id = params.max_id.as_deref().and_then(|s| s.parse::<i64>().ok());
@@ -286,7 +323,7 @@ pub async fn list_admin_accounts_v2(
     uri: Uri,
     req_headers: HeaderMap,
 ) -> AppResult<impl IntoResponse> {
-    require_admin(&state, auth.account_id).await?;
+    require_permission(&state, auth.account_id, perm::MANAGE_USERS).await?;
 
     let limit = params.limit.unwrap_or(40).clamp(1, 80);
     let max_id = params.max_id.as_deref().and_then(|s| s.parse::<i64>().ok());
@@ -355,7 +392,7 @@ pub async fn get_admin_account(
     Extension(auth): Extension<AuthenticatedUser>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<AdminAccount>> {
-    require_admin(&state, auth.account_id).await?;
+    require_permission(&state, auth.account_id, perm::MANAGE_USERS).await?;
     let account = sqlx::query_as!(models::Account, "SELECT * FROM accounts WHERE id = $1", id)
         .fetch_optional(&state.db)
         .await?
@@ -370,7 +407,7 @@ pub async fn approve_account(
     Extension(auth): Extension<AuthenticatedUser>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<AdminAccount>> {
-    require_admin(&state, auth.account_id).await?;
+    require_permission(&state, auth.account_id, perm::MANAGE_USERS).await?;
     sqlx::query!(
         "UPDATE users SET approved = true WHERE account_id = $1",
         id,
@@ -391,7 +428,7 @@ pub async fn reject_account(
     Extension(auth): Extension<AuthenticatedUser>,
     Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
-    require_admin(&state, auth.account_id).await?;
+    require_permission(&state, auth.account_id, perm::MANAGE_USERS).await?;
     sqlx::query!(
         "UPDATE users SET approved = false WHERE account_id = $1 AND NOT approved",
         id,
@@ -414,7 +451,7 @@ pub async fn enable_account(
     Extension(auth): Extension<AuthenticatedUser>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<AdminAccount>> {
-    require_admin(&state, auth.account_id).await?;
+    require_permission(&state, auth.account_id, perm::MANAGE_USERS).await?;
     sqlx::query!(
         "UPDATE accounts SET suspended_at = NULL WHERE id = $1",
         id,
@@ -435,7 +472,7 @@ pub async fn silence_account(
     Extension(auth): Extension<AuthenticatedUser>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<AdminAccount>> {
-    require_admin(&state, auth.account_id).await?;
+    require_permission(&state, auth.account_id, perm::MANAGE_USERS).await?;
     sqlx::query!(
         "UPDATE accounts SET silenced_at = now() WHERE id = $1 AND silenced_at IS NULL",
         id,
@@ -456,7 +493,7 @@ pub async fn unsilence_account(
     Extension(auth): Extension<AuthenticatedUser>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<AdminAccount>> {
-    require_admin(&state, auth.account_id).await?;
+    require_permission(&state, auth.account_id, perm::MANAGE_USERS).await?;
     sqlx::query!(
         "UPDATE accounts SET silenced_at = NULL WHERE id = $1",
         id,
@@ -477,7 +514,7 @@ pub async fn suspend_account(
     Extension(auth): Extension<AuthenticatedUser>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<AdminAccount>> {
-    require_admin(&state, auth.account_id).await?;
+    require_permission(&state, auth.account_id, perm::MANAGE_USERS).await?;
     sqlx::query!(
         "UPDATE accounts SET suspended_at = now() WHERE id = $1 AND suspended_at IS NULL",
         id,
@@ -504,7 +541,7 @@ pub async fn unsuspend_account(
     Extension(auth): Extension<AuthenticatedUser>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<AdminAccount>> {
-    require_admin(&state, auth.account_id).await?;
+    require_permission(&state, auth.account_id, perm::MANAGE_USERS).await?;
     sqlx::query!(
         "UPDATE accounts SET suspended_at = NULL WHERE id = $1",
         id,
@@ -617,7 +654,7 @@ pub async fn list_admin_reports(
     uri: Uri,
     req_headers: HeaderMap,
 ) -> AppResult<impl IntoResponse> {
-    require_admin(&state, auth.account_id).await?;
+    require_permission(&state, auth.account_id, perm::MANAGE_REPORTS).await?;
 
     let limit = params.limit.unwrap_or(20).clamp(1, 40);
     let resolved = params.resolved.unwrap_or(false);
@@ -678,7 +715,7 @@ pub async fn get_admin_report(
     Extension(auth): Extension<AuthenticatedUser>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<AdminReport>> {
-    require_admin(&state, auth.account_id).await?;
+    require_permission(&state, auth.account_id, perm::MANAGE_REPORTS).await?;
     let r = sqlx::query!(
         r#"SELECT r.id, r.account_id, r.target_account_id,
                   r.comment, r.forwarded, r.action_taken_at,
@@ -712,7 +749,7 @@ pub async fn resolve_report(
     Extension(auth): Extension<AuthenticatedUser>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<AdminReport>> {
-    require_admin(&state, auth.account_id).await?;
+    require_permission(&state, auth.account_id, perm::MANAGE_REPORTS).await?;
     sqlx::query!(
         "UPDATE reports SET action_taken_at = now(), action_taken_by_account_id = $1 WHERE id = $2",
         auth.account_id, id,
@@ -752,7 +789,7 @@ pub async fn reopen_report(
     Extension(auth): Extension<AuthenticatedUser>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<AdminReport>> {
-    require_admin(&state, auth.account_id).await?;
+    require_permission(&state, auth.account_id, perm::MANAGE_REPORTS).await?;
     sqlx::query!(
         "UPDATE reports SET action_taken_at = NULL, action_taken_by_account_id = NULL WHERE id = $1",
         id,
@@ -2043,7 +2080,7 @@ pub async fn assign_report_to_self(
     Extension(auth): Extension<AuthenticatedUser>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<AdminReport>> {
-    require_admin(&state, auth.account_id).await?;
+    require_permission(&state, auth.account_id, perm::MANAGE_REPORTS).await?;
     sqlx::query!(
         "UPDATE reports SET assigned_account_id = $1 WHERE id = $2",
         auth.account_id, id,
@@ -2060,7 +2097,7 @@ pub async fn unassign_report(
     Extension(auth): Extension<AuthenticatedUser>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<AdminReport>> {
-    require_admin(&state, auth.account_id).await?;
+    require_permission(&state, auth.account_id, perm::MANAGE_REPORTS).await?;
     sqlx::query!(
         "UPDATE reports SET assigned_account_id = NULL WHERE id = $1",
         id,
@@ -2077,7 +2114,7 @@ pub async fn sensitive_account(
     Extension(auth): Extension<AuthenticatedUser>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<AdminAccount>> {
-    require_admin(&state, auth.account_id).await?;
+    require_permission(&state, auth.account_id, perm::MANAGE_USERS).await?;
     sqlx::query!(
         "UPDATE accounts SET sensitized_at = now() WHERE id = $1 AND sensitized_at IS NULL",
         id,
@@ -2098,7 +2135,7 @@ pub async fn unsensitive_account(
     Extension(auth): Extension<AuthenticatedUser>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<AdminAccount>> {
-    require_admin(&state, auth.account_id).await?;
+    require_permission(&state, auth.account_id, perm::MANAGE_USERS).await?;
     sqlx::query!(
         "UPDATE accounts SET sensitized_at = NULL WHERE id = $1",
         id,
@@ -2130,7 +2167,7 @@ pub async fn account_action(
     Path(id): Path<i64>,
     Json(form): Json<AccountActionForm>,
 ) -> AppResult<StatusCode> {
-    require_admin(&state, auth.account_id).await?;
+    require_permission(&state, auth.account_id, perm::MANAGE_USERS).await?;
 
     match form.action_type.as_deref().unwrap_or("none") {
         "disable" => {
@@ -2195,7 +2232,7 @@ pub async fn delete_admin_account(
     Extension(auth): Extension<AuthenticatedUser>,
     Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
-    require_admin(&state, auth.account_id).await?;
+    require_permission(&state, auth.account_id, perm::MANAGE_USERS).await?;
 
     let mut tx = state.db.begin().await?;
     sqlx::query!(
