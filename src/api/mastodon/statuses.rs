@@ -3116,10 +3116,10 @@ pub async fn translate_status(
     Extension(auth): Extension<AuthenticatedUser>,
 ) -> AppResult<()> {
     auth.require_scope("read:statuses")?;
-    // Translation is not configured; Mastodon returns 503 ServiceUnavailable.
-    Err(crate::error::AppError::ServiceUnavailable(
-        "Translation service is currently unavailable".to_string(),
-    ))
+    // No translation service is configured. Mastodon rescues
+    // TranslationService::NotConfiguredError with `not_found` (404); 503 is only
+    // for quota/rate-limit errors when translation *is* configured.
+    Err(crate::error::AppError::NotFound)
 }
 
 // ── GET /api/v1/statuses/:id/card ─────────────────────────────────────────

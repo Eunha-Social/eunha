@@ -3570,9 +3570,10 @@ async fn test_status_card_private_unauthenticated_is_404() {
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
-/// POST /api/v1/statuses/:id/translate returns 503 when translation is disabled.
+/// POST /api/v1/statuses/:id/translate returns 404 when no translation service
+/// is configured (Mastodon rescues NotConfiguredError with not_found).
 #[tokio::test]
-async fn test_status_translate_returns_503() {
+async fn test_status_translate_returns_404() {
     let ctx = TestContext::new("status-translate").await;
 
     let status = ctx.api.post_status(&ctx.alice_token, "hola mundo", "public").await;
@@ -3583,7 +3584,7 @@ async fn test_status_translate_returns_503() {
         Some(&ctx.alice_token),
         &json!({"lang": "en"}),
     ).await;
-    assert_eq!(resp.status().as_u16(), 503, "translate should return 503 when not supported");
+    assert_eq!(resp.status().as_u16(), 404, "translate should return 404 when not configured");
 }
 
 /// POST /api/v1/statuses response includes the application field for the author.
