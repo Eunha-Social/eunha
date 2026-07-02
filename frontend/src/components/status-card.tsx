@@ -35,6 +35,7 @@ import {
 } from '@/components/ui/dropdown-menu.tsx'
 import { MediaAttachments } from '@/components/media-attachments.tsx'
 import { Poll } from '@/components/poll.tsx'
+import { RelativeTime } from '@/components/relative-time.tsx'
 import { cn } from '@/lib/utils.ts'
 
 const VISIBILITY: Record<
@@ -196,7 +197,7 @@ export function StatusCard({
           <div className="text-muted-foreground ml-auto flex items-center gap-1 text-xs">
             <VisibilityIcon v={status.visibility} />
             <Link to={threadPath} className="no-underline hover:underline">
-              {new Date(status.createdAt).toLocaleString()}
+              <RelativeTime value={status.createdAt} />
             </Link>
             {status.editedAt && <span title="Edited">(edited)</span>}
             {isOwn && (
