@@ -27,6 +27,7 @@ export default function Profile() {
   const [rel, setRel] = useState<mastodon.v1.Relationship | null>(null)
   const [selfId, setSelfId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [relationshipBusy, setRelationshipBusy] = useState(false)
 
   const feed = useInfiniteFeed<mastodon.v1.Status>(
     (maxId) =>
@@ -53,8 +54,27 @@ export default function Profile() {
   }, [handle, token])
 
   const toggleFollow = async () => {
-    if (!account || !token || !rel) return
-    setRel(await setFollow(account.id, token, !rel.following))
+    if (!account || !token || !rel || relationshipBusy) return
+    setRelationshipBusy(true)
+    try {
+      setRel(await setFollow(account.id, token, !rel.following))
+    } finally {
+      setRelationshipBusy(false)
+    }
+  }
+
+  const toggleReblogs = async () => {
+    if (!account || !token || !rel?.following || relationshipBusy) return
+    setRelationshipBusy(true)
+    try {
+      setRel(
+        await setFollow(account.id, token, true, {
+          reblogs: !rel.showingReblogs,
+        }),
+      )
+    } finally {
+      setRelationshipBusy(false)
+    }
   }
 
   const isSelf = account != null && account.id === selfId
@@ -86,13 +106,28 @@ export default function Profile() {
               <div className="text-muted-foreground">@{account.acct}</div>
             </div>
             {token && rel && !isSelf && (
-              <Button
-                size="sm"
-                variant={rel.following || rel.requested ? 'outline' : 'default'}
-                onClick={toggleFollow}
-              >
-                {rel.following ? 'Following' : rel.requested ? 'Requested' : 'Follow'}
-              </Button>
+              <div className="flex flex-col items-end gap-2">
+                <Button
+                  size="sm"
+                  variant={rel.following || rel.requested ? 'outline' : 'default'}
+                  onClick={toggleFollow}
+                  disabled={relationshipBusy}
+                >
+                  {rel.following ? 'Following' : rel.requested ? 'Requested' : 'Follow'}
+                </Button>
+                {rel.following && (
+                  <label className="text-muted-foreground flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      checked={rel.showingReblogs}
+                      onChange={toggleReblogs}
+                      disabled={relationshipBusy}
+                      className="accent-primary size-3.5"
+                    />
+                    Show boosts
+                  </label>
+                )}
+              </div>
             )}
           </div>
           {account.note && (

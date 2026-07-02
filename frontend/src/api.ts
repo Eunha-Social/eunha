@@ -126,9 +126,14 @@ export async function getRelationship(
   return rels[0]
 }
 
-export function setFollow(id: string, token: string, on: boolean) {
+export function setFollow(
+  id: string,
+  token: string,
+  on: boolean,
+  params?: { reblogs?: boolean | null },
+) {
   const a = restClient(token).v1.accounts.$select(id)
-  return on ? a.follow() : a.unfollow()
+  return on ? a.follow(params) : a.unfollow(params)
 }
 
 export async function getPublicTimeline(
