@@ -103,6 +103,96 @@ async fn test_unfollow_removes_posts_from_home_timeline() {
     assert!(!ids.contains(&id.as_str()), "ex-followee's post lingered in home timeline after unfollow");
 }
 
+/// Home timeline hides a followee's reply to an account the viewer doesn't
+/// follow, but keeps replies to followed accounts and self-replies — matching
+/// Mastodon's FeedManager#filter_from_home reply rule.
+#[tokio::test]
+async fn test_home_timeline_reply_filtering() {
+    let ctx = TestContext::new("home-reply-filter").await;
+
+    // Carol is a third account Alice does NOT follow.
+    let (_carol_id, carol_token) =
+        crate::helpers::seed_user(&ctx.db, &ctx.domain, "carolreply", "carolreply@test.invalid").await;
+
+    // Alice follows Bob (only).
+    ctx.api.follow(&ctx.alice_token, &ctx.bob_id).await;
+
+    // Carol posts; Bob replies to Carol (Alice doesn't follow Carol → hidden).
+    let carol_status = ctx.api.post_status(&carol_token, "carol root", "public").await;
+    let carol_status_id = carol_status["id"].as_str().unwrap();
+    let bob_reply_to_carol: Value = ctx.api.post_json(
+        "/api/v1/statuses",
+        Some(&ctx.bob_token),
+        &json!({ "status": "bob to carol", "in_reply_to_id": carol_status_id, "visibility": "public" }),
+    ).await.json().await.unwrap();
+    let hidden_id = bob_reply_to_carol["id"].as_str().unwrap();
+
+    // Bob self-replies to his own post (should show).
+    let bob_root = ctx.api.post_status(&ctx.bob_token, "bob root", "public").await;
+    let bob_root_id = bob_root["id"].as_str().unwrap();
+    let bob_self_reply: Value = ctx.api.post_json(
+        "/api/v1/statuses",
+        Some(&ctx.bob_token),
+        &json!({ "status": "bob self", "in_reply_to_id": bob_root_id, "visibility": "public" }),
+    ).await.json().await.unwrap();
+    let self_reply_id = bob_self_reply["id"].as_str().unwrap();
+
+    // Bob replies to Alice (reply-to-me should show).
+    let alice_root = ctx.api.post_status(&ctx.alice_token, "alice root", "public").await;
+    let alice_root_id = alice_root["id"].as_str().unwrap();
+    let bob_reply_to_alice: Value = ctx.api.post_json(
+        "/api/v1/statuses",
+        Some(&ctx.bob_token),
+        &json!({ "status": "bob to alice", "in_reply_to_id": alice_root_id, "visibility": "public" }),
+    ).await.json().await.unwrap();
+    let reply_to_me_id = bob_reply_to_alice["id"].as_str().unwrap();
+
+    let home = ctx.api.home_timeline(&ctx.alice_token).await;
+    let ids: Vec<&str> = home.iter().filter_map(|s| s["id"].as_str()).collect();
+
+    assert!(!ids.contains(&hidden_id), "reply to a non-followed account should be hidden");
+    assert!(ids.contains(&self_reply_id), "self-reply should appear");
+    assert!(ids.contains(&reply_to_me_id), "reply to me should appear");
+}
+
+/// Same reply rule via the fan-out path: with the home feed already warm, a new
+/// reply to a non-followed account is not inserted, while a self-reply is.
+#[tokio::test]
+async fn test_home_timeline_reply_filtering_on_fanout() {
+    let ctx = TestContext::new("home-reply-fanout").await;
+
+    let (_carol_id, carol_token) =
+        crate::helpers::seed_user(&ctx.db, &ctx.domain, "carolfanout", "carolfanout@test.invalid").await;
+    ctx.api.follow(&ctx.alice_token, &ctx.bob_id).await;
+
+    // Warm Alice's home feed so subsequent posts arrive via fan-out.
+    ctx.api.home_timeline(&ctx.alice_token).await;
+
+    let carol_status = ctx.api.post_status(&carol_token, "carol root 2", "public").await;
+    let carol_status_id = carol_status["id"].as_str().unwrap();
+    let bob_reply_to_carol: Value = ctx.api.post_json(
+        "/api/v1/statuses",
+        Some(&ctx.bob_token),
+        &json!({ "status": "bob to carol 2", "in_reply_to_id": carol_status_id, "visibility": "public" }),
+    ).await.json().await.unwrap();
+    let hidden_id = bob_reply_to_carol["id"].as_str().unwrap();
+
+    let bob_root = ctx.api.post_status(&ctx.bob_token, "bob root 2", "public").await;
+    let bob_root_id = bob_root["id"].as_str().unwrap();
+    let bob_self_reply: Value = ctx.api.post_json(
+        "/api/v1/statuses",
+        Some(&ctx.bob_token),
+        &json!({ "status": "bob self 2", "in_reply_to_id": bob_root_id, "visibility": "public" }),
+    ).await.json().await.unwrap();
+    let self_reply_id = bob_self_reply["id"].as_str().unwrap();
+
+    let home = ctx.api.home_timeline(&ctx.alice_token).await;
+    let ids: Vec<&str> = home.iter().filter_map(|s| s["id"].as_str()).collect();
+
+    assert!(!ids.contains(&hidden_id), "fan-out: reply to non-followed account should be hidden");
+    assert!(ids.contains(&self_reply_id), "fan-out: self-reply should appear");
+}
+
 /// Own posts always appear on the home timeline regardless of visibility.
 #[tokio::test]
 async fn test_home_timeline_shows_own_posts_all_visibility() {

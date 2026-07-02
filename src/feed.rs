@@ -125,6 +125,10 @@ pub async fn feed_populate(
         .set_ex(populated_key(account_id), 1i64, FEED_TTL_SECS)
         .await;
 
+    // The reply clause mirrors Mastodon's FeedManager#filter_from_home: a reply
+    // is only kept when it is the viewer's own post, a reply to the viewer, a
+    // self-reply, or a reply to someone the viewer follows. Orphan replies (no
+    // in_reply_to_account_id) are dropped.
     let status_ids: Vec<i64> = sqlx::query_scalar!(
         r#"WITH candidate_ids AS (
                SELECT s.id FROM statuses s
@@ -134,6 +138,22 @@ pub async fn feed_populate(
                    UNION ALL SELECT $1
                )
                AND s.deleted_at IS NULL
+               AND (
+                   NOT s.reply
+                   OR s.account_id = $1
+                   OR (
+                       s.in_reply_to_account_id IS NOT NULL
+                       AND (
+                           s.in_reply_to_account_id = $1
+                           OR s.in_reply_to_account_id = s.account_id
+                           OR EXISTS (
+                               SELECT 1 FROM follows f
+                               WHERE f.account_id = $1
+                                 AND f.target_account_id = s.in_reply_to_account_id
+                           )
+                       )
+                   )
+               )
                UNION
                SELECT st.status_id FROM statuses_tags st
                JOIN tag_follows tf ON tf.tag_id = st.tag_id
@@ -173,13 +193,50 @@ pub async fn fanout_new_status(
     status_id: i64,
     tag_ids: &[i64],
 ) {
-    let follower_ids: Vec<i64> = sqlx::query_scalar!(
-        "SELECT account_id FROM follows WHERE target_account_id = $1",
-        author_id,
+    // Look up the status's reply shape so replies are only fanned to followers
+    // who should see them (Mastodon FeedManager#filter_from_home reply rule).
+    let reply_meta = sqlx::query!(
+        "SELECT reply, in_reply_to_account_id FROM statuses WHERE id = $1",
+        status_id,
     )
-    .fetch_all(db)
+    .fetch_optional(db)
     .await
-    .unwrap_or_default();
+    .ok()
+    .flatten();
+    let is_reply = reply_meta.as_ref().map(|m| m.reply).unwrap_or(false);
+    let reply_to = reply_meta.as_ref().and_then(|m| m.in_reply_to_account_id);
+
+    let follower_ids: Vec<i64> = if is_reply && reply_to.is_none() {
+        // Orphan reply (parent gone): filtered from every follower's home.
+        Vec::new()
+    } else if let Some(target) = reply_to.filter(|&t| is_reply && t != author_id) {
+        // Reply to someone else: only followers who are, or who follow, that
+        // account (a reply to the target themselves is covered by the first arm).
+        sqlx::query_scalar!(
+            r#"SELECT f.account_id FROM follows f
+               WHERE f.target_account_id = $1
+                 AND (
+                     f.account_id = $2
+                     OR EXISTS (
+                         SELECT 1 FROM follows f2
+                         WHERE f2.account_id = f.account_id AND f2.target_account_id = $2
+                     )
+                 )"#,
+            author_id, target,
+        )
+        .fetch_all(db)
+        .await
+        .unwrap_or_default()
+    } else {
+        // Non-reply or self-reply: all followers.
+        sqlx::query_scalar!(
+            "SELECT account_id FROM follows WHERE target_account_id = $1",
+            author_id,
+        )
+        .fetch_all(db)
+        .await
+        .unwrap_or_default()
+    };
 
     let hashtag_recipients: Vec<i64> = if !tag_ids.is_empty() {
         sqlx::query_scalar!(
