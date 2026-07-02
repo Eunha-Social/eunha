@@ -3493,6 +3493,12 @@ pub async fn set_account_note(
 ) -> AppResult<Json<Relationship>> {
     auth.require_scope("write:accounts")?;
     let comment = form.comment.unwrap_or_default();
+    // Mastodon AccountNote::COMMENT_SIZE_LIMIT.
+    if comment.chars().count() > 2_000 {
+        return Err(AppError::Unprocessable(
+            "Validation failed: Comment is too long (maximum is 2000 characters)".into(),
+        ));
+    }
     if comment.trim().is_empty() {
         sqlx::query!(
             "DELETE FROM account_notes WHERE account_id = $1 AND target_account_id = $2",

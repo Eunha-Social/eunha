@@ -33,6 +33,20 @@ async fn test_file_report() {
     );
 }
 
+/// A report comment over 1000 characters is rejected (Mastodon
+/// Report::COMMENT_SIZE_LIMIT).
+#[tokio::test]
+async fn test_file_report_comment_too_long() {
+    let ctx = TestContext::new("report-long").await;
+
+    let resp = ctx.api.post_json(
+        "/api/v1/reports",
+        Some(&ctx.alice_token),
+        &json!({ "account_id": ctx.bob_id, "comment": "x".repeat(1001) }),
+    ).await;
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
 /// POST /api/v1/reports with a status_id that belongs to a different account returns 404.
 #[tokio::test]
 async fn test_report_status_not_belonging_to_target_returns_404() {

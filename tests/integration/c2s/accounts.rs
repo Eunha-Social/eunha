@@ -927,6 +927,20 @@ async fn test_set_account_note() {
     assert_eq!(rel["note"].as_str(), Some("Note about Bob"));
 }
 
+/// An account note over 2000 characters is rejected (Mastodon
+/// AccountNote::COMMENT_SIZE_LIMIT).
+#[tokio::test]
+async fn test_set_account_note_too_long() {
+    let ctx = TestContext::new("acct-note-long").await;
+
+    let resp = ctx.api.post_json(
+        &format!("/api/v1/accounts/{}/note", ctx.bob_id),
+        Some(&ctx.alice_token),
+        &json!({ "comment": "x".repeat(2001) }),
+    ).await;
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
 // ── remove from followers ─────────────────────────────────────────────────────
 
 /// After Alice removes Bob from her followers, Bob's relationship shows following=false.

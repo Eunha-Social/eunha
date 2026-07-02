@@ -76,6 +76,12 @@ pub async fn file_report(
     }
 
     let comment = form.comment.unwrap_or_default();
+    // Mastodon Report::COMMENT_SIZE_LIMIT (local reports).
+    if comment.chars().count() > 1_000 {
+        return Err(AppError::Unprocessable(
+            "Validation failed: Comment is too long (maximum is 1000 characters)".into(),
+        ));
+    }
     let forwarded = form.forward.unwrap_or(false);
     let rule_ids: Vec<i64> = form.rule_ids
         .unwrap_or_default()
