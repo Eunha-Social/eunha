@@ -698,6 +698,35 @@ async fn list_timeline_from_db(
         _ => "",
     };
 
+    // Suspended authors, blocked/muted authors (direct and reblogged), and
+    // domain-blocked reblog authors are filtered here too, matching the warm
+    // hydrate path and Mastodon's list filter. $5 is the viewer (list owner).
+    let moderation_filter = r#"
+                 AND NOT EXISTS (SELECT 1 FROM accounts sa WHERE sa.id = s.account_id AND sa.suspended_at IS NOT NULL)
+                 AND (s.account_id = $5 OR NOT EXISTS (
+                     SELECT 1 FROM blocks b
+                     WHERE (b.account_id = $5 AND b.target_account_id = s.account_id)
+                        OR (b.account_id = s.account_id AND b.target_account_id = $5)
+                 ))
+                 AND (s.reblog_of_id IS NULL OR NOT EXISTS (
+                     SELECT 1 FROM statuses orig JOIN blocks b ON (
+                         (b.account_id = $5 AND b.target_account_id = orig.account_id)
+                         OR (b.account_id = orig.account_id AND b.target_account_id = $5)
+                     ) WHERE orig.id = s.reblog_of_id
+                 ))
+                 AND (s.reblog_of_id IS NULL OR NOT EXISTS (
+                     SELECT 1 FROM statuses orig
+                     JOIN mutes m2 ON m2.account_id = $5 AND m2.target_account_id = orig.account_id
+                         AND (m2.expires_at IS NULL OR m2.expires_at > now())
+                     WHERE orig.id = s.reblog_of_id
+                 ))
+                 AND (s.reblog_of_id IS NULL OR NOT EXISTS (
+                     SELECT 1 FROM statuses orig
+                     JOIN accounts orig_a ON orig_a.id = orig.account_id
+                     JOIN account_domain_blocks adb ON adb.account_id = $5 AND adb.domain = orig_a.domain
+                     WHERE orig.id = s.reblog_of_id
+                 ))"#;
+
     if min_id.is_some() {
         let sql = format!(
             r#"SELECT s.* FROM statuses s
@@ -714,6 +743,7 @@ async fn list_timeline_from_db(
                      WHERE mu.account_id = $5 AND mu.target_account_id = s.account_id
                        AND (mu.expires_at IS NULL OR mu.expires_at > now())
                  )
+                 {moderation_filter}
                  {reply_filter}
                ORDER BY s.id ASC
                LIMIT $3"#
@@ -744,6 +774,7 @@ async fn list_timeline_from_db(
                      WHERE mu.account_id = $5 AND mu.target_account_id = s.account_id
                        AND (mu.expires_at IS NULL OR mu.expires_at > now())
                  )
+                 {moderation_filter}
                  {reply_filter}
                ORDER BY s.id DESC
                LIMIT $4"#

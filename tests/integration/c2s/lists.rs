@@ -378,6 +378,45 @@ async fn test_list_timeline() {
     );
 }
 
+/// A list member's boost of a muted account is hidden from the list timeline,
+/// including on the cold DB path (first read before the feed is warmed).
+#[tokio::test]
+async fn test_list_timeline_hides_boost_of_muted() {
+    let ctx = TestContext::new("list-tl-mute").await;
+
+    let (carol_id, carol_token) =
+        crate::helpers::seed_user(&ctx.db, &ctx.domain, "carollist", "carollist@test.invalid").await;
+
+    ctx.api.follow(&ctx.alice_token, &ctx.bob_id).await;
+    let list: Value = ctx.api.post_json(
+        "/api/v1/lists", Some(&ctx.alice_token), &json!({ "title": "mute list" }),
+    ).await.json().await.unwrap();
+    let list_id = list["id"].as_str().unwrap();
+    ctx.api.post_json(
+        &format!("/api/v1/lists/{list_id}/accounts"),
+        Some(&ctx.alice_token),
+        &json!({ "account_ids": [ctx.bob_id] }),
+    ).await;
+
+    // Alice mutes Carol; Carol posts; Bob (list member) boosts it.
+    ctx.api.post_json(&format!("/api/v1/accounts/{carol_id}/mute"), Some(&ctx.alice_token), &json!({})).await;
+    let carol_status = ctx.api.post_status(&carol_token, "carol muted list post", "public").await;
+    let carol_status_id = carol_status["id"].as_str().unwrap();
+    let boost: Value = ctx.api
+        .post_json(&format!("/api/v1/statuses/{carol_status_id}/reblog"), Some(&ctx.bob_token), &json!({}))
+        .await.json().await.unwrap();
+    let boost_id = boost["id"].as_str().unwrap();
+
+    let timeline: Vec<Value> = ctx.api.get(
+        &format!("/api/v1/timelines/list/{list_id}"),
+        Some(&ctx.alice_token),
+    ).await.json().await.unwrap();
+    assert!(
+        !timeline.iter().any(|s| s["id"].as_str() == Some(boost_id)),
+        "a list member's boost of a muted account must not appear",
+    );
+}
+
 /// List timeline respects max_id pagination.
 #[tokio::test]
 async fn test_list_timeline_max_id_pagination() {
