@@ -871,6 +871,9 @@ async fn test_get_preferences() {
 async fn test_endorse_and_unendorse() {
     let ctx = TestContext::new("endorse").await;
 
+    // You may only endorse accounts you follow.
+    ctx.api.follow(&ctx.alice_token, &ctx.bob_id).await;
+
     let endorse_resp = ctx.api.post_json(
         &format!("/api/v1/accounts/{}/endorse", ctx.bob_id),
         Some(&ctx.alice_token),
@@ -895,6 +898,7 @@ async fn test_endorse_and_unendorse() {
 async fn test_get_endorsements_list() {
     let ctx = TestContext::new("endorse-list").await;
 
+    ctx.api.follow(&ctx.alice_token, &ctx.bob_id).await;
     ctx.api.post_json(
         &format!("/api/v1/accounts/{}/endorse", ctx.bob_id),
         Some(&ctx.alice_token),
@@ -908,6 +912,20 @@ async fn test_get_endorsements_list() {
     assert_eq!(resp.status(), StatusCode::OK);
     let list: Vec<Value> = resp.json().await.unwrap();
     assert!(list.iter().any(|a| a["id"].as_str() == Some(ctx.bob_id.as_str())));
+}
+
+/// Endorsing an account you don't follow is rejected (Mastodon AccountPin
+/// requires a follow relationship).
+#[tokio::test]
+async fn test_endorse_requires_following() {
+    let ctx = TestContext::new("endorse-nofollow").await;
+
+    let resp = ctx.api.post_json(
+        &format!("/api/v1/accounts/{}/endorse", ctx.bob_id),
+        Some(&ctx.alice_token),
+        &json!({}),
+    ).await;
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
 }
 
 // ── account note ──────────────────────────────────────────────────────────────

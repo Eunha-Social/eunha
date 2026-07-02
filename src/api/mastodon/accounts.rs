@@ -3582,6 +3582,20 @@ pub async fn endorse_account(
     Extension(auth): Extension<AuthenticatedUser>,
 ) -> AppResult<Json<Relationship>> {
     auth.require_scope("write:accounts")?;
+    // Mastodon AccountPin#validate_follow_relationship: you can only endorse
+    // accounts you follow.
+    let following = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM follows WHERE account_id = $1 AND target_account_id = $2)",
+        auth.account_id, target_id,
+    )
+    .fetch_one(&state.db)
+    .await?
+    .unwrap_or(false);
+    if !following {
+        return Err(AppError::Unprocessable(
+            "Validation failed: Account must be one you are following".into(),
+        ));
+    }
     sqlx::query!(
         "INSERT INTO account_pins (account_id, target_account_id, created_at, updated_at) VALUES ($1, $2, now(), now()) ON CONFLICT DO NOTHING",
         auth.account_id, target_id,
