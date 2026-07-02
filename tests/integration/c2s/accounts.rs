@@ -1350,6 +1350,31 @@ async fn test_get_suggestions_v2() {
     let _: Vec<Value> = resp.json().await.unwrap();
 }
 
+/// Suggestions exclude accounts the viewer has blocked (Mastodon excludes
+/// blocked/muted/suspended from follow recommendations).
+#[tokio::test]
+async fn test_suggestions_exclude_blocked() {
+    let ctx = TestContext::new("suggest-block").await;
+
+    // Bob follows Alice → Bob is a follow-back suggestion for Alice.
+    ctx.api.follow(&ctx.bob_token, &ctx.alice_id).await;
+    let before: Vec<Value> = ctx.api.get("/api/v2/suggestions", Some(&ctx.alice_token))
+        .await.json().await.unwrap();
+    assert!(
+        before.iter().any(|s| s["account"]["id"].as_str() == Some(ctx.bob_id.as_str())),
+        "bob should be suggested before blocking",
+    );
+
+    // Alice blocks Bob.
+    ctx.api.post_json(&format!("/api/v1/accounts/{}/block", ctx.bob_id), Some(&ctx.alice_token), &json!({})).await;
+    let after: Vec<Value> = ctx.api.get("/api/v2/suggestions", Some(&ctx.alice_token))
+        .await.json().await.unwrap();
+    assert!(
+        !after.iter().any(|s| s["account"]["id"].as_str() == Some(ctx.bob_id.as_str())),
+        "a blocked account must not be suggested",
+    );
+}
+
 // ── directory ─────────────────────────────────────────────────────────────────
 
 /// GET /api/v1/directory returns local accounts (includes alice).

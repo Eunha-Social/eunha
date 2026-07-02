@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT a.* FROM accounts a\n           JOIN follows f ON f.account_id = a.id\n           WHERE f.target_account_id = $1\n             AND a.domain IS NULL\n             AND NOT EXISTS (\n               SELECT 1 FROM follows f2\n               WHERE f2.account_id = $1 AND f2.target_account_id = a.id\n             )\n           ORDER BY f.created_at DESC\n           LIMIT $2",
+  "query": "SELECT a.* FROM accounts a\n           JOIN follows f ON f.account_id = a.id\n           WHERE f.target_account_id = $1\n             AND a.domain IS NULL\n             AND a.suspended_at IS NULL\n             AND NOT EXISTS (\n               SELECT 1 FROM follows f2\n               WHERE f2.account_id = $1 AND f2.target_account_id = a.id\n             )\n             AND NOT EXISTS (\n               SELECT 1 FROM follow_recommendation_mutes sd\n               WHERE sd.account_id = $1 AND sd.target_account_id = a.id\n             )\n             AND NOT EXISTS (\n               SELECT 1 FROM blocks b\n               WHERE (b.account_id = $1 AND b.target_account_id = a.id)\n                  OR (b.account_id = a.id AND b.target_account_id = $1)\n             )\n             AND NOT EXISTS (\n               SELECT 1 FROM mutes m\n               WHERE m.account_id = $1 AND m.target_account_id = a.id\n             )\n           ORDER BY f.created_at DESC\n           LIMIT $2",
   "describe": {
     "columns": [
       {
@@ -349,5 +349,5 @@
       true
     ]
   },
-  "hash": "fd1c6328e672ac3cb133d1ae4dc1c1fc995664ae14697ee58dc381349c385bb5"
+  "hash": "7f678ea907cf7a6b73a9a93b25f6ab89f4dfe015a5f7f90fd1e25a906fc53ae9"
 }
