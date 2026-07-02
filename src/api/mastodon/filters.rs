@@ -26,7 +26,7 @@ async fn fetch_filter(
 ) -> AppResult<Filter> {
     let f = sqlx::query!(
         r#"SELECT id, phrase, context, expires_at,
-                  CASE action WHEN 0 THEN 'warn' WHEN 1 THEN 'hide' ELSE 'warn' END AS "action!"
+                  CASE action WHEN 0 THEN 'warn' WHEN 1 THEN 'hide' WHEN 2 THEN 'blur' ELSE 'warn' END AS "action!"
            FROM custom_filters WHERE id = $1 AND account_id = $2"#,
         filter_id, account_id,
     )
@@ -78,7 +78,7 @@ pub async fn get_filters_v2(
     auth.require_scope("read:filters")?;
     let filters = sqlx::query!(
         r#"SELECT id, phrase, context, expires_at,
-                  CASE action WHEN 0 THEN 'warn' WHEN 1 THEN 'hide' ELSE 'warn' END AS "action!"
+                  CASE action WHEN 0 THEN 'warn' WHEN 1 THEN 'hide' WHEN 2 THEN 'blur' ELSE 'warn' END AS "action!"
            FROM custom_filters WHERE account_id = $1 ORDER BY id"#,
         auth.account_id,
     )
@@ -156,6 +156,43 @@ pub struct CreateFilterForm {
     pub keywords_attributes: Option<Vec<KeywordAttr>>,
 }
 
+/// Maximum filter title length (Mastodon `CustomFilter::TITLE_LENGTH_LIMIT`).
+const FILTER_TITLE_MAX: usize = 256;
+/// Valid filter contexts (Mastodon `CustomFilter::VALID_CONTEXTS`).
+const VALID_FILTER_CONTEXTS: &[&str] = &["home", "notifications", "public", "thread", "account"];
+/// Valid filter actions (Mastodon `CustomFilter` action enum).
+const VALID_FILTER_ACTIONS: &[&str] = &["warn", "hide", "blur"];
+
+/// Validate a v2 filter submission the way Mastodon's CustomFilter model does:
+/// title presence/length, non-empty context restricted to the valid set, and a
+/// recognized filter action. Used by both create and update.
+fn validate_filter_form(form: &CreateFilterForm) -> AppResult<()> {
+    if form.title.trim().is_empty() {
+        return Err(AppError::Unprocessable("Title can't be blank".into()));
+    }
+    if form.title.chars().count() > FILTER_TITLE_MAX {
+        return Err(AppError::Unprocessable(format!(
+            "Title is too long (maximum is {FILTER_TITLE_MAX} characters)"
+        )));
+    }
+    if form.context.is_empty() {
+        return Err(AppError::Unprocessable("Context can't be blank".into()));
+    }
+    if let Some(bad) = form.context.iter().find(|c| !VALID_FILTER_CONTEXTS.contains(&c.as_str())) {
+        return Err(AppError::Unprocessable(format!(
+            "Context '{bad}' is not a valid filter context"
+        )));
+    }
+    if let Some(action) = form.filter_action.as_deref() {
+        if !VALID_FILTER_ACTIONS.contains(&action) {
+            return Err(AppError::Unprocessable(format!(
+                "Filter action '{action}' is not valid"
+            )));
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Deserialize)]
 pub struct KeywordAttr {
     pub id: Option<i64>,
@@ -171,6 +208,7 @@ pub async fn create_filter_v2(
     Json(form): Json<CreateFilterForm>,
 ) -> AppResult<(StatusCode, Json<Filter>)> {
     auth.require_scope("write:filters")?;
+    validate_filter_form(&form)?;
     let action = crate::db::models::filter_action::from_str(form.filter_action.as_deref().unwrap_or("warn"));
     let filter_id = sqlx::query_scalar!(
         r#"INSERT INTO custom_filters (account_id, phrase, context, action, expires_at, created_at, updated_at)
@@ -220,6 +258,7 @@ pub async fn update_filter_v2(
     Json(form): Json<CreateFilterForm>,
 ) -> AppResult<Json<Filter>> {
     auth.require_scope("write:filters")?;
+    validate_filter_form(&form)?;
     let action = crate::db::models::filter_action::from_str(form.filter_action.as_deref().unwrap_or("warn"));
     let updated = sqlx::query_scalar!(
         r#"UPDATE custom_filters
@@ -613,7 +652,7 @@ pub async fn get_filters_v1(
     let rows = sqlx::query!(
         r#"SELECT fk.id, fk.keyword, fk.whole_word,
                   cf.context, cf.expires_at,
-                  CASE cf.action WHEN 0 THEN 'warn' WHEN 1 THEN 'hide' ELSE 'warn' END AS "action!"
+                  CASE cf.action WHEN 0 THEN 'warn' WHEN 1 THEN 'hide' WHEN 2 THEN 'blur' ELSE 'warn' END AS "action!"
            FROM custom_filter_keywords fk
            JOIN custom_filters cf ON cf.id = fk.custom_filter_id
            WHERE cf.account_id = $1
@@ -649,7 +688,7 @@ pub async fn get_filter_v1(
     let r = sqlx::query!(
         r#"SELECT fk.id, fk.keyword, fk.whole_word,
                   cf.context, cf.expires_at,
-                  CASE cf.action WHEN 0 THEN 'warn' WHEN 1 THEN 'hide' ELSE 'warn' END AS "action!"
+                  CASE cf.action WHEN 0 THEN 'warn' WHEN 1 THEN 'hide' WHEN 2 THEN 'blur' ELSE 'warn' END AS "action!"
            FROM custom_filter_keywords fk
            JOIN custom_filters cf ON cf.id = fk.custom_filter_id
            WHERE fk.id = $1 AND cf.account_id = $2"#,
@@ -715,7 +754,7 @@ pub async fn create_filter_v1(
 
     let f = sqlx::query!(
         r#"SELECT context, expires_at,
-                  CASE action WHEN 0 THEN 'warn' WHEN 1 THEN 'hide' ELSE 'warn' END AS "action!"
+                  CASE action WHEN 0 THEN 'warn' WHEN 1 THEN 'hide' WHEN 2 THEN 'blur' ELSE 'warn' END AS "action!"
            FROM custom_filters WHERE id = $1"#,
         filter_id,
     )
@@ -782,7 +821,7 @@ pub async fn update_filter_v1(
 
     let f = sqlx::query!(
         r#"SELECT context, expires_at,
-                  CASE action WHEN 0 THEN 'warn' WHEN 1 THEN 'hide' ELSE 'warn' END AS "action!"
+                  CASE action WHEN 0 THEN 'warn' WHEN 1 THEN 'hide' WHEN 2 THEN 'blur' ELSE 'warn' END AS "action!"
            FROM custom_filters WHERE id = $1"#,
         existing.filter_id,
     )

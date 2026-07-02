@@ -416,13 +416,14 @@ pub mod quote_policy {
 pub mod filter_action {
     pub const WARN: i32 = 0;
     pub const HIDE: i32 = 1;
+    pub const BLUR: i32 = 2;
 
     pub fn from_str(s: &str) -> i32 {
-        match s { "hide" => HIDE, _ => WARN }
+        match s { "hide" => HIDE, "blur" => BLUR, _ => WARN }
     }
 
     pub fn to_str(v: i32) -> &'static str {
-        match v { HIDE => "hide", _ => "warn" }
+        match v { HIDE => "hide", BLUR => "blur", _ => "warn" }
     }
 }
 

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT fk.id, fk.keyword, fk.whole_word,\n                  cf.context, cf.expires_at,\n                  CASE cf.action WHEN 0 THEN 'warn' WHEN 1 THEN 'hide' ELSE 'warn' END AS \"action!\"\n           FROM custom_filter_keywords fk\n           JOIN custom_filters cf ON cf.id = fk.custom_filter_id\n           WHERE fk.id = $1 AND cf.account_id = $2",
+  "query": "SELECT fk.id, fk.keyword, fk.whole_word,\n                  cf.context, cf.expires_at,\n                  CASE cf.action WHEN 0 THEN 'warn' WHEN 1 THEN 'hide' WHEN 2 THEN 'blur' ELSE 'warn' END AS \"action!\"\n           FROM custom_filter_keywords fk\n           JOIN custom_filters cf ON cf.id = fk.custom_filter_id\n           WHERE cf.account_id = $1\n           ORDER BY fk.id",
   "describe": {
     "columns": [
       {
@@ -36,7 +36,6 @@
     ],
     "parameters": {
       "Left": [
-        "Int8",
         "Int8"
       ]
     },
@@ -49,5 +48,5 @@
       null
     ]
   },
-  "hash": "03e3b4e216937b2a972ed968a675238dd6fe0f5b0d9e0d1f145170796ebfead9"
+  "hash": "000174a60937880b3fc5d324b64d99d964a2cc0d227171e1edba40532b6d25aa"
 }

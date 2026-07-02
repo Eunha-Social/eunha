@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT context, expires_at,\n                  CASE action WHEN 0 THEN 'warn' WHEN 1 THEN 'hide' ELSE 'warn' END AS \"action!\"\n           FROM custom_filters WHERE id = $1",
+  "query": "SELECT context, expires_at,\n                  CASE action WHEN 0 THEN 'warn' WHEN 1 THEN 'hide' WHEN 2 THEN 'blur' ELSE 'warn' END AS \"action!\"\n           FROM custom_filters WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -30,5 +30,5 @@
       null
     ]
   },
-  "hash": "879d9bd7102417c6f8508fec9bfb24817a3524e9b4bbb7dc1134a96c9f00696f"
+  "hash": "62644dc76cb521edd5ecaea0b703205c8380fa572180196e87560e24887d498d"
 }

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT fk.id, fk.keyword, fk.whole_word,\n                  cf.context, cf.expires_at,\n                  CASE cf.action WHEN 0 THEN 'warn' WHEN 1 THEN 'hide' ELSE 'warn' END AS \"action!\"\n           FROM custom_filter_keywords fk\n           JOIN custom_filters cf ON cf.id = fk.custom_filter_id\n           WHERE cf.account_id = $1\n           ORDER BY fk.id",
+  "query": "SELECT id, phrase, context, expires_at,\n                  CASE action WHEN 0 THEN 'warn' WHEN 1 THEN 'hide' WHEN 2 THEN 'blur' ELSE 'warn' END AS \"action!\"\n           FROM custom_filters WHERE account_id = $1 ORDER BY id",
   "describe": {
     "columns": [
       {
@@ -10,26 +10,21 @@
       },
       {
         "ordinal": 1,
-        "name": "keyword",
+        "name": "phrase",
         "type_info": "Text"
       },
       {
         "ordinal": 2,
-        "name": "whole_word",
-        "type_info": "Bool"
-      },
-      {
-        "ordinal": 3,
         "name": "context",
         "type_info": "VarcharArray"
       },
       {
-        "ordinal": 4,
+        "ordinal": 3,
         "name": "expires_at",
         "type_info": "Timestamp"
       },
       {
-        "ordinal": 5,
+        "ordinal": 4,
         "name": "action!",
         "type_info": "Text"
       }
@@ -43,10 +38,9 @@
       false,
       false,
       false,
-      false,
       true,
       null
     ]
   },
-  "hash": "a7552b9b592aac8ebbf5783d16871a04a2bf503da438891b0aa4ce05a90ed2dd"
+  "hash": "70807b899792d99d885df297145096d034970c0b9df98d666684fec392a2a31d"
 }

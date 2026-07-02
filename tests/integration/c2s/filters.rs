@@ -310,6 +310,55 @@ async fn test_filter_v2_missing_title_returns_422() {
     assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
 }
 
+/// Filter validation parity with Mastodon's CustomFilter model: invalid or
+/// empty context, unknown action, and over-long titles are all rejected.
+#[tokio::test]
+async fn test_filter_v2_validation() {
+    let ctx = TestContext::new("filter-v2-validate").await;
+
+    let post = |body: Value| {
+        let ctx = &ctx;
+        async move {
+            ctx.api.post_json("/api/v2/filters", Some(&ctx.alice_token), &body).await.status()
+        }
+    };
+
+    assert_eq!(
+        post(json!({ "title": "x", "context": ["nonsense"] })).await,
+        StatusCode::UNPROCESSABLE_ENTITY, "invalid context must be rejected",
+    );
+    assert_eq!(
+        post(json!({ "title": "x", "context": [] })).await,
+        StatusCode::UNPROCESSABLE_ENTITY, "empty context must be rejected",
+    );
+    assert_eq!(
+        post(json!({ "title": "x", "context": ["home"], "filter_action": "explode" })).await,
+        StatusCode::UNPROCESSABLE_ENTITY, "invalid filter_action must be rejected",
+    );
+    assert_eq!(
+        post(json!({ "title": "x".repeat(257), "context": ["home"] })).await,
+        StatusCode::UNPROCESSABLE_ENTITY, "over-long title must be rejected",
+    );
+    assert_eq!(
+        post(json!({ "title": "ok", "context": ["home", "public"] })).await,
+        StatusCode::OK, "a valid filter should be accepted",
+    );
+}
+
+/// The `blur` filter action is accepted and round-trips (Mastodon supports
+/// warn/hide/blur).
+#[tokio::test]
+async fn test_filter_v2_blur_action() {
+    let ctx = TestContext::new("filter-v2-blur").await;
+
+    let filter: Value = ctx.api.post_json(
+        "/api/v2/filters",
+        Some(&ctx.alice_token),
+        &json!({ "title": "blurry", "context": ["home"], "filter_action": "blur" }),
+    ).await.json().await.unwrap();
+    assert_eq!(filter["filter_action"].as_str(), Some("blur"), "blur action should round-trip");
+}
+
 // ── filter expiry ──────────────────────────────────────────────────────────────
 
 /// Creating a filter with expires_in sets the expires_at field.
