@@ -12,7 +12,7 @@ const cls = ({ isActive }: { isActive: boolean }) => cn(base, isActive && active
 export function TimelineTabs() {
   const token = getToken()
   return (
-    <nav className="mb-2 flex gap-1 border-b">
+    <nav className="bg-background sticky top-0 z-30 -mx-3 mb-2 flex gap-1 border-b px-3">
       {token && (
         <NavLink to="/" end className={cls}>
           Home
