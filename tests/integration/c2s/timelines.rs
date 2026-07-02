@@ -193,6 +193,39 @@ async fn test_home_timeline_reply_filtering_on_fanout() {
     assert!(ids.contains(&self_reply_id), "fan-out: self-reply should appear");
 }
 
+/// An orphan reply — a reply whose parent (and thus in_reply_to_account_id) is
+/// unknown, as produced when a followed remote account replies to a stranger
+/// whose post we don't have — must not leak into the home timeline. Mastodon
+/// filters `status.reply? && in_reply_to_account_id.nil?`.
+#[tokio::test]
+async fn test_home_timeline_hides_orphan_reply() {
+    let ctx = TestContext::new("home-orphan-reply").await;
+
+    ctx.api.follow(&ctx.alice_token, &ctx.bob_id).await;
+
+    // Simulate a federated reply-to-unknown-parent: reply = true but no
+    // in_reply_to_id / in_reply_to_account_id.
+    let bob_id_num: i64 = ctx.bob_id.parse().unwrap();
+    let orphan_id = eunha::snowflake::next_id();
+    sqlx::query!(
+        r#"INSERT INTO statuses
+             (id, account_id, text, spoiler_text, visibility, sensitive, reply,
+              in_reply_to_id, in_reply_to_account_id, local, created_at, updated_at)
+           VALUES ($1, $2, 'orphan reply to a stranger', '', 0, false, true,
+                   NULL, NULL, false, now(), now())"#,
+        orphan_id,
+        bob_id_num,
+    )
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+
+    let home = ctx.api.home_timeline(&ctx.alice_token).await;
+    let ids: Vec<&str> = home.iter().filter_map(|s| s["id"].as_str()).collect();
+    let orphan = orphan_id.to_string();
+    assert!(!ids.contains(&orphan.as_str()), "orphan reply must not appear in home timeline");
+}
+
 /// A poll-only status (no caption, no media) appears in the home and public
 /// timelines — the "non-empty" filter must treat a poll as content.
 #[tokio::test]

@@ -678,7 +678,10 @@ async fn handle_create(
         url,
         in_reply_to_id,
         in_reply_to_account_id,
-        in_reply_to_id.is_some(),
+        // A status with an inReplyTo is a reply even when its parent isn't known
+        // locally; marking it so lets the home-feed reply filter treat an
+        // unresolved-parent reply as an orphan (hidden) instead of a top-level post.
+        in_reply_to_uri.is_some(),
         language,
         created_at,
         edited_at,
@@ -1106,10 +1109,36 @@ async fn handle_create(
     if let (Some(uri), None) = (in_reply_to_uri, in_reply_to_id) {
         let state = state.clone();
         let uri = uri.to_owned();
+        let child_id = inserted_id;
+        let child_author = account_id;
         tokio::spawn(async move {
             tracing::debug!(uri, "fetching unknown parent status for thread resolution");
             if let Err(e) = fetch_remote_status(&state, &uri).await {
                 tracing::debug!(uri, error = %e, "failed to store fetched parent status");
+                return;
+            }
+            // Link the now-known parent onto the child and re-run home fan-out, so
+            // a reply to an account the viewer follows (whose post we only just
+            // learned about) reaches the right followers instead of staying hidden
+            // as an orphan reply.
+            if let Ok(Some(parent)) = sqlx::query!(
+                "SELECT id, account_id FROM statuses WHERE uri = $1",
+                uri,
+            )
+            .fetch_optional(&state.db)
+            .await
+            {
+                let updated = sqlx::query!(
+                    "UPDATE statuses SET in_reply_to_id = $2, in_reply_to_account_id = $3, updated_at = now() WHERE id = $1 AND in_reply_to_id IS NULL",
+                    child_id, parent.id, parent.account_id,
+                )
+                .execute(&state.db)
+                .await;
+                if updated.map(|r| r.rows_affected() > 0).unwrap_or(false) {
+                    let mut redis = state.redis.clone();
+                    let db = state.db.clone();
+                    crate::feed::fanout_new_status(&mut redis, &db, child_author, child_id, &[]).await;
+                }
             }
         });
     }
@@ -2604,7 +2633,8 @@ async fn fetch_remote_status_depth(state: &AppState, uri: &str, depth: u8) -> Ap
         url,
         in_reply_to_id,
         in_reply_to_account_id,
-        in_reply_to_id.is_some(),
+        // A status with an inReplyTo is a reply even if its parent isn't local.
+        in_reply_to_uri.is_some(),
         language,
         created_at,
     )
