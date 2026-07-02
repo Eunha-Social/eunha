@@ -79,6 +79,14 @@ pub async fn feature_tag(
     let name = form.name.to_lowercase();
     let name = name.trim_start_matches('#');
 
+    // Mastodon validates presence + hashtag format (no whitespace/punctuation).
+    if name.is_empty() {
+        return Err(AppError::Unprocessable("Validation failed: Name can't be blank".into()));
+    }
+    if name.chars().any(|c| !(c.is_alphanumeric() || c == '_')) {
+        return Err(AppError::Unprocessable("Validation failed: Name is not a valid hashtag".into()));
+    }
+
     let username = sqlx::query_scalar!(
         "SELECT username FROM accounts WHERE id = $1",
         auth.account_id,
@@ -94,6 +102,30 @@ pub async fn feature_tag(
     )
     .fetch_one(&state.db)
     .await?;
+
+    // Cap at 10 featured tags (Mastodon FeaturedTag::LIMIT), but only when
+    // featuring a new tag — re-featuring an existing one is idempotent.
+    let already_featured = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM featured_tags WHERE account_id = $1 AND tag_id = $2)",
+        auth.account_id, tag_id,
+    )
+    .fetch_one(&state.db)
+    .await?
+    .unwrap_or(false);
+    if !already_featured {
+        let count = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM featured_tags WHERE account_id = $1",
+            auth.account_id,
+        )
+        .fetch_one(&state.db)
+        .await?
+        .unwrap_or(0);
+        if count >= 10 {
+            return Err(AppError::Unprocessable(
+                "Validation failed: You have already reached the limit of 10 featured hashtags".into(),
+            ));
+        }
+    }
 
     let row = sqlx::query!(
         r#"INSERT INTO featured_tags (account_id, tag_id, name, created_at, updated_at)
@@ -160,6 +192,29 @@ pub async fn feature_tag_by_name(
     )
     .fetch_one(&state.db)
     .await?;
+
+    // Cap at 10 featured tags (Mastodon FeaturedTag::LIMIT), unless already featured.
+    let already_featured = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM featured_tags WHERE account_id = $1 AND tag_id = $2)",
+        auth.account_id, tag_id,
+    )
+    .fetch_one(&state.db)
+    .await?
+    .unwrap_or(false);
+    if !already_featured {
+        let count = sqlx::query_scalar!(
+            "SELECT COUNT(*) FROM featured_tags WHERE account_id = $1",
+            auth.account_id,
+        )
+        .fetch_one(&state.db)
+        .await?
+        .unwrap_or(0);
+        if count >= 10 {
+            return Err(AppError::Unprocessable(
+                "Validation failed: You have already reached the limit of 10 featured hashtags".into(),
+            ));
+        }
+    }
 
     sqlx::query!(
         r#"INSERT INTO featured_tags (account_id, tag_id, name, created_at, updated_at)

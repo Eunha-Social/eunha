@@ -47,6 +47,45 @@ async fn test_create_and_list_featured_tags() {
     );
 }
 
+/// POST /api/v1/featured_tags rejects an 11th tag (Mastodon FeaturedTag::LIMIT
+/// of 10) and rejects invalid hashtag names.
+#[tokio::test]
+async fn test_featured_tags_limit_and_validation() {
+    let ctx = TestContext::new("ftag-limit").await;
+
+    for i in 0..10 {
+        let resp = ctx.api.post_json(
+            "/api/v1/featured_tags",
+            Some(&ctx.alice_token),
+            &json!({ "name": format!("tagnum{i}") }),
+        ).await;
+        assert_eq!(resp.status(), StatusCode::OK, "tag {i} should be featured");
+    }
+    // Re-featuring an existing one stays idempotent (doesn't count against limit).
+    let again = ctx.api.post_json(
+        "/api/v1/featured_tags",
+        Some(&ctx.alice_token),
+        &json!({ "name": "tagnum0" }),
+    ).await;
+    assert_eq!(again.status(), StatusCode::OK, "re-featuring should still succeed");
+
+    // An 11th distinct tag is rejected.
+    let over = ctx.api.post_json(
+        "/api/v1/featured_tags",
+        Some(&ctx.alice_token),
+        &json!({ "name": "onetoomany" }),
+    ).await;
+    assert_eq!(over.status(), StatusCode::UNPROCESSABLE_ENTITY, "11th featured tag must be rejected");
+
+    // Invalid names are rejected.
+    let bad = ctx.api.post_json(
+        "/api/v1/featured_tags",
+        Some(&ctx.alice_token),
+        &json!({ "name": "has spaces" }),
+    ).await;
+    assert_eq!(bad.status(), StatusCode::UNPROCESSABLE_ENTITY, "invalid hashtag name must be rejected");
+}
+
 /// POST /api/v1/featured_tags with a tag name that already exists returns 200 (idempotent).
 #[tokio::test]
 async fn test_feature_tag_is_idempotent() {
