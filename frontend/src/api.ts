@@ -73,6 +73,21 @@ export function getCurrentAccount(token: string): Promise<mastodon.v1.AccountCre
   return restClient(token).v1.accounts.verifyCredentials()
 }
 
+export function updateAccountImages(
+  token: string,
+  params: { avatar?: File; header?: File },
+): Promise<mastodon.v1.AccountCredentials> {
+  return restClient(token).v1.accounts.updateCredentials(params)
+}
+
+export function deleteProfileAvatar(token: string): Promise<mastodon.v1.Account> {
+  return restClient(token).v1.profile.avatar.remove()
+}
+
+export function deleteProfileHeader(token: string): Promise<mastodon.v1.Account> {
+  return restClient(token).v1.profile.header.remove()
+}
+
 export function lookupAccount(
   acct: string,
   token?: string,
