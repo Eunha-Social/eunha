@@ -1366,6 +1366,27 @@ async fn test_get_directory() {
     );
 }
 
+/// Silenced accounts are excluded from the directory (Mastodon
+/// Account.discoverable → without_silenced).
+#[tokio::test]
+async fn test_directory_excludes_silenced() {
+    let ctx = TestContext::new("directory-silenced").await;
+    let bob_id: i64 = ctx.bob_id.parse().unwrap();
+
+    // Bob is discoverable and initially listed.
+    let before: Vec<Value> = ctx.api.get("/api/v1/directory", Some(&ctx.alice_token))
+        .await.json().await.unwrap();
+    assert!(before.iter().any(|a| a["username"].as_str() == Some("bob")), "bob should be listed before silencing");
+
+    // Silence bob.
+    sqlx::query!("UPDATE accounts SET silenced_at = now() WHERE id = $1", bob_id)
+        .execute(&ctx.db).await.unwrap();
+
+    let after: Vec<Value> = ctx.api.get("/api/v1/directory", Some(&ctx.alice_token))
+        .await.json().await.unwrap();
+    assert!(!after.iter().any(|a| a["username"].as_str() == Some("bob")), "silenced bob must not appear in directory");
+}
+
 // ── account search endpoint ───────────────────────────────────────────────────
 
 /// GET /api/v1/accounts/search returns matching accounts.

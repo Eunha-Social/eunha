@@ -4002,6 +4002,7 @@ pub async fn get_directory(
             r#"SELECT * FROM accounts
                WHERE discoverable = true
                  AND suspended_at IS NULL
+                 AND silenced_at IS NULL
                  AND (NOT $1::bool OR domain IS NULL)
                  AND (domain IS NULL OR NOT EXISTS (
                      SELECT 1 FROM domain_blocks db WHERE db.domain = domain
@@ -4018,6 +4019,7 @@ pub async fn get_directory(
             r#"SELECT a.* FROM accounts a
                WHERE a.discoverable = true
                  AND a.suspended_at IS NULL
+                 AND a.silenced_at IS NULL
                  AND (NOT $1::bool OR a.domain IS NULL)
                  AND (a.domain IS NULL OR NOT EXISTS (
                      SELECT 1 FROM domain_blocks db WHERE db.domain = a.domain
