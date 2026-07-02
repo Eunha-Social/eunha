@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT s.*\n           FROM statuses s\n           JOIN accounts a ON a.id = s.account_id\n           WHERE s.id = ANY($2::bigint[])\n           AND s.deleted_at IS NULL\n           AND a.suspended_at IS NULL\n           AND NOT EXISTS (\n               SELECT 1 FROM mutes m\n               WHERE m.account_id = $1 AND m.target_account_id = s.account_id\n               AND (m.expires_at IS NULL OR m.expires_at > now())\n           )\n           AND (s.account_id = $1 OR NOT EXISTS (\n               SELECT 1 FROM blocks b\n               WHERE (b.account_id = $1 AND b.target_account_id = s.account_id)\n                  OR (b.account_id = s.account_id AND b.target_account_id = $1)\n           ))",
+  "query": "SELECT s.*\n           FROM statuses s\n           JOIN accounts a ON a.id = s.account_id\n           WHERE s.id = ANY($2::bigint[])\n           AND s.deleted_at IS NULL\n           AND a.suspended_at IS NULL\n           AND NOT EXISTS (\n               SELECT 1 FROM mutes m\n               WHERE m.account_id = $1 AND m.target_account_id = s.account_id\n               AND (m.expires_at IS NULL OR m.expires_at > now())\n           )\n           AND (s.account_id = $1 OR NOT EXISTS (\n               SELECT 1 FROM blocks b\n               WHERE (b.account_id = $1 AND b.target_account_id = s.account_id)\n                  OR (b.account_id = s.account_id AND b.target_account_id = $1)\n           ))\n           AND (s.reblog_of_id IS NULL OR NOT EXISTS (\n               SELECT 1 FROM statuses orig\n               JOIN blocks b ON (\n                   (b.account_id = $1 AND b.target_account_id = orig.account_id)\n                   OR (b.account_id = orig.account_id AND b.target_account_id = $1)\n               )\n               WHERE orig.id = s.reblog_of_id\n           ))\n           AND (s.reblog_of_id IS NULL OR NOT EXISTS (\n               SELECT 1 FROM statuses orig\n               JOIN mutes m ON m.account_id = $1 AND m.target_account_id = orig.account_id\n                   AND (m.expires_at IS NULL OR m.expires_at > now())\n               WHERE orig.id = s.reblog_of_id\n           ))\n           AND (s.reblog_of_id IS NULL OR NOT EXISTS (\n               SELECT 1 FROM statuses orig\n               JOIN accounts orig_a ON orig_a.id = orig.account_id\n               JOIN account_domain_blocks adb ON adb.account_id = $1 AND adb.domain = orig_a.domain\n               WHERE orig.id = s.reblog_of_id\n           ))",
   "describe": {
     "columns": [
       {
@@ -163,5 +163,5 @@
       false
     ]
   },
-  "hash": "b06110c5ea3d1793fdf8ed654c43498640da026a843187e53df823cb96e640d7"
+  "hash": "806de1e6d4247b4237ddc76dc90aefcd6655444d2fc454d51b7a048a85a67101"
 }
