@@ -1728,8 +1728,27 @@ async fn do_update_credentials(
 
     // Collect non-empty fields and save as JSONB
     if fields_submitted {
-        let fields_json: serde_json::Value = fields_map
+        // Drop fully-blank entries, then enforce Mastodon's limits: at most 4
+        // fields (Account::DEFAULT_FIELDS_SIZE), each name/value <= 255 chars
+        // (Account::Field::MAX_CHARACTERS_LOCAL).
+        let fields: Vec<(String, String)> = fields_map
             .into_values()
+            .filter(|(n, v)| !(n.is_empty() && v.is_empty()))
+            .collect();
+        if fields.len() > 4 {
+            return Err(AppError::Unprocessable(
+                "Validation failed: Fields can't have more than 4 entries".into(),
+            ));
+        }
+        for (n, v) in &fields {
+            if n.chars().count() > 255 || v.chars().count() > 255 {
+                return Err(AppError::Unprocessable(
+                    "Validation failed: Field name and value can't be longer than 255 characters".into(),
+                ));
+            }
+        }
+        let fields_json: serde_json::Value = fields
+            .into_iter()
             .filter(|(n, _)| !n.is_empty())
             .map(|(n, v)| serde_json::json!({"name": n, "value": v, "verified_at": null}))
             .collect();

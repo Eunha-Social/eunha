@@ -1004,6 +1004,55 @@ async fn test_update_credentials_display_name() {
     assert_eq!(body["display_name"].as_str(), Some("Alice Updated"));
 }
 
+/// update_credentials rejects more than 4 profile fields (Mastodon
+/// Account::DEFAULT_FIELDS_SIZE) and over-long field values.
+#[tokio::test]
+async fn test_update_credentials_fields_limits() {
+    let ctx = TestContext::new("update-fields").await;
+
+    // Five fields → 422.
+    let mut form = reqwest::multipart::Form::new();
+    for i in 0..5 {
+        form = form
+            .text(format!("fields_attributes[{i}][name]"), format!("k{i}"))
+            .text(format!("fields_attributes[{i}][value]"), format!("v{i}"));
+    }
+    let resp = ctx.api.http
+        .patch(ctx.api.url("/api/v1/accounts/update_credentials"))
+        .header("host", &ctx.api.host)
+        .bearer_auth(&ctx.alice_token)
+        .multipart(form)
+        .send().await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY, "5 fields must be rejected");
+
+    // An over-long value → 422.
+    let form = reqwest::multipart::Form::new()
+        .text("fields_attributes[0][name]", "website")
+        .text("fields_attributes[0][value]", "x".repeat(256));
+    let resp = ctx.api.http
+        .patch(ctx.api.url("/api/v1/accounts/update_credentials"))
+        .header("host", &ctx.api.host)
+        .bearer_auth(&ctx.alice_token)
+        .multipart(form)
+        .send().await.unwrap();
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY, "over-long field value must be rejected");
+
+    // Exactly 4 valid fields → OK.
+    let mut form = reqwest::multipart::Form::new();
+    for i in 0..4 {
+        form = form
+            .text(format!("fields_attributes[{i}][name]"), format!("k{i}"))
+            .text(format!("fields_attributes[{i}][value]"), format!("v{i}"));
+    }
+    let resp = ctx.api.http
+        .patch(ctx.api.url("/api/v1/accounts/update_credentials"))
+        .header("host", &ctx.api.host)
+        .bearer_auth(&ctx.alice_token)
+        .multipart(form)
+        .send().await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK, "4 fields should be accepted");
+}
+
 /// PATCH /api/v1/accounts/update_credentials updates bio note.
 #[tokio::test]
 async fn test_update_credentials_note() {
