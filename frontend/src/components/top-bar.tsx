@@ -16,7 +16,7 @@ function Sidebar({ token }: { token: string | null }) {
   const { openCompose } = useComposeModal()
 
   return (
-    <aside className="fixed top-0 left-0 hidden h-screen w-56 flex-col border-r bg-background px-3 py-4 lg:flex">
+    <aside className="fixed top-0 left-0 hidden h-screen w-56 flex-col border-r bg-background px-3 py-4 xl:flex">
       <Link to="/" className="mb-4 px-3 text-lg font-semibold no-underline">
         eunha
       </Link>
@@ -87,7 +87,7 @@ export function TopBar({ title }: { title?: string }) {
   return (
     <>
       <Sidebar token={token} />
-      <header className="mb-3 flex items-center justify-between border-b pb-2 lg:hidden">
+      <header className="mb-3 flex items-center justify-between border-b pb-2 xl:hidden">
         <Link to="/" className="text-lg font-semibold no-underline">
           {title ?? 'eunha'}
         </Link>
