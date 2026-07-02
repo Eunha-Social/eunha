@@ -763,8 +763,12 @@ pub async fn post_status(
         notified.insert(mentioned.id);
     }
 
-    // Notify followers who opted in to per-account posting notifications
-    if visibility == "public" || visibility == "unlisted" {
+    // Notify followers who opted in to per-account posting notifications (the
+    // "bell"). Mastodon's FeedInsertWorker#notify? excludes replies to other
+    // accounts (self-replies still notify), reblogs, and edits.
+    let is_reply_to_other =
+        in_reply_to_id.is_some() && in_reply_to_account_id != Some(account.id);
+    if (visibility == "public" || visibility == "unlisted") && !is_reply_to_other {
         if let Ok(followers) = sqlx::query!(
             r#"SELECT account_id FROM follows
                WHERE target_account_id = $1 AND notify = true"#,

@@ -779,6 +779,38 @@ async fn test_notify_follow_creates_status_notification() {
     );
 }
 
+/// The bell (notify=true) does not fire for a followee's reply to someone else,
+/// only for their top-level/self-reply posts (Mastodon FeedInsertWorker#notify?).
+#[tokio::test]
+async fn test_notify_follow_skips_reply_to_others() {
+    let ctx = TestContext::new("notif-status-reply").await;
+
+    // Carol is a third account; Alice bells Bob.
+    let (_carol_id, carol_token) =
+        crate::helpers::seed_user(&ctx.db, &ctx.domain, "carolbell", "carolbell@test.invalid").await;
+    ctx.api.post_json(
+        &format!("/api/v1/accounts/{}/follow", ctx.bob_id),
+        Some(&ctx.alice_token),
+        &json!({ "notify": true }),
+    ).await;
+
+    // Bob replies to Carol — this should NOT bell Alice.
+    let carol_status = ctx.api.post_status(&carol_token, "carol root", "public").await;
+    let carol_status_id = carol_status["id"].as_str().unwrap();
+    ctx.api.post_json(
+        "/api/v1/statuses",
+        Some(&ctx.bob_token),
+        &json!({ "status": "bob to carol", "in_reply_to_id": carol_status_id, "visibility": "public" }),
+    ).await;
+
+    let notifs: Vec<Value> = ctx.api.get("/api/v1/notifications", Some(&ctx.alice_token))
+        .await.json().await.unwrap();
+    assert!(
+        !notifs.iter().any(|n| n["type"].as_str() == Some("status")),
+        "a reply to another account should not trigger the bell",
+    );
+}
+
 /// GET /api/v2/notifications with since_id returns only newer notification groups.
 #[tokio::test]
 async fn test_notifications_v2_since_id_pagination() {
