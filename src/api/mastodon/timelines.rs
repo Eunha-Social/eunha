@@ -384,6 +384,16 @@ async fn home_timeline_from_db(
                         )
                     )
                )
+               AND (
+                    s.language IS NULL
+                    OR s.account_id = $1
+                    OR NOT EXISTS (
+                        SELECT 1 FROM follows fl
+                        WHERE fl.account_id = $1 AND fl.target_account_id = s.account_id
+                          AND fl.languages IS NOT NULL AND array_length(fl.languages, 1) >= 1
+                          AND NOT (s.language = ANY(fl.languages))
+                    )
+               )
                AND (s.text != ''
                     OR s.reblog_of_id IS NOT NULL
                     OR s.poll_id IS NOT NULL
@@ -484,6 +494,16 @@ async fn home_timeline_from_db(
                             OR s.in_reply_to_account_id = $1
                             OR EXISTS (SELECT 1 FROM follows f WHERE f.account_id = $1 AND f.target_account_id = s.in_reply_to_account_id)
                         )
+                    )
+               )
+               AND (
+                    s.language IS NULL
+                    OR s.account_id = $1
+                    OR NOT EXISTS (
+                        SELECT 1 FROM follows fl
+                        WHERE fl.account_id = $1 AND fl.target_account_id = s.account_id
+                          AND fl.languages IS NOT NULL AND array_length(fl.languages, 1) >= 1
+                          AND NOT (s.language = ANY(fl.languages))
                     )
                )
                AND (s.text != ''

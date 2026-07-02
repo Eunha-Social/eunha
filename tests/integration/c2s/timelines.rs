@@ -220,6 +220,74 @@ async fn test_poll_only_status_appears_in_timelines() {
     );
 }
 
+/// A follow restricted to specific languages hides the followee's posts in
+/// other languages from the home timeline (Mastodon crutches[:languages]).
+#[tokio::test]
+async fn test_home_timeline_per_follow_language_filter() {
+    let ctx = TestContext::new("home-lang-filter").await;
+
+    // Alice follows Bob, but only wants his English posts.
+    ctx.api.post_json(
+        &format!("/api/v1/accounts/{}/follow", ctx.bob_id),
+        Some(&ctx.alice_token),
+        &json!({ "languages": ["en"] }),
+    ).await;
+
+    let en_status: Value = ctx.api.post_json(
+        "/api/v1/statuses",
+        Some(&ctx.bob_token),
+        &json!({ "status": "hello", "language": "en", "visibility": "public" }),
+    ).await.json().await.unwrap();
+    let en_id = en_status["id"].as_str().unwrap();
+
+    let ja_status: Value = ctx.api.post_json(
+        "/api/v1/statuses",
+        Some(&ctx.bob_token),
+        &json!({ "status": "こんにちは", "language": "ja", "visibility": "public" }),
+    ).await.json().await.unwrap();
+    let ja_id = ja_status["id"].as_str().unwrap();
+
+    let home = ctx.api.home_timeline(&ctx.alice_token).await;
+    let ids: Vec<&str> = home.iter().filter_map(|s| s["id"].as_str()).collect();
+
+    assert!(ids.contains(&en_id), "English post should appear for an en-restricted follow");
+    assert!(!ids.contains(&ja_id), "Japanese post should be filtered by the en-only follow");
+}
+
+/// Same per-follow language filter via the warm fan-out path.
+#[tokio::test]
+async fn test_home_timeline_per_follow_language_filter_on_fanout() {
+    let ctx = TestContext::new("home-lang-fanout").await;
+
+    ctx.api.post_json(
+        &format!("/api/v1/accounts/{}/follow", ctx.bob_id),
+        Some(&ctx.alice_token),
+        &json!({ "languages": ["en"] }),
+    ).await;
+
+    // Warm the feed so later posts arrive via fan-out.
+    ctx.api.home_timeline(&ctx.alice_token).await;
+
+    let en_status: Value = ctx.api.post_json(
+        "/api/v1/statuses",
+        Some(&ctx.bob_token),
+        &json!({ "status": "hello 2", "language": "en", "visibility": "public" }),
+    ).await.json().await.unwrap();
+    let en_id = en_status["id"].as_str().unwrap();
+    let ja_status: Value = ctx.api.post_json(
+        "/api/v1/statuses",
+        Some(&ctx.bob_token),
+        &json!({ "status": "やあ", "language": "ja", "visibility": "public" }),
+    ).await.json().await.unwrap();
+    let ja_id = ja_status["id"].as_str().unwrap();
+
+    let home = ctx.api.home_timeline(&ctx.alice_token).await;
+    let ids: Vec<&str> = home.iter().filter_map(|s| s["id"].as_str()).collect();
+
+    assert!(ids.contains(&en_id), "fan-out: English post should appear");
+    assert!(!ids.contains(&ja_id), "fan-out: Japanese post should be filtered");
+}
+
 /// Own posts always appear on the home timeline regardless of visibility.
 #[tokio::test]
 async fn test_home_timeline_shows_own_posts_all_visibility() {

@@ -154,6 +154,21 @@ pub async fn feed_populate(
                        )
                    )
                )
+               -- Per-follow language filter (Mastodon crutches[:languages]):
+               -- drop a followee's status whose language isn't in the language
+               -- subset the viewer chose for that follow.
+               AND (
+                   s.language IS NULL
+                   OR s.account_id = $1
+                   OR NOT EXISTS (
+                       SELECT 1 FROM follows fl
+                       WHERE fl.account_id = $1
+                         AND fl.target_account_id = s.account_id
+                         AND fl.languages IS NOT NULL
+                         AND array_length(fl.languages, 1) >= 1
+                         AND NOT (s.language = ANY(fl.languages))
+                   )
+               )
                UNION
                SELECT st.status_id FROM statuses_tags st
                JOIN tag_follows tf ON tf.tag_id = st.tag_id
@@ -193,10 +208,10 @@ pub async fn fanout_new_status(
     status_id: i64,
     tag_ids: &[i64],
 ) {
-    // Look up the status's reply shape so replies are only fanned to followers
-    // who should see them (Mastodon FeedManager#filter_from_home reply rule).
+    // Look up the status's reply shape and language so it is only fanned to
+    // followers who should see it (Mastodon FeedManager#filter_from_home).
     let reply_meta = sqlx::query!(
-        "SELECT reply, in_reply_to_account_id FROM statuses WHERE id = $1",
+        "SELECT reply, in_reply_to_account_id, language FROM statuses WHERE id = $1",
         status_id,
     )
     .fetch_optional(db)
@@ -205,8 +220,9 @@ pub async fn fanout_new_status(
     .flatten();
     let is_reply = reply_meta.as_ref().map(|m| m.reply).unwrap_or(false);
     let reply_to = reply_meta.as_ref().and_then(|m| m.in_reply_to_account_id);
+    let language = reply_meta.as_ref().and_then(|m| m.language.clone());
 
-    let follower_ids: Vec<i64> = if is_reply && reply_to.is_none() {
+    let mut follower_ids: Vec<i64> = if is_reply && reply_to.is_none() {
         // Orphan reply (parent gone): filtered from every follower's home.
         Vec::new()
     } else if let Some(target) = reply_to.filter(|&t| is_reply && t != author_id) {
@@ -237,6 +253,31 @@ pub async fn fanout_new_status(
         .await
         .unwrap_or_default()
     };
+
+    // Drop followers who restricted this follow to a language subset that
+    // excludes the status's language (Mastodon crutches[:languages]).
+    if let Some(ref lang) = language {
+        if !follower_ids.is_empty() {
+            let excluded: Vec<i64> = sqlx::query_scalar!(
+                r#"SELECT account_id FROM follows
+                   WHERE target_account_id = $1
+                     AND account_id = ANY($2::bigint[])
+                     AND languages IS NOT NULL
+                     AND array_length(languages, 1) >= 1
+                     AND NOT ($3 = ANY(languages))"#,
+                author_id,
+                &follower_ids,
+                lang,
+            )
+            .fetch_all(db)
+            .await
+            .unwrap_or_default();
+            if !excluded.is_empty() {
+                let ex: std::collections::HashSet<i64> = excluded.into_iter().collect();
+                follower_ids.retain(|id| !ex.contains(id));
+            }
+        }
+    }
 
     let hashtag_recipients: Vec<i64> = if !tag_ids.is_empty() {
         sqlx::query_scalar!(
