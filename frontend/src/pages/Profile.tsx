@@ -60,7 +60,7 @@ export default function Profile() {
   const isSelf = account != null && account.id === selfId
 
   return (
-    <div className="mx-auto max-w-2xl p-3">
+    <div className="page-frame">
       <TopBar />
       {error && <p className="text-destructive text-sm">{error}</p>}
       {account && (

@@ -44,7 +44,7 @@ export default function AccountList() {
   const accounts = feed.items
 
   return (
-    <div className="mx-auto max-w-2xl p-3">
+    <div className="page-frame">
       <TopBar />
       <h1 className="mb-2 text-lg font-bold">@{handle}</h1>
       <nav className="mb-2 flex gap-1 border-b">

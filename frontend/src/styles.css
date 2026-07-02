@@ -90,3 +90,9 @@
     @apply bg-background text-foreground;
   }
 }
+
+@layer components {
+  .page-frame {
+    @apply mx-auto max-w-2xl p-3 lg:ml-60 lg:mr-auto;
+  }
+}

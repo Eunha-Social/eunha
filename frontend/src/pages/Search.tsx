@@ -50,7 +50,7 @@ export default function Search() {
     results.statuses.length === 0
 
   return (
-    <div className="mx-auto max-w-2xl p-3">
+    <div className="page-frame">
       <TopBar />
       <form onSubmit={submit} className="mb-4">
         <input

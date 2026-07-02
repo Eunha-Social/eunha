@@ -13,11 +13,13 @@ export function Compose({
   replyTo,
   onCancelReply,
   onPosted,
+  framed = true,
 }: {
   token: string
   replyTo: mastodon.v1.Status | null
   onCancelReply?: () => void
   onPosted: (status: mastodon.v1.Status) => void
+  framed?: boolean
 }) {
   const [text, setText] = useState('')
   const [visibility, setVisibility] =
@@ -80,9 +82,8 @@ export function Compose({
 
   const canPost = (text.trim().length > 0 || attachments.length > 0) && !uploading
 
-  return (
-    <Card>
-      <CardContent className="space-y-2">
+  const content = (
+    <CardContent className="space-y-2">
         {replyTo && (
           <div className="text-muted-foreground flex items-center justify-between text-xs">
             <span>Replying to @{replyTo.account.acct}</span>
@@ -183,7 +184,14 @@ export function Compose({
             {replyTo ? 'Reply' : 'Post'}
           </Button>
         </div>
-      </CardContent>
+    </CardContent>
+  )
+
+  if (!framed) return <div className="py-4">{content}</div>
+
+  return (
+    <Card>
+      {content}
     </Card>
   )
 }

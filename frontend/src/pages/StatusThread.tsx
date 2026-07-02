@@ -6,12 +6,15 @@ import { getStatus, getStatusContext } from '../api.ts'
 import { getToken } from '../auth.ts'
 import { TopBar } from '@/components/top-bar.tsx'
 import { StatusCard } from '@/components/status-card.tsx'
-import { Compose } from '@/components/compose.tsx'
 import { TimelineStack } from '@/components/timeline-stack.tsx'
+import { useComposeModal } from '@/components/compose-modal.tsx'
+import { Button } from '@/components/ui/button.tsx'
+import { Pencil } from 'lucide-react'
 
 export default function StatusThread() {
   const { id = '' } = useParams()
   const token = getToken()
+  const { openCompose } = useComposeModal()
 
   const [status, setStatus] = useState<mastodon.v1.Status | null>(null)
   const [context, setContext] = useState<mastodon.v1.Context | null>(null)
@@ -35,11 +38,17 @@ export default function StatusThread() {
       status={s.reblog ?? s}
       token={token ?? ''}
       boostedBy={s.reblog ? s.account : undefined}
+      onReply={(replyTo) =>
+        openCompose({
+          replyTo,
+          onPosted: () => load(),
+        })
+      }
     />
   )
 
   return (
-    <div className="mx-auto max-w-2xl p-3">
+    <div className="page-frame">
       <TopBar />
       {error && <p className="text-destructive text-sm">{error}</p>}
 
@@ -55,7 +64,13 @@ export default function StatusThread() {
         )}
 
         {token && status && (
-          <Compose token={token} replyTo={status} onPosted={() => load()} />
+          <Button
+            className="w-full"
+            variant="outline"
+            onClick={() => openCompose({ replyTo: status, onPosted: () => load() })}
+          >
+            <Pencil /> Reply
+          </Button>
         )}
 
         {!!context?.descendants.length && (

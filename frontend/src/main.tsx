@@ -11,6 +11,7 @@ import SearchPage from './pages/Search.tsx'
 import TagTimeline from './pages/TagTimeline.tsx'
 import AccountList from './pages/AccountList.tsx'
 import { ThemeProvider } from './components/theme-provider.tsx'
+import { ComposeModalProvider } from './components/compose-modal.tsx'
 import { getToken } from './auth.ts'
 import { loadMe } from './me.ts'
 import './styles.css'
@@ -44,7 +45,9 @@ const router = createBrowserRouter([
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ThemeProvider defaultTheme="system" storageKey="eunha-theme">
-      <RouterProvider router={router} />
+      <ComposeModalProvider>
+        <RouterProvider router={router} />
+      </ComposeModalProvider>
     </ThemeProvider>
   </StrictMode>,
 )

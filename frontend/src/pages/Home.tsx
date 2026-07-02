@@ -7,15 +7,15 @@ import { useInfiniteFeed } from '../hooks/use-infinite-feed.ts'
 import { useStatusStreaming } from '../hooks/use-status-streaming.ts'
 import { TopBar } from '@/components/top-bar.tsx'
 import { TimelineTabs } from '@/components/timeline-tabs.tsx'
-import { Compose } from '@/components/compose.tsx'
 import { StatusCard } from '@/components/status-card.tsx'
 import { InfiniteScroll } from '@/components/infinite-scroll.tsx'
 import { TimelineStack } from '@/components/timeline-stack.tsx'
+import { useComposeModal } from '@/components/compose-modal.tsx'
 
 export default function Home() {
   const [instance, setInstance] = useState<mastodon.v2.Instance | null>(null)
-  const [replyTo, setReplyTo] = useState<mastodon.v1.Status | null>(null)
   const token = getToken()
+  const { openCompose } = useComposeModal()
 
   const feed = useInfiniteFeed<mastodon.v1.Status>(
     (maxId) => (token ? getHomeTimeline(token, maxId) : Promise.resolve([])),
@@ -38,14 +38,16 @@ export default function Home() {
   }, [])
 
   const handleReply = (status: mastodon.v1.Status) => {
-    setReplyTo(status)
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    openCompose({
+      replyTo: status,
+      onPosted: (posted) => feed.prepend(posted),
+    })
   }
 
   const statuses = feed.items
 
   return (
-    <div className="mx-auto max-w-2xl p-3">
+    <div className="page-frame">
       <TopBar title={instance?.title} />
       <TimelineTabs />
 
@@ -63,15 +65,6 @@ export default function Home() {
 
       {token && (
         <section className="space-y-2">
-          <Compose
-            token={token}
-            replyTo={replyTo}
-            onCancelReply={() => setReplyTo(null)}
-            onPosted={(s) => {
-              feed.prepend(s)
-              setReplyTo(null)
-            }}
-          />
           {statuses === null && !feed.error && (
             <p className="text-muted-foreground text-sm">Loading…</p>
           )}

@@ -33,7 +33,7 @@ export default function TagTimeline() {
   const statuses = feed.items
 
   return (
-    <div className="mx-auto max-w-2xl p-3">
+    <div className="page-frame">
       <TopBar />
       <h1 className="mb-4 text-xl font-bold">#{name}</h1>
       {feed.error && <p className="text-destructive text-sm">{feed.error}</p>}

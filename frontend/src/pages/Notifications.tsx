@@ -135,7 +135,7 @@ export default function Notifications() {
   const items = feed.items
 
   return (
-    <div className="mx-auto max-w-2xl p-3">
+    <div className="page-frame">
       <TopBar />
       <TimelineTabs />
       {!token ? (
