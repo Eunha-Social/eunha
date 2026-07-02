@@ -96,6 +96,10 @@ export function TopBar({ title }: { title?: string }) {
       .catch(() => {})
   }, [title])
 
+  useEffect(() => {
+    document.title = displayTitle
+  }, [displayTitle])
+
   return (
     <>
       <Sidebar token={token} title={displayTitle} />
