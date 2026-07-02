@@ -193,6 +193,33 @@ async fn test_home_timeline_reply_filtering_on_fanout() {
     assert!(ids.contains(&self_reply_id), "fan-out: self-reply should appear");
 }
 
+/// A poll-only status (no caption, no media) appears in the home and public
+/// timelines — the "non-empty" filter must treat a poll as content.
+#[tokio::test]
+async fn test_poll_only_status_appears_in_timelines() {
+    let ctx = TestContext::new("poll-timelines").await;
+
+    ctx.api.follow(&ctx.alice_token, &ctx.bob_id).await;
+    let status: Value = ctx.api.post_json(
+        "/api/v1/statuses",
+        Some(&ctx.bob_token),
+        &json!({ "poll": { "options": ["A", "B"], "expires_in": 86400 }, "visibility": "public" }),
+    ).await.json().await.unwrap();
+    let id = status["id"].as_str().unwrap().to_string();
+
+    let home = ctx.api.home_timeline(&ctx.alice_token).await;
+    assert!(
+        home.iter().any(|s| s["id"].as_str() == Some(id.as_str())),
+        "poll-only status should appear in the home timeline",
+    );
+
+    let public = ctx.api.public_timeline().await;
+    assert!(
+        public.iter().any(|s| s["id"].as_str() == Some(id.as_str())),
+        "poll-only status should appear in the public timeline",
+    );
+}
+
 /// Own posts always appear on the home timeline regardless of visibility.
 #[tokio::test]
 async fn test_home_timeline_shows_own_posts_all_visibility() {

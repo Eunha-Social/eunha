@@ -70,6 +70,7 @@ pub async fn public_timeline(
                  AND ($2::bigint IS NULL OR s.id > $2)
                  AND (NOT $5::bool OR EXISTS (SELECT 1 FROM media_attachments WHERE status_id = s.id))
                  AND (s.text != ''
+                      OR s.poll_id IS NOT NULL
                       OR EXISTS (SELECT 1 FROM media_attachments WHERE status_id = s.id))
                  AND ($6::bigint IS NULL OR NOT EXISTS (
                      SELECT 1 FROM blocks b
@@ -116,6 +117,7 @@ pub async fn public_timeline(
                  AND ($4::bigint IS NULL OR s.id > $4)
                  AND (NOT $6::bool OR EXISTS (SELECT 1 FROM media_attachments WHERE status_id = s.id))
                  AND (s.text != ''
+                      OR s.poll_id IS NOT NULL
                       OR EXISTS (SELECT 1 FROM media_attachments WHERE status_id = s.id))
                  AND ($7::bigint IS NULL OR NOT EXISTS (
                      SELECT 1 FROM blocks b
@@ -268,6 +270,7 @@ async fn hydrate_home_statuses(
            )
            AND (s.text != ''
                 OR s.reblog_of_id IS NOT NULL
+                OR s.poll_id IS NOT NULL
                 OR EXISTS (SELECT 1 FROM media_attachments WHERE status_id = s.id))"#,
         viewer_id,
         ids,
@@ -369,12 +372,21 @@ async fn home_timeline_from_db(
                        WHERE m.status_id = s.id AND m.account_id = $1
                    )
                )
-               AND (s.in_reply_to_account_id IS NULL
-                    OR s.in_reply_to_account_id = s.account_id
-                    OR s.in_reply_to_account_id = $1
-                    OR EXISTS (SELECT 1 FROM follows f WHERE f.account_id = $1 AND f.target_account_id = s.in_reply_to_account_id))
+               AND (
+                    NOT s.reply
+                    OR s.account_id = $1
+                    OR (
+                        s.in_reply_to_account_id IS NOT NULL
+                        AND (
+                            s.in_reply_to_account_id = s.account_id
+                            OR s.in_reply_to_account_id = $1
+                            OR EXISTS (SELECT 1 FROM follows f WHERE f.account_id = $1 AND f.target_account_id = s.in_reply_to_account_id)
+                        )
+                    )
+               )
                AND (s.text != ''
                     OR s.reblog_of_id IS NOT NULL
+                    OR s.poll_id IS NOT NULL
                     OR EXISTS (SELECT 1 FROM media_attachments WHERE status_id = s.id))
                ORDER BY s.id ASC
                LIMIT $3"#,
@@ -462,12 +474,21 @@ async fn home_timeline_from_db(
                        WHERE m.status_id = s.id AND m.account_id = $1
                    )
                )
-               AND (s.in_reply_to_account_id IS NULL
-                    OR s.in_reply_to_account_id = s.account_id
-                    OR s.in_reply_to_account_id = $1
-                    OR EXISTS (SELECT 1 FROM follows f WHERE f.account_id = $1 AND f.target_account_id = s.in_reply_to_account_id))
+               AND (
+                    NOT s.reply
+                    OR s.account_id = $1
+                    OR (
+                        s.in_reply_to_account_id IS NOT NULL
+                        AND (
+                            s.in_reply_to_account_id = s.account_id
+                            OR s.in_reply_to_account_id = $1
+                            OR EXISTS (SELECT 1 FROM follows f WHERE f.account_id = $1 AND f.target_account_id = s.in_reply_to_account_id)
+                        )
+                    )
+               )
                AND (s.text != ''
                     OR s.reblog_of_id IS NOT NULL
+                    OR s.poll_id IS NOT NULL
                     OR EXISTS (SELECT 1 FROM media_attachments WHERE status_id = s.id))
                ORDER BY s.id DESC
                LIMIT $4"#,
@@ -628,6 +649,7 @@ async fn list_timeline_from_db(
                  AND ($2::bigint IS NULL OR s.id > $2)
                  AND (s.text != ''
                       OR s.reblog_of_id IS NOT NULL
+                      OR s.poll_id IS NOT NULL
                       OR EXISTS (SELECT 1 FROM media_attachments WHERE status_id = s.id))
                  AND NOT EXISTS (
                      SELECT 1 FROM mutes mu
@@ -657,6 +679,7 @@ async fn list_timeline_from_db(
                  AND ($3::bigint IS NULL OR s.id > $3)
                  AND (s.text != ''
                       OR s.reblog_of_id IS NOT NULL
+                      OR s.poll_id IS NOT NULL
                       OR EXISTS (SELECT 1 FROM media_attachments WHERE status_id = s.id))
                  AND NOT EXISTS (
                      SELECT 1 FROM mutes mu

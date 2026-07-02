@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT s.*\n               FROM statuses s\n               JOIN accounts a ON a.id = s.account_id\n               WHERE s.visibility = 0\n                 AND s.deleted_at IS NULL\n                 AND s.reblog_of_id IS NULL\n                 AND (NOT s.reply OR s.in_reply_to_account_id = s.account_id)\n                 AND (NOT $1::bool OR a.domain IS NULL)\n                 AND (NOT $5::bool OR a.domain IS NOT NULL)\n                 AND a.suspended_at IS NULL\n                 AND a.silenced_at IS NULL\n                 AND (a.domain IS NULL OR NOT EXISTS (\n                     SELECT 1 FROM domain_blocks db WHERE db.domain = a.domain\n                 ))\n                 AND ($7::bigint IS NULL OR a.domain IS NULL OR NOT EXISTS (\n                     SELECT 1 FROM account_domain_blocks udb WHERE udb.account_id = $7 AND udb.domain = a.domain\n                 ))\n                 AND ($2::bigint IS NULL OR s.id < $2)\n                 AND ($4::bigint IS NULL OR s.id > $4)\n                 AND (NOT $6::bool OR EXISTS (SELECT 1 FROM media_attachments WHERE status_id = s.id))\n                 AND (s.text != ''\n                      OR EXISTS (SELECT 1 FROM media_attachments WHERE status_id = s.id))\n                 AND ($7::bigint IS NULL OR NOT EXISTS (\n                     SELECT 1 FROM blocks b\n                     WHERE (b.account_id = $7 AND b.target_account_id = s.account_id)\n                        OR (b.account_id = s.account_id AND b.target_account_id = $7)\n                 ))\n                 AND ($7::bigint IS NULL OR NOT EXISTS (\n                     SELECT 1 FROM mutes mu\n                     WHERE mu.account_id = $7 AND mu.target_account_id = s.account_id\n                       AND (mu.expires_at IS NULL OR mu.expires_at > now())\n                 ))\n               ORDER BY s.id DESC\n               LIMIT $3",
+  "query": "SELECT s.*\n           FROM statuses s\n           JOIN accounts a ON a.id = s.account_id\n           WHERE s.id = ANY($2::bigint[])\n           AND s.deleted_at IS NULL\n           AND a.suspended_at IS NULL\n           AND (a.domain IS NULL OR NOT EXISTS (\n               SELECT 1 FROM domain_blocks db WHERE db.domain = a.domain\n           ))\n           AND NOT EXISTS (\n               SELECT 1 FROM mutes m\n               WHERE m.account_id = $1 AND m.target_account_id = s.account_id\n               AND (m.expires_at IS NULL OR m.expires_at > now())\n           )\n           AND (s.account_id = $1 OR NOT EXISTS (\n               SELECT 1 FROM blocks b\n               WHERE (b.account_id = $1 AND b.target_account_id = s.account_id)\n                  OR (b.account_id = s.account_id AND b.target_account_id = $1)\n           ))\n           AND (s.reblog_of_id IS NULL OR NOT EXISTS (\n               SELECT 1 FROM statuses orig\n               JOIN blocks b ON (\n                   (b.account_id = $1 AND b.target_account_id = orig.account_id)\n                   OR (b.account_id = orig.account_id AND b.target_account_id = $1)\n               )\n               WHERE orig.id = s.reblog_of_id\n           ))\n           AND (s.reblog_of_id IS NULL OR NOT EXISTS (\n               SELECT 1 FROM statuses orig\n               JOIN accounts orig_a ON orig_a.id = orig.account_id\n               JOIN account_domain_blocks adb ON adb.account_id = $1 AND adb.domain = orig_a.domain\n               WHERE orig.id = s.reblog_of_id\n           ))\n           AND NOT (\n               s.reblog_of_id IS NOT NULL\n               AND EXISTS (\n                   SELECT 1 FROM follows f\n                   WHERE f.account_id = $1 AND f.target_account_id = s.account_id\n                   AND f.show_reblogs = false\n               )\n           )\n           AND (s.account_id = $1 OR NOT EXISTS (\n               SELECT 1 FROM list_accounts la\n               JOIN lists l ON l.id = la.list_id\n               WHERE la.account_id = s.account_id AND l.account_id = $1 AND l.exclusive = true\n           ))\n           AND (\n               s.visibility != 3\n               OR s.account_id = $1\n               OR EXISTS (\n                   SELECT 1 FROM mentions m\n                   WHERE m.status_id = s.id AND m.account_id = $1\n               )\n           )\n           AND (s.text != ''\n                OR s.reblog_of_id IS NOT NULL\n                OR s.poll_id IS NOT NULL\n                OR EXISTS (SELECT 1 FROM media_attachments WHERE status_id = s.id))",
   "describe": {
     "columns": [
       {
@@ -131,13 +131,8 @@
     ],
     "parameters": {
       "Left": [
-        "Bool",
         "Int8",
-        "Int8",
-        "Int8",
-        "Bool",
-        "Bool",
-        "Int8"
+        "Int8Array"
       ]
     },
     "nullable": [
@@ -168,5 +163,5 @@
       false
     ]
   },
-  "hash": "8f3664b8dc493de458dbb30d1095cedba960895c1848bf271e6b22c8279d4fac"
+  "hash": "8baf2db1c1798bf7a09276c4d25ebe8ac65ea5385312ab51d33e48eb729c84fc"
 }
