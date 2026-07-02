@@ -256,14 +256,22 @@ pub async fn add_list_accounts(
 
     for id_str in &form.account_ids {
         if let Ok(account_id) = id_str.parse::<i64>() {
-            let is_followed = sqlx::query_scalar!(
-                "SELECT 1 FROM follows WHERE account_id = $1 AND target_account_id = $2",
-                auth.account_id, account_id,
-            )
-            .fetch_optional(&state.db)
-            .await?
-            .is_some();
-            if !is_followed {
+            // Mastodon ListAccount#validate_relationship: you may add an account
+            // you follow, one you have a pending follow request to, or yourself
+            // (the list owner).
+            let allowed = account_id == auth.account_id
+                || sqlx::query_scalar!(
+                    r#"SELECT EXISTS(
+                         SELECT 1 FROM follows WHERE account_id = $1 AND target_account_id = $2
+                         UNION ALL
+                         SELECT 1 FROM follow_requests WHERE account_id = $1 AND target_account_id = $2
+                       )"#,
+                    auth.account_id, account_id,
+                )
+                .fetch_one(&state.db)
+                .await?
+                .unwrap_or(false);
+            if !allowed {
                 return Err(AppError::Unprocessable("Account must be followed before adding to a list".into()));
             }
             sqlx::query!(

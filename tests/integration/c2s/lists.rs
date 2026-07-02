@@ -439,6 +439,33 @@ async fn test_list_add_unfollowed_account_returns_422() {
     assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY, "adding unfollowed account should return 422");
 }
 
+/// The list owner may add themselves to their own list without following
+/// themselves (Mastodon ListAccount list_owner_account_is_account?).
+#[tokio::test]
+async fn test_list_add_self_allowed() {
+    let ctx = TestContext::new("list-add-self").await;
+
+    let list: Value = ctx.api.post_json(
+        "/api/v1/lists",
+        Some(&ctx.alice_token),
+        &json!({ "title": "me list" }),
+    ).await.json().await.unwrap();
+    let list_id = list["id"].as_str().unwrap();
+
+    let resp = ctx.api.post_json(
+        &format!("/api/v1/lists/{list_id}/accounts"),
+        Some(&ctx.alice_token),
+        &json!({ "account_ids": [ctx.alice_id] }),
+    ).await;
+    assert_eq!(resp.status(), StatusCode::OK, "adding yourself to your own list should be allowed");
+
+    let accts: Vec<Value> = ctx.api.get(
+        &format!("/api/v1/lists/{list_id}/accounts"),
+        Some(&ctx.alice_token),
+    ).await.json().await.unwrap();
+    assert!(accts.iter().any(|a| a["id"].as_str() == Some(ctx.alice_id.as_str())), "self should be in the list");
+}
+
 /// List timeline respects since_id pagination.
 #[tokio::test]
 async fn test_list_timeline_since_id_pagination() {
