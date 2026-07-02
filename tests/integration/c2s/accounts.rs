@@ -1440,6 +1440,14 @@ async fn test_accounts_search_endpoint() {
     assert_eq!(resp.status(), StatusCode::OK);
     let list: Vec<Value> = resp.json().await.unwrap();
     assert!(list.iter().any(|a| a["username"].as_str() == Some("bob")));
+
+    // A leading '@' is stripped, so "@bob" still finds bob (Mastodon behavior).
+    let resp = ctx.api.get(
+        "/api/v1/accounts/search?q=%40bob",
+        Some(&ctx.alice_token),
+    ).await;
+    let list: Vec<Value> = resp.json().await.unwrap();
+    assert!(list.iter().any(|a| a["username"].as_str() == Some("bob")), "@bob should match bob");
 }
 
 // ── block effects ─────────────────────────────────────────────────────────────

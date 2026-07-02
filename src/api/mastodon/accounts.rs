@@ -1395,7 +1395,9 @@ pub async fn search_accounts(
 ) -> AppResult<Json<Vec<ApiAccount>>> {
     let limit = q.limit.unwrap_or(40).clamp(1, 80);
     let offset = q.offset.unwrap_or(0).max(0);
-    let pattern = format!("%{}%", q.q.to_lowercase());
+    // Mastodon strips a leading '@' from the query, so "@alice" matches "alice".
+    let query = q.q.trim().trim_start_matches('@');
+    let pattern = format!("%{}%", query.to_lowercase());
 
     let mut accounts = if q.following.unwrap_or(false) {
         if let Some(Extension(ref auth)) = auth {
@@ -1430,7 +1432,7 @@ pub async fn search_accounts(
     // If resolve=true and the query looks like user@domain, try WebFinger for any
     // remote account not already in the local results.
     if q.resolve.unwrap_or(false) && accounts.is_empty() {
-        if let Some((username, domain)) = q.q.split_once('@') {
+        if let Some((username, domain)) = query.split_once('@') {
             let username = username.to_lowercase();
             let domain = domain.to_lowercase();
             // Only attempt fetch if not already present locally
