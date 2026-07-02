@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
-import { Bell, Home, LogIn, LogOut, Pencil, Search, Users } from 'lucide-react'
+import { Bell, LogIn, LogOut, Pencil, Search } from 'lucide-react'
 
 import { getInstance } from '../api.ts'
 import { beginLogin, getToken, logout } from '../auth.ts'
@@ -23,24 +23,6 @@ function Sidebar({ token, title }: { token: string | null; title: string }) {
         {title}
       </Link>
       <nav className="flex flex-col gap-1">
-        <NavLink
-          to="/"
-          className={({ isActive }) => cn(navLink, isActive && activeNavLink)}
-        >
-          <Home className="size-4" /> Home
-        </NavLink>
-        <NavLink
-          to="/local"
-          className={({ isActive }) => cn(navLink, isActive && activeNavLink)}
-        >
-          <Users className="size-4" /> Local
-        </NavLink>
-        <NavLink
-          to="/public"
-          className={({ isActive }) => cn(navLink, isActive && activeNavLink)}
-        >
-          <Users className="size-4" /> Public
-        </NavLink>
         <NavLink
           to="/notifications"
           className={({ isActive }) => cn(navLink, isActive && activeNavLink)}
