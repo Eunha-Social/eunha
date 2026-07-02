@@ -95,4 +95,9 @@
   .page-frame {
     @apply mx-auto max-w-2xl p-3;
   }
+
+  .sidebar-frame {
+    @apply fixed top-0 hidden h-screen w-56 flex-col border-r bg-background px-3 py-4 xl:flex;
+    left: max(1rem, calc(50% - 35.75rem));
+  }
 }

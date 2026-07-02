@@ -16,7 +16,7 @@ function Sidebar({ token }: { token: string | null }) {
   const { openCompose } = useComposeModal()
 
   return (
-    <aside className="fixed top-0 left-0 hidden h-screen w-56 flex-col border-r bg-background px-3 py-4 xl:flex">
+    <aside className="sidebar-frame">
       <Link to="/" className="mb-4 px-3 text-lg font-semibold no-underline">
         eunha
       </Link>
