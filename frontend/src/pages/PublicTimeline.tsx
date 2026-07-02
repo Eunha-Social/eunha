@@ -1,9 +1,11 @@
+import { useCallback } from 'react'
 import { useLocation } from 'react-router-dom'
 
 import type { mastodon } from '../masto.ts'
 import { getPublicTimeline } from '../api.ts'
 import { getToken } from '../auth.ts'
 import { useInfiniteFeed } from '../hooks/use-infinite-feed.ts'
+import { useStatusStreaming } from '../hooks/use-status-streaming.ts'
 import { TopBar } from '@/components/top-bar.tsx'
 import { TimelineTabs } from '@/components/timeline-tabs.tsx'
 import { StatusCard } from '@/components/status-card.tsx'
@@ -17,6 +19,17 @@ export default function PublicTimeline() {
     (maxId) => getPublicTimeline(local, token ?? undefined, maxId),
     [local, token],
   )
+  const subscribePublic = useCallback(
+    (client: mastodon.streaming.Client) =>
+      local ? client.public.local.subscribe() : client.public.subscribe(),
+    [local],
+  )
+
+  useStatusStreaming({
+    token: token ?? undefined,
+    subscribe: subscribePublic,
+    feed,
+  })
   const statuses = feed.items
 
   return (

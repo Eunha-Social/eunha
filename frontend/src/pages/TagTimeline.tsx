@@ -1,9 +1,11 @@
+import { useCallback } from 'react'
 import { useParams } from 'react-router-dom'
 
 import type { mastodon } from '../masto.ts'
 import { getTagTimeline } from '../api.ts'
 import { getToken } from '../auth.ts'
 import { useInfiniteFeed } from '../hooks/use-infinite-feed.ts'
+import { useStatusStreaming } from '../hooks/use-status-streaming.ts'
 import { TopBar } from '@/components/top-bar.tsx'
 import { StatusCard } from '@/components/status-card.tsx'
 import { InfiniteScroll } from '@/components/infinite-scroll.tsx'
@@ -16,6 +18,17 @@ export default function TagTimeline() {
     (maxId) => getTagTimeline(name, token ?? undefined, maxId),
     [name, token],
   )
+  const subscribeTag = useCallback(
+    (client: mastodon.streaming.Client) => client.hashtag.subscribe({ tag: name }),
+    [name],
+  )
+
+  useStatusStreaming({
+    enabled: !!name,
+    token: token ?? undefined,
+    subscribe: subscribeTag,
+    feed,
+  })
   const statuses = feed.items
 
   return (

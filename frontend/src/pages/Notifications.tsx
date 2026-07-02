@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react'
+import { useCallback, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { AtSign, Bell, Pencil, Repeat2, Star, UserPlus } from 'lucide-react'
 
@@ -6,6 +6,7 @@ import type { mastodon } from '../masto.ts'
 import { getNotifications } from '../api.ts'
 import { beginLogin, getToken } from '../auth.ts'
 import { useInfiniteFeed } from '../hooks/use-infinite-feed.ts'
+import { useStreamingSubscription } from '../hooks/use-streaming-subscription.ts'
 import { TopBar } from '@/components/top-bar.tsx'
 import { TimelineTabs } from '@/components/timeline-tabs.tsx'
 import { StatusCard } from '@/components/status-card.tsx'
@@ -85,6 +86,51 @@ export default function Notifications() {
     (maxId) => (token ? getNotifications(token, maxId) : Promise.resolve([])),
     [token],
   )
+  const { mutate } = feed
+  const subscribeNotifications = useCallback(
+    (client: mastodon.streaming.Client) => client.user.notification.subscribe(),
+    [],
+  )
+  const handleStreamingEvent = useCallback(
+    (event: mastodon.streaming.Event) => {
+      if (event.event === 'notification') {
+        mutate((items) =>
+          items.some((item) => item.id === event.payload.id)
+            ? items
+            : [event.payload, ...items],
+        )
+        return
+      }
+
+      if (event.event === 'status.update') {
+        mutate((items) =>
+          items.map((item) => {
+            if (!('status' in item) || item.status?.id !== event.payload.id) {
+              return item
+            }
+            return { ...item, status: event.payload } as mastodon.v1.Notification
+          }),
+        )
+        return
+      }
+
+      if (event.event === 'delete') {
+        mutate((items) =>
+          items.filter(
+            (item) => !('status' in item) || item.status?.id !== event.payload,
+          ),
+        )
+      }
+    },
+    [mutate],
+  )
+
+  useStreamingSubscription({
+    enabled: !!token,
+    token: token ?? undefined,
+    subscribe: subscribeNotifications,
+    onEvent: handleStreamingEvent,
+  })
   const items = feed.items
 
   return (

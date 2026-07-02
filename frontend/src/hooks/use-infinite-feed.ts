@@ -63,9 +63,18 @@ export function useInfiniteFeed<T extends { id: string }>(
   }, [done])
 
   const prepend = useCallback(
-    (item: T) => setItems((prev) => [item, ...(prev ?? [])]),
+    (item: T) =>
+      setItems((prev) =>
+        prev?.some((existing) => existing.id === item.id)
+          ? prev
+          : [item, ...(prev ?? [])],
+      ),
     [],
   )
 
-  return { items, error, loadingMore, done, loadMore, prepend }
+  const mutate = useCallback((fn: (items: T[]) => T[]) => {
+    setItems((prev) => (prev ? fn(prev) : prev))
+  }, [])
+
+  return { items, error, loadingMore, done, loadMore, prepend, mutate }
 }

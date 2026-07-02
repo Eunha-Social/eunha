@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import { getInstance, getHomeTimeline } from '../api.ts'
 import type { mastodon } from '../masto.ts'
 import { getToken } from '../auth.ts'
 import { useInfiniteFeed } from '../hooks/use-infinite-feed.ts'
+import { useStatusStreaming } from '../hooks/use-status-streaming.ts'
 import { TopBar } from '@/components/top-bar.tsx'
 import { TimelineTabs } from '@/components/timeline-tabs.tsx'
 import { Compose } from '@/components/compose.tsx'
@@ -19,6 +20,17 @@ export default function Home() {
     (maxId) => (token ? getHomeTimeline(token, maxId) : Promise.resolve([])),
     [token],
   )
+  const subscribeHome = useCallback(
+    (client: mastodon.streaming.Client) => client.user.subscribe(),
+    [],
+  )
+
+  useStatusStreaming({
+    enabled: !!token,
+    token: token ?? undefined,
+    subscribe: subscribeHome,
+    feed,
+  })
 
   useEffect(() => {
     getInstance().then(setInstance).catch(() => {})
