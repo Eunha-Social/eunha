@@ -2271,6 +2271,32 @@ pub async fn unbookmark_status(
 
 // ── POST /api/v1/statuses/:id/pin ─────────────────────────────────────────
 
+/// Federate an `Add`/`Remove` of a status to/from the actor's featured (pinned)
+/// collection, delivered to followers (Mastodon PinsController). No-op for
+/// remote authors or accounts without a signing key.
+async fn federate_pin_change(state: &AppState, account: &Account, status: &DbStatus, is_add: bool) {
+    if account.domain.is_some()
+        || account.private_key.as_deref().is_none_or(|s| s.is_empty())
+    {
+        return;
+    }
+    let Some(status_uri) = status.uri.clone().filter(|s| !s.is_empty()) else { return };
+    let domain = &state.instance.domain;
+    let actor_url = crate::federation::tag::account_uri_of(domain, account);
+    let target = format!("{actor_url}/collections/featured");
+    let activity_id = format!("https://{}/activities/{}", domain, crate::snowflake::next_id());
+    let activity = if is_add {
+        crate::federation::activity::add_to_collection(&activity_id, &actor_url, &status_uri, &target)
+    } else {
+        crate::federation::activity::remove_from_collection(&activity_id, &actor_url, &status_uri, &target)
+    };
+    let Ok(activity) = activity else { return };
+    let key_id = format!("{actor_url}#main-key");
+    if let Err(e) = crate::federation::delivery::fanout_to_followers(state, activity, account.id, key_id).await {
+        tracing::warn!(error = %e, "failed to enqueue pin Add/Remove delivery");
+    }
+}
+
 pub async fn pin_status(
     State(state): State<AppState>,
     Path(id): Path<i64>,
@@ -2294,12 +2320,15 @@ pub async fn pin_status(
     if pin_count >= 5 {
         return Err(AppError::Unprocessable("Validation failed: You have already pinned the maximum number of statuses".into()));
     }
-    sqlx::query!(
+    let inserted = sqlx::query!(
         "INSERT INTO status_pins (account_id, status_id, created_at, updated_at) VALUES ($1, $2, now(), now()) ON CONFLICT DO NOTHING",
         auth.account_id, id
     )
     .execute(&state.db)
     .await?;
+    if inserted.rows_affected() > 0 {
+        federate_pin_change(&state, &account, &status, true).await;
+    }
     let media = fetch_status_media(&state, id).await?;
     let reblog = fetch_reblog_data(&state, &status).await?;
     let ctx = build_viewer_context(&state, auth.account_id, id).await?;
@@ -2315,12 +2344,15 @@ pub async fn unpin_status(
 ) -> AppResult<Json<Status>> {
     auth.require_scope("write:accounts")?;
     let (status, account) = fetch_status_with_account(&state, id).await?;
-    sqlx::query!(
+    let deleted = sqlx::query!(
         "DELETE FROM status_pins WHERE account_id = $1 AND status_id = $2",
         auth.account_id, id
     )
     .execute(&state.db)
     .await?;
+    if deleted.rows_affected() > 0 {
+        federate_pin_change(&state, &account, &status, false).await;
+    }
     let media = fetch_status_media(&state, id).await?;
     let reblog = fetch_reblog_data(&state, &status).await?;
     let ctx = build_viewer_context(&state, auth.account_id, id).await?;

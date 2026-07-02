@@ -199,6 +199,32 @@ pub fn block(id: &str, actor: &str, object: &str) -> anyhow::Result<Value> {
     to_value(&vocab::Block::new(iri(id)?, actor_ref(actor)?, iri(object)?))
 }
 
+/// `Add` a status to the actor's featured (pinned) collection
+/// (Mastodon `ActivityPub::AddNoteSerializer`).
+pub fn add_to_collection(id: &str, actor: &str, object: &str, target: &str) -> anyhow::Result<Value> {
+    Ok(serde_json::json!({
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "id": id,
+        "type": "Add",
+        "actor": actor,
+        "object": object,
+        "target": target,
+    }))
+}
+
+/// `Remove` a status from the actor's featured (pinned) collection
+/// (Mastodon `ActivityPub::RemoveNoteSerializer`).
+pub fn remove_from_collection(id: &str, actor: &str, object: &str, target: &str) -> anyhow::Result<Value> {
+    Ok(serde_json::json!({
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "id": id,
+        "type": "Remove",
+        "actor": actor,
+        "object": object,
+        "target": target,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -216,6 +242,26 @@ mod tests {
                 "object": "https://b.test/u/bob",
             })
         );
+    }
+
+    #[test]
+    fn add_and_remove_collection_shape() {
+        let target = "https://a.test/u/alice/collections/featured";
+        assert_eq!(
+            add_to_collection("https://a.test/act/1", "https://a.test/u/alice", "https://a.test/s/5", target).unwrap(),
+            json!({
+                "@context": "https://www.w3.org/ns/activitystreams",
+                "id": "https://a.test/act/1",
+                "type": "Add",
+                "actor": "https://a.test/u/alice",
+                "object": "https://a.test/s/5",
+                "target": target,
+            })
+        );
+        let remove = remove_from_collection("https://a.test/act/2", "https://a.test/u/alice", "https://a.test/s/5", target).unwrap();
+        assert_eq!(remove["type"], "Remove");
+        assert_eq!(remove["target"], target);
+        assert_eq!(remove["object"], "https://a.test/s/5");
     }
 
     #[test]
