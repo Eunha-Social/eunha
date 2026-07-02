@@ -14,9 +14,10 @@ use crate::{
 };
 use super::{
     accounts::{
-        batch_account_emojis, batch_account_roles, batch_reblog_data, batch_status_cards,
-        batch_status_emojis, batch_status_media, batch_status_mentions, batch_status_polls,
-        batch_statuses_tags, build_status, fetch_account_emojis, fetch_reblog_data, fetch_status_media,
+        batch_account_emojis, batch_account_roles, batch_accounts_to_api, batch_reblog_data,
+        batch_status_cards, batch_status_emojis, batch_status_media, batch_status_mentions,
+        batch_status_polls, batch_statuses_tags, build_status, fetch_account_emojis,
+        fetch_reblog_data, fetch_status_media,
     },
     convert::{account_from_db, status_from_db},
     types::{
@@ -428,6 +429,73 @@ pub async fn dismiss_notification(
 
 // ── GET /api/v2/notifications ─────────────────────────────────────────────
 
+/// Number of sample accounts surfaced per notification group
+/// (Mastodon `NotificationGroup::SAMPLE_ACCOUNTS_SIZE`).
+const SAMPLE_ACCOUNTS_SIZE: usize = 8;
+
+/// Compute a notification's group key, mirroring Mastodon's
+/// `Notification::Groups`: `favourite`/`reblog` group by their target status,
+/// `follow`/`admin.sign_up` group by type, everything else stays ungrouped.
+/// (The 12h hour-bucket split Mastodon adds is omitted; same-target
+/// notifications simply share one group.)
+fn notification_group_key(notif_type: &str, target_status_id: Option<i64>, notif_id: i64) -> String {
+    match notif_type {
+        "favourite" | "reblog" => match target_status_id {
+            Some(sid) => format!("{notif_type}-{sid}"),
+            None => format!("ungrouped-{notif_id}"),
+        },
+        "follow" | "admin.sign_up" => notif_type.to_string(),
+        _ => format!("ungrouped-{notif_id}"),
+    }
+}
+
+/// Fetch the notifications that belong to a group key for an account, newest
+/// first. Used by the per-group endpoints so keys returned by the list endpoint
+/// resolve back to their members.
+async fn notifications_for_group_key(
+    state: &AppState,
+    account_id: i64,
+    group_key: &str,
+) -> AppResult<Vec<DbNotification>> {
+    if let Some(id_str) = group_key.strip_prefix("ungrouped-") {
+        let id: i64 = id_str.parse().map_err(|_| AppError::NotFound)?;
+        return Ok(sqlx::query_as("SELECT * FROM notifications WHERE id = $1 AND account_id = $2")
+            .bind(id)
+            .bind(account_id)
+            .fetch_all(&state.db)
+            .await?);
+    }
+    if group_key == "follow" || group_key == "admin.sign_up" {
+        return Ok(sqlx::query_as(
+            "SELECT * FROM notifications WHERE account_id = $1 AND type = $2 ORDER BY id DESC",
+        )
+        .bind(account_id)
+        .bind(group_key)
+        .fetch_all(&state.db)
+        .await?);
+    }
+    if let Some((ntype, sid_str)) = group_key.split_once('-') {
+        if ntype == "favourite" || ntype == "reblog" {
+            if let Ok(target_sid) = sid_str.parse::<i64>() {
+                let candidates: Vec<DbNotification> = sqlx::query_as(
+                    "SELECT * FROM notifications WHERE account_id = $1 AND type = $2 ORDER BY id DESC",
+                )
+                .bind(account_id)
+                .bind(ntype)
+                .fetch_all(&state.db)
+                .await?;
+                let ids: Vec<i64> = candidates.iter().map(|n| n.id).collect();
+                let smap = batch_notification_status_ids(state, &ids).await;
+                return Ok(candidates
+                    .into_iter()
+                    .filter(|n| smap.get(&n.id) == Some(&target_sid))
+                    .collect());
+            }
+        }
+    }
+    Err(AppError::NotFound)
+}
+
 pub async fn get_notifications_v2(
     State(state): State<AppState>,
     Query(pagination): Query<PaginationParams>,
@@ -633,8 +701,41 @@ pub async fn get_notifications_v2(
     let mut statuses_resp_map: std::collections::HashMap<String, super::types::Status> =
         std::collections::HashMap::new();
 
-    let mut groups = Vec::with_capacity(notifications.len());
-    for n in &notifications {
+    // Aggregate notifications into groups (Mastodon Notification::Groups). The
+    // list is ordered id DESC, so the first time a group key is seen is its
+    // most-recent member (the group's representative).
+    struct GroupAcc {
+        rep_index: usize,
+        count: i64,
+        sample_account_ids: Vec<String>,
+        page_min_id: i64,
+    }
+    let mut order: Vec<String> = Vec::new();
+    let mut acc_map: std::collections::HashMap<String, GroupAcc> = std::collections::HashMap::new();
+    for (idx, n) in notifications.iter().enumerate() {
+        let target_sid = notif_status_map_v2.get(&n.id).copied();
+        let gk = notification_group_key(n.r#type.as_deref().unwrap_or(""), target_sid, n.id);
+        if let Some(a) = acc_map.get_mut(&gk) {
+            a.count += 1;
+            if a.sample_account_ids.len() < SAMPLE_ACCOUNTS_SIZE {
+                a.sample_account_ids.push(n.from_account_id.to_string());
+            }
+            a.page_min_id = n.id; // DESC order → each later member is older
+        } else {
+            order.push(gk.clone());
+            acc_map.insert(gk, GroupAcc {
+                rep_index: idx,
+                count: 1,
+                sample_account_ids: vec![n.from_account_id.to_string()],
+                page_min_id: n.id,
+            });
+        }
+    }
+
+    let mut groups = Vec::with_capacity(order.len());
+    for gk in &order {
+        let a = &acc_map[gk];
+        let n = &notifications[a.rep_index];
         let status_id = notif_status_map_v2.get(&n.id).and_then(|sid| {
             if let Some(api) = status_api_map.get(sid) {
                 statuses_resp_map.insert(sid.to_string(), api.clone());
@@ -647,16 +748,15 @@ pub async fn get_notifications_v2(
         let report_id_v2 = if n.activity_type.as_deref() == Some("Report") { n.activity_id } else { None };
         let report = report_id_v2.and_then(|rid| report_map_v2.get(&rid)).cloned();
 
-        let id_str = n.id.to_string();
         groups.push(NotificationGroup {
-            group_key: format!("ungrouped-{}", id_str),
-            notifications_count: 1,
+            group_key: gk.clone(),
+            notifications_count: a.count,
             notification_type: n.r#type.clone().unwrap_or_default(),
-            most_recent_notification_id: id_str.clone(),
-            page_max_id: id_str.clone(),
-            page_min_id: id_str.clone(),
+            most_recent_notification_id: n.id.to_string(),
+            page_max_id: n.id.to_string(),
+            page_min_id: a.page_min_id.to_string(),
             latest_page_notification_at: super::convert::mastodon_date(n.created_at),
-            sample_account_ids: vec![n.from_account_id.to_string()],
+            sample_account_ids: a.sample_account_ids.clone(),
             status_id,
             report,
             event: None,
@@ -698,22 +798,11 @@ pub async fn get_notification_group(
     Extension(auth): Extension<AuthenticatedUser>,
 ) -> AppResult<Json<NotificationGroup>> {
     auth.require_scope("read:notifications")?;
-    let notif_id: i64 = group_key
-        .strip_prefix("ungrouped-")
-        .and_then(|s| s.parse().ok())
-        .ok_or(AppError::NotFound)?;
+    let notifs = notifications_for_group_key(&state, auth.account_id, &group_key).await?;
+    let rep = notifs.first().ok_or(AppError::NotFound)?;
 
-    let n: DbNotification = sqlx::query_as(
-        "SELECT * FROM notifications WHERE id = $1 AND account_id = $2",
-    )
-    .bind(notif_id)
-    .bind(auth.account_id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or(AppError::NotFound)?;
-
-    let report = if n.r#type.as_deref() == Some("admin.report") && n.activity_type.as_deref() == Some("Report") {
-        if let Some(rid) = n.activity_id {
+    let report = if rep.r#type.as_deref() == Some("admin.report") && rep.activity_type.as_deref() == Some("Report") {
+        if let Some(rid) = rep.activity_id {
             fetch_reports_map(&state, &[rid]).await?.remove(&rid)
         } else {
             None
@@ -722,18 +811,23 @@ pub async fn get_notification_group(
         None
     };
 
-    let status_id_for_group = batch_notification_status_ids(&state, &[n.id]).await;
-    let id_str = n.id.to_string();
+    let status_id_for_group = batch_notification_status_ids(&state, &[rep.id]).await;
+    let sample_account_ids: Vec<String> = notifs.iter()
+        .take(SAMPLE_ACCOUNTS_SIZE)
+        .map(|n| n.from_account_id.to_string())
+        .collect();
+    let page_max_id = rep.id.to_string();
+    let page_min_id = notifs.last().map(|n| n.id).unwrap_or(rep.id).to_string();
     Ok(Json(NotificationGroup {
-        group_key: format!("ungrouped-{}", id_str),
-        notifications_count: 1,
-        notification_type: n.r#type.unwrap_or_default(),
-        most_recent_notification_id: id_str.clone(),
-        page_max_id: id_str.clone(),
-        page_min_id: id_str.clone(),
-        latest_page_notification_at: super::convert::mastodon_date(n.created_at),
-        sample_account_ids: vec![n.from_account_id.to_string()],
-        status_id: status_id_for_group.get(&n.id).map(|s| s.to_string()),
+        group_key: group_key.clone(),
+        notifications_count: notifs.len() as i64,
+        notification_type: rep.r#type.clone().unwrap_or_default(),
+        most_recent_notification_id: rep.id.to_string(),
+        page_max_id,
+        page_min_id,
+        latest_page_notification_at: super::convert::mastodon_date(rep.created_at),
+        sample_account_ids,
+        status_id: status_id_for_group.get(&rep.id).map(|s| s.to_string()),
         report,
         event: None,
         moderation_warning: None,
@@ -751,18 +845,17 @@ pub async fn dismiss_notification_group(
     Extension(auth): Extension<AuthenticatedUser>,
 ) -> AppResult<Json<serde_json::Value>> {
     auth.require_scope("write:notifications")?;
-    let notif_id: i64 = group_key
-        .strip_prefix("ungrouped-")
-        .and_then(|s| s.parse().ok())
-        .ok_or(AppError::NotFound)?;
-
-    sqlx::query!(
-        "DELETE FROM notifications WHERE id = $1 AND account_id = $2",
-        notif_id,
-        auth.account_id,
-    )
-    .execute(&state.db)
-    .await?;
+    let notifs = notifications_for_group_key(&state, auth.account_id, &group_key).await?;
+    let ids: Vec<i64> = notifs.iter().map(|n| n.id).collect();
+    if !ids.is_empty() {
+        sqlx::query!(
+            "DELETE FROM notifications WHERE account_id = $1 AND id = ANY($2::bigint[])",
+            auth.account_id,
+            &ids,
+        )
+        .execute(&state.db)
+        .await?;
+    }
 
     Ok(Json(serde_json::json!({})))
 }
@@ -775,35 +868,32 @@ pub async fn get_notification_group_accounts(
     Extension(auth): Extension<AuthenticatedUser>,
 ) -> AppResult<Json<Vec<super::types::Account>>> {
     auth.require_scope("read:notifications")?;
-    let notif_id: i64 = group_key
-        .strip_prefix("ungrouped-")
-        .and_then(|s| s.parse().ok())
-        .ok_or(AppError::NotFound)?;
+    let notifs = notifications_for_group_key(&state, auth.account_id, &group_key).await?;
+    if notifs.is_empty() {
+        return Err(AppError::NotFound);
+    }
 
-    let n: DbNotification = sqlx::query_as(
-        "SELECT * FROM notifications WHERE id = $1 AND account_id = $2",
-    )
-    .bind(notif_id)
-    .bind(auth.account_id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or(AppError::NotFound)?;
+    // Distinct source accounts, newest first (the notifications are id DESC).
+    let mut ordered_ids: Vec<i64> = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for n in &notifs {
+        if seen.insert(n.from_account_id) {
+            ordered_ids.push(n.from_account_id);
+        }
+    }
 
-    let account: Account = sqlx::query_as!(
+    let accounts: Vec<Account> = sqlx::query_as!(
         Account,
-        "SELECT * FROM accounts WHERE id = $1",
-        n.from_account_id,
+        "SELECT * FROM accounts WHERE id = ANY($1::bigint[])",
+        &ordered_ids,
     )
-    .fetch_one(&state.db)
+    .fetch_all(&state.db)
     .await?;
+    let account_map: std::collections::HashMap<i64, Account> =
+        accounts.into_iter().map(|a| (a.id, a)).collect();
 
-    let mut api_account = super::convert::account_from_db(&account);
-    api_account.emojis = fetch_account_emojis(&state, &account).await;
-    api_account.roles = {
-        let m = batch_account_roles(&state, std::slice::from_ref(&account)).await;
-        m.get(&account.id).cloned().unwrap_or_default()
-    };
-    Ok(Json(vec![api_account]))
+    let ordered: Vec<Account> = ordered_ids.iter().filter_map(|id| account_map.get(id).cloned()).collect();
+    Ok(Json(batch_accounts_to_api(&state, &ordered).await))
 }
 
 // ── GET /api/v1/notifications/unread_count ───────────────────────────────

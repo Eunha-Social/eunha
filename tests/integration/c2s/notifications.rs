@@ -577,6 +577,58 @@ async fn test_get_notifications_v2() {
     assert!(follow_group.is_some(), "no follow notification group found");
 }
 
+/// v2 notifications aggregate favourites of the same status into one group with
+/// a shared key, a count, and multiple sample accounts (Mastodon grouping).
+#[tokio::test]
+async fn test_v2_notifications_group_favourites() {
+    let ctx = TestContext::new("notif-v2-group").await;
+
+    let (_carol_id, carol_token) =
+        crate::helpers::seed_user(&ctx.db, &ctx.domain, "carolgroup", "carolgroup@test.invalid").await;
+
+    // Bob posts; Alice and Carol both favourite it.
+    let status = ctx.api.post_status(&ctx.bob_token, "group me", "public").await;
+    let sid = status["id"].as_str().unwrap();
+    ctx.api.post_json(&format!("/api/v1/statuses/{sid}/favourite"), Some(&ctx.alice_token), &json!({})).await;
+    ctx.api.post_json(&format!("/api/v1/statuses/{sid}/favourite"), Some(&carol_token), &json!({})).await;
+
+    let body: Value = ctx.api.get("/api/v2/notifications", Some(&ctx.bob_token))
+        .await.json().await.unwrap();
+    let groups = body["notification_groups"].as_array().unwrap();
+
+    let fav_group = groups.iter()
+        .find(|g| g["type"].as_str() == Some("favourite"))
+        .expect("no favourite group");
+    assert_eq!(fav_group["notifications_count"].as_i64(), Some(2), "two favourites should be one group of 2");
+    assert_eq!(
+        fav_group["sample_account_ids"].as_array().map(|a| a.len()),
+        Some(2),
+        "group should sample both favouriting accounts",
+    );
+    let group_key = fav_group["group_key"].as_str().unwrap();
+    assert_eq!(group_key, format!("favourite-{sid}"), "group key should be favourite-<status_id>");
+
+    // The group_key resolves via the single-group endpoint.
+    let single: Value = ctx.api.get(&format!("/api/v2/notifications/{group_key}"), Some(&ctx.bob_token))
+        .await.json().await.unwrap();
+    assert_eq!(single["notifications_count"].as_i64(), Some(2));
+
+    // And its accounts endpoint returns both.
+    let accts: Vec<Value> = ctx.api.get(&format!("/api/v2/notifications/{group_key}/accounts"), Some(&ctx.bob_token))
+        .await.json().await.unwrap();
+    assert_eq!(accts.len(), 2, "group accounts endpoint should list both favouriters");
+
+    // Dismissing the group removes both underlying notifications.
+    let dismiss = ctx.api.post_json(&format!("/api/v2/notifications/{group_key}/dismiss"), Some(&ctx.bob_token), &json!({})).await;
+    assert_eq!(dismiss.status(), StatusCode::OK);
+    let after: Value = ctx.api.get("/api/v2/notifications", Some(&ctx.bob_token))
+        .await.json().await.unwrap();
+    assert!(
+        !after["notification_groups"].as_array().unwrap().iter().any(|g| g["type"].as_str() == Some("favourite")),
+        "favourite group should be gone after dismiss",
+    );
+}
+
 /// GET /api/v1/notifications?since_id=X returns only notifications newer than X.
 #[tokio::test]
 async fn test_notifications_since_id_pagination() {
