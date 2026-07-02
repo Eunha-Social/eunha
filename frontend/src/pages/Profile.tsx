@@ -18,6 +18,10 @@ import { TimelineStack } from '@/components/timeline-stack.tsx'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar.tsx'
 import { Button } from '@/components/ui/button.tsx'
 
+function hasCustomHeader(header: string | null | undefined) {
+  return !!header && !header.includes('/headers/original/missing')
+}
+
 export default function Profile() {
   const { acct = '' } = useParams()
   const handle = acct.replace(/^@/, '')
@@ -85,7 +89,7 @@ export default function Profile() {
       {error && <p className="text-destructive text-sm">{error}</p>}
       {account && (
         <>
-          {account.header && (
+          {hasCustomHeader(account.header) && (
             <img
               src={account.header}
               alt=""
