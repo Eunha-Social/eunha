@@ -3549,14 +3549,14 @@ pub async fn remove_from_followers(
 ) -> AppResult<Json<Relationship>> {
     auth.require_scope("write:follows")?;
     let deleted = sqlx::query!(
-        "DELETE FROM follows WHERE account_id = $1 AND target_account_id = $2 RETURNING 1 as exists",
+        "DELETE FROM follows WHERE account_id = $1 AND target_account_id = $2 RETURNING uri",
         requester_id,
         auth.account_id,
     )
     .fetch_optional(&state.db)
     .await?;
 
-    if deleted.is_some() {
+    if let Some(ref row) = deleted {
         sqlx::query!(
             "UPDATE account_stats SET followers_count = GREATEST(followers_count - 1, 0), updated_at = now() WHERE account_id = $1",
             auth.account_id
@@ -3569,6 +3569,40 @@ pub async fn remove_from_followers(
         )
         .execute(&state.db)
         .await?;
+
+        // Tell a removed remote follower they're no longer following us
+        // (Mastodon RemoveFromFollowersService → Reject(Follow)).
+        if let Some(follow_uri) = row.uri.clone().filter(|s| !s.is_empty()) {
+            let remover = fetch_account(&state, auth.account_id).await?;
+            let follower = fetch_account(&state, requester_id).await?;
+            if follower.domain.is_some()
+                && remover.private_key.as_deref().is_some_and(|s| !s.is_empty())
+            {
+                let actor_url = crate::federation::tag::account_uri_of(&state.instance.domain, &remover);
+                let key_id = format!("{actor_url}#main-key");
+                let reject_id = format!(
+                    "https://{}/activities/{}",
+                    state.instance.domain,
+                    crate::snowflake::next_id()
+                );
+                if let Ok(activity) = crate::federation::activity::reject_follow(
+                    &reject_id, &actor_url, &follow_uri, &follower.uri, &actor_url,
+                ) {
+                    let inbox = if !follower.shared_inbox_url.is_empty() {
+                        follower.shared_inbox_url.clone()
+                    } else {
+                        follower.inbox_url.clone()
+                    };
+                    if !inbox.is_empty() {
+                        if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+                            &state, activity, vec![inbox], key_id,
+                        ).await {
+                            tracing::warn!(error = %e, "failed to enqueue Reject(Follow) for removed follower");
+                        }
+                    }
+                }
+            }
+        }
     }
 
     build_relationship(&state, auth.account_id, requester_id).await.map(Json)
