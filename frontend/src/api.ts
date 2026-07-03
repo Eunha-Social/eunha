@@ -20,20 +20,27 @@ export function postStatus(
     status: string
     visibility?: mastodon.v1.StatusVisibility
     inReplyToId?: string
+    quotedStatusId?: string
     mediaIds?: string[]
   },
 ): Promise<mastodon.v1.Status> {
-  const { status, visibility, inReplyToId, mediaIds } = params
+  const { status, visibility, inReplyToId, quotedStatusId, mediaIds } = params
   // With media, masto requires the media-ids variant (status optional).
   if (mediaIds && mediaIds.length > 0) {
     return restClient(token).v1.statuses.create({
       status,
       visibility,
       inReplyToId,
+      quotedStatusId,
       mediaIds,
     })
   }
-  return restClient(token).v1.statuses.create({ status, visibility, inReplyToId })
+  return restClient(token).v1.statuses.create({
+    status,
+    visibility,
+    inReplyToId,
+    quotedStatusId,
+  })
 }
 
 export function uploadMedia(

@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button.tsx'
 
 type ComposeOptions = {
   replyTo?: mastodon.v1.Status | null
+  quoteOf?: mastodon.v1.Status | null
   onPosted?: (status: mastodon.v1.Status) => void
 }
 
@@ -28,17 +29,20 @@ const ComposeModalContext = createContext<ComposeModalContextValue | null>(null)
 export function ComposeModalProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false)
   const [replyTo, setReplyTo] = useState<mastodon.v1.Status | null>(null)
+  const [quoteOf, setQuoteOf] = useState<mastodon.v1.Status | null>(null)
   const [onPosted, setOnPosted] =
     useState<((status: mastodon.v1.Status) => void) | null>(null)
 
   const close = useCallback(() => {
     setOpen(false)
     setReplyTo(null)
+    setQuoteOf(null)
     setOnPosted(null)
   }, [])
 
   const openCompose = useCallback((options?: ComposeOptions) => {
     setReplyTo(options?.replyTo ?? null)
+    setQuoteOf(options?.quoteOf ?? null)
     setOnPosted(() => options?.onPosted ?? null)
     setOpen(true)
   }, [])
@@ -55,7 +59,7 @@ export function ComposeModalProvider({ children }: { children: ReactNode }) {
               <div className="bg-card text-card-foreground w-full max-w-xl rounded-md border shadow-lg">
                 <div className="flex items-center justify-between border-b px-4 py-2">
                   <h2 className="text-sm font-semibold">
-                    {replyTo ? 'Reply' : 'Post'}
+                    {replyTo ? 'Reply' : quoteOf ? 'Quote post' : 'Post'}
                   </h2>
                   <Button
                     variant="ghost"
@@ -69,7 +73,8 @@ export function ComposeModalProvider({ children }: { children: ReactNode }) {
                 <Compose
                   token={token}
                   replyTo={replyTo}
-                  onCancelReply={replyTo ? close : undefined}
+                  quoteOf={quoteOf}
+                  onCancelReply={replyTo || quoteOf ? close : undefined}
                   onPosted={(status) => {
                     onPosted?.(status)
                     close()

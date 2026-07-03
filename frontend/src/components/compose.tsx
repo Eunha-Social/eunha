@@ -45,12 +45,14 @@ function statusToTextMentions(
 export function Compose({
   token,
   replyTo,
+  quoteOf,
   onCancelReply,
   onPosted,
   framed = true,
 }: {
   token: string
   replyTo: mastodon.v1.Status | null
+  quoteOf?: mastodon.v1.Status | null
   onCancelReply?: () => void
   onPosted: (status: mastodon.v1.Status) => void
   framed?: boolean
@@ -127,7 +129,12 @@ export function Compose({
     )
 
   const submit = async () => {
-    if ((!text.trim() && attachments.length === 0) || busy || uploading) return
+    if (
+      (!text.trim() && attachments.length === 0 && !quoteOf) ||
+      busy ||
+      uploading
+    )
+      return
     setBusy(true)
     setError(null)
     try {
@@ -135,6 +142,7 @@ export function Compose({
         status: text,
         visibility,
         inReplyToId: replyTo?.id,
+        quotedStatusId: quoteOf?.id,
         mediaIds: attachments.map((a) => a.id),
       })
       setText('')
@@ -173,13 +181,24 @@ export function Compose({
     mentions.onKeyDown(e)
   }
 
-  const canPost = (text.trim().length > 0 || attachments.length > 0) && !uploading
+  const canPost =
+    (text.trim().length > 0 || attachments.length > 0 || !!quoteOf) && !uploading
 
   const content = (
     <CardContent className="space-y-2">
         {replyTo && (
           <div className="text-muted-foreground flex items-center justify-between text-xs">
             <span>Replying to @{replyTo.account.acct}</span>
+            {onCancelReply && (
+              <button className="underline" onClick={onCancelReply}>
+                cancel
+              </button>
+            )}
+          </div>
+        )}
+        {quoteOf && (
+          <div className="text-muted-foreground flex items-center justify-between text-xs">
+            <span>Quoting @{quoteOf.account.acct}</span>
             {onCancelReply && (
               <button className="underline" onClick={onCancelReply}>
                 cancel
@@ -321,9 +340,9 @@ export function Compose({
             size="sm"
             disabled={busy || !canPost}
             onClick={submit}
-            title={`${replyTo ? 'Reply' : 'Post'} (⌘/Ctrl + Enter)`}
+            title={`${replyTo ? 'Reply' : quoteOf ? 'Quote' : 'Post'} (⌘/Ctrl + Enter)`}
           >
-            {replyTo ? 'Reply' : 'Post'}
+            {replyTo ? 'Reply' : quoteOf ? 'Quote' : 'Post'}
           </Button>
         </div>
     </CardContent>

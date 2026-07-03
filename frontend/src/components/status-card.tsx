@@ -8,6 +8,7 @@ import {
   LockOpen,
   MoreHorizontal,
   Pencil,
+  Quote,
   Repeat2,
   Reply,
   Star,
@@ -36,6 +37,7 @@ import {
 import { MediaAttachments } from '@/components/media-attachments.tsx'
 import { Poll } from '@/components/poll.tsx'
 import { RelativeTime } from '@/components/relative-time.tsx'
+import { useComposeModal } from '@/components/compose-modal.tsx'
 import { cn } from '@/lib/utils.ts'
 
 const VISIBILITY: Record<
@@ -54,6 +56,62 @@ function VisibilityIcon({ v }: { v: mastodon.v1.StatusVisibility }) {
     <span title={label} className="inline-flex" aria-label={label}>
       <Icon className="size-3.5" />
     </span>
+  )
+}
+
+// Non-accepted quotes serialize a placeholder (no embedded status). Mirror
+// Mastodon's copy for why the quoted post isn't shown.
+const QUOTE_PLACEHOLDER: Record<string, string> = {
+  pending: 'Quote pending the author’s approval.',
+  rejected: 'The author declined this quote.',
+  revoked: 'The author revoked this quote.',
+  deleted: 'The quoted post was deleted.',
+  unauthorized: 'This quote is not authorized.',
+  blocked_account: 'Quoted post from a blocked account.',
+  blocked_domain: 'Quoted post from a blocked domain.',
+  muted_account: 'Quoted post from a muted account.',
+}
+
+// The post embedded by a quote. `quote.quotedStatus` is present (and the state
+// is "accepted") only when the viewer may see it; otherwise show a placeholder.
+function QuotedStatus({
+  quote,
+}: {
+  quote: NonNullable<mastodon.v1.Status['quote']>
+}) {
+  const quoted = 'quotedStatus' in quote ? quote.quotedStatus : null
+  if (quote.state !== 'accepted' || !quoted) {
+    return (
+      <div className="text-muted-foreground rounded-md border px-3 py-2 text-xs">
+        {QUOTE_PLACEHOLDER[quote.state] ?? 'Quoted post unavailable.'}
+      </div>
+    )
+  }
+  const name = quoted.account.displayName || quoted.account.username
+  return (
+    <Link
+      to={`/@${quoted.account.acct}/${quoted.id}`}
+      className="hover:bg-accent/40 block rounded-md border p-2 no-underline"
+    >
+      <div className="flex items-center gap-1.5 text-xs">
+        <Avatar className="size-4 rounded">
+          <AvatarImage src={quoted.account.avatar} alt="" />
+          <AvatarFallback>{name.slice(0, 1).toUpperCase()}</AvatarFallback>
+        </Avatar>
+        <span className="text-foreground font-semibold">{name}</span>
+        <span className="text-muted-foreground">@{quoted.account.acct}</span>
+      </div>
+      <div
+        className="text-foreground/90 mt-1 line-clamp-6 text-sm [&_a]:underline"
+        dangerouslySetInnerHTML={{ __html: quoted.content }}
+      />
+      {quoted.mediaAttachments.length > 0 && (
+        <p className="text-muted-foreground mt-1 text-xs">
+          {quoted.mediaAttachments.length} attachment
+          {quoted.mediaAttachments.length > 1 ? 's' : ''}
+        </p>
+      )}
+    </Link>
   )
 }
 
@@ -109,8 +167,19 @@ export function StatusCard({
   const [editSpoiler, setEditSpoiler] = useState('')
   const [saving, setSaving] = useState(false)
   const navigate = useNavigate()
+  const { openCompose } = useComposeModal()
 
   const isOwn = !!token && getMeId() === status.account.id
+  // Whether the viewer may quote this post. "manual" still allows quoting; the
+  // resulting quote just starts out pending the author's approval. Private and
+  // direct posts are never quotable (the server rejects them anyway).
+  const currentUserPolicy = status.quoteApproval?.currentUser
+  const canQuote =
+    !!token &&
+    (currentUserPolicy === 'automatic' || currentUserPolicy === 'manual') &&
+    status.visibility !== 'private' &&
+    status.visibility !== 'direct'
+  const hasMenu = isOwn || canQuote
 
   useEffect(() => {
     setStatus(initial)
@@ -205,7 +274,7 @@ export function StatusCard({
               <RelativeTime value={status.createdAt} />
             </Link>
             {status.editedAt && <span title="Edited">(edited)</span>}
-            {isOwn && (
+            {hasMenu && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
@@ -217,12 +286,23 @@ export function StatusCard({
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem onClick={startEdit}>
-                    <Pencil /> Edit
-                  </DropdownMenuItem>
-                  <DropdownMenuItem variant="destructive" onClick={onDelete}>
-                    <Trash2 /> Delete
-                  </DropdownMenuItem>
+                  {canQuote && (
+                    <DropdownMenuItem
+                      onClick={() => openCompose({ quoteOf: status })}
+                    >
+                      <Quote /> Quote
+                    </DropdownMenuItem>
+                  )}
+                  {isOwn && (
+                    <>
+                      <DropdownMenuItem onClick={startEdit}>
+                        <Pencil /> Edit
+                      </DropdownMenuItem>
+                      <DropdownMenuItem variant="destructive" onClick={onDelete}>
+                        <Trash2 /> Delete
+                      </DropdownMenuItem>
+                    </>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
@@ -278,6 +358,7 @@ export function StatusCard({
                   />
                 )}
                 {status.poll && <Poll poll={status.poll} token={token} />}
+                {status.quote && <QuotedStatus quote={status.quote} />}
               </>
             )}
           </>
