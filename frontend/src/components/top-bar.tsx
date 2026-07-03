@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
-import { Bell, LogIn, LogOut, Pencil, Search, User, UserPlus } from 'lucide-react'
+import { Bell, Home, LogIn, LogOut, Pencil, Search, User, UserPlus } from 'lucide-react'
 
 import { getInstance } from '../api.ts'
 import { beginLogin, getToken, logout } from '../auth.ts'
@@ -31,6 +31,13 @@ function Sidebar({
         {title}
       </Link>
       <nav className="flex flex-col gap-1">
+        <NavLink
+          to="/"
+          end
+          className={({ isActive }) => cn(navLink, isActive && activeNavLink)}
+        >
+          <Home className="size-4" /> Home
+        </NavLink>
         {token && account && (
           <NavLink
             to={`/@${account.acct}`}
