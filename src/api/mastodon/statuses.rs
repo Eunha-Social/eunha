@@ -37,6 +37,30 @@ pub struct PollForm {
     pub hide_totals: Option<bool>,
 }
 
+/// Embed the (context-less) quote `note` as a QuoteRequest's `instrument`,
+/// folding the Note's JSON-LD term definitions into the request's compound
+/// `@context` so the embedded terms (`quote`, `Hashtag`, `sensitive`, …) still
+/// resolve. Mirrors how [`crate::api::ap::note::NoteBundle::into_create`] hoists
+/// the note context to the activity's top level.
+fn inline_quote_instrument(request: &mut serde_json::Value, note: serde_json::Value) {
+    let note_ctx = crate::api::ap::note::note_context();
+    if let (Some(req_terms), Some(note_terms)) = (
+        request
+            .get_mut("@context")
+            .and_then(serde_json::Value::as_array_mut)
+            .and_then(|ctx| ctx.get_mut(1))
+            .and_then(serde_json::Value::as_object_mut),
+        note_ctx.as_array().and_then(|ctx| ctx.get(1)).and_then(serde_json::Value::as_object),
+    ) {
+        for (key, value) in note_terms {
+            req_terms
+                .entry(key.clone())
+                .or_insert_with(|| value.clone());
+        }
+    }
+    request["instrument"] = note;
+}
+
 /// Maximum media attachments per status (Mastodon `Status::MEDIA_ATTACHMENTS_LIMIT`).
 const MEDIA_ATTACHMENTS_LIMIT: usize = 4;
 
@@ -966,6 +990,9 @@ pub async fn post_status(
                 status.id
             )));
         };
+        // Keep a copy of the (context-less) Note to inline as the QuoteRequest
+        // `instrument` below, before the bundle is consumed by `into_create`.
+        let quote_note = quote_of_id.map(|_| bundle.note.clone());
         let activity = bundle.into_create();
 
         // FEP-044f: ask a remote quoted author for consent to quote them.
@@ -994,12 +1021,20 @@ pub async fn post_status(
                     qa.inbox_url
                 };
                 if !qinbox.is_empty() {
-                    if let Ok(qr) = crate::federation::consent::quote_request(
+                    if let Ok(mut qr) = crate::federation::consent::quote_request(
                         qr_uri,
                         &actor_url,
                         &quoted_status_uri,
                         &uri,
                     ) {
+                        // Inline the quote Note as `instrument` (Mastodon's
+                        // `allow_post_inlining`): the quoted author's server
+                        // validates the request against the embedded object
+                        // rather than dereferencing it, so quoting works even
+                        // for non-public posts it cannot fetch from us.
+                        if let Some(note) = quote_note.clone() {
+                            inline_quote_instrument(&mut qr, note);
+                        }
                         if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
                             &state,
                             qr,
@@ -4321,4 +4356,49 @@ pub async fn store_status_mentions(
         .await?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod inline_quote_tests {
+    use super::inline_quote_instrument;
+    use serde_json::json;
+
+    #[test]
+    fn inlines_note_and_merges_context() {
+        // A QuoteRequest as feder-vocab emits it: compound @context declaring the
+        // FEP-044f `QuoteRequest` term, with `instrument` as a bare URI.
+        let mut request = json!({
+            "@context": [
+                "https://www.w3.org/ns/activitystreams",
+                { "QuoteRequest": "https://w3id.org/fep/044f#QuoteRequest" }
+            ],
+            "type": "QuoteRequest",
+            "id": "https://seoul.earth/users/sohu/quote_requests/1",
+            "actor": "https://seoul.earth/users/sohu",
+            "object": "https://hackers.pub/ap/notes/abc",
+            "instrument": "https://seoul.earth/users/sohu/statuses/1",
+        });
+        // The context-less Note we inline (as `NoteBundle::note` is built).
+        let note = json!({
+            "id": "https://seoul.earth/users/sohu/statuses/1",
+            "type": "Note",
+            "attributedTo": "https://seoul.earth/users/sohu",
+            "quote": "https://hackers.pub/ap/notes/abc",
+            "quoteUrl": "https://hackers.pub/ap/notes/abc",
+        });
+
+        inline_quote_instrument(&mut request, note.clone());
+
+        // The instrument is now the embedded Note object, not a URI.
+        assert_eq!(request["instrument"], note);
+        assert_eq!(request["instrument"]["quote"], "https://hackers.pub/ap/notes/abc");
+
+        // The request context keeps the QuoteRequest term and gains the Note's
+        // JSON-LD terms so the embedded fields resolve.
+        let terms = &request["@context"][1];
+        assert_eq!(terms["QuoteRequest"], "https://w3id.org/fep/044f#QuoteRequest");
+        assert_eq!(terms["quote"], json!({ "@id": "fep:quote", "@type": "@id" }));
+        assert_eq!(terms["Hashtag"], "as:Hashtag");
+        assert_eq!(terms["sensitive"], "as:sensitive");
+    }
 }
