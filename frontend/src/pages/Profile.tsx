@@ -26,6 +26,211 @@ function hasCustomHeader(header: string | null | undefined) {
   return !!header && !header.includes('/headers/original/missing')
 }
 
+type ImageKind = 'avatar' | 'header'
+
+interface CropDraft {
+  kind: ImageKind
+  file: File
+  url: string
+}
+
+function cropConfig(kind: ImageKind) {
+  return kind === 'avatar'
+    ? { aspect: 1, width: 400, height: 400 }
+    : { aspect: 3, width: 1500, height: 500 }
+}
+
+function ProfileImageCropModal({
+  draft,
+  onCancel,
+  onComplete,
+}: {
+  draft: CropDraft
+  onCancel: () => void
+  onComplete: (file: File) => void
+}) {
+  const config = cropConfig(draft.kind)
+  const frameRef = useRef<HTMLDivElement>(null)
+  const imageRef = useRef<HTMLImageElement>(null)
+  const dragRef = useRef<{ pointerId: number; x: number; y: number } | null>(null)
+  const [imageSize, setImageSize] = useState({ width: 0, height: 0 })
+  const [pan, setPan] = useState({ x: 0, y: 0 })
+  const [zoom, setZoom] = useState(1)
+  const [busy, setBusy] = useState(false)
+
+  const clampPan = (next: { x: number; y: number }, nextZoom = zoom) => {
+    const frame = frameRef.current
+    if (!frame || imageSize.width === 0 || imageSize.height === 0) return next
+
+    const frameWidth = frame.clientWidth
+    const frameHeight = frame.clientHeight
+    const scale = Math.max(
+      frameWidth / imageSize.width,
+      frameHeight / imageSize.height,
+    ) * nextZoom
+    const renderedWidth = imageSize.width * scale
+    const renderedHeight = imageSize.height * scale
+    const maxX = Math.max(0, (renderedWidth - frameWidth) / 2)
+    const maxY = Math.max(0, (renderedHeight - frameHeight) / 2)
+
+    return {
+      x: Math.min(maxX, Math.max(-maxX, next.x)),
+      y: Math.min(maxY, Math.max(-maxY, next.y)),
+    }
+  }
+
+  useEffect(() => {
+    setPan((current) => clampPan(current))
+    // Re-clamp when the source image changes size.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [imageSize.width, imageSize.height])
+
+  const complete = async () => {
+    const frame = frameRef.current
+    const image = imageRef.current
+    if (!frame || !image || imageSize.width === 0 || imageSize.height === 0) return
+
+    setBusy(true)
+    try {
+      const frameWidth = frame.clientWidth
+      const frameHeight = frame.clientHeight
+      const scale = Math.max(
+        frameWidth / imageSize.width,
+        frameHeight / imageSize.height,
+      ) * zoom
+      const renderedWidth = imageSize.width * scale
+      const renderedHeight = imageSize.height * scale
+      const left = (frameWidth - renderedWidth) / 2 + pan.x
+      const top = (frameHeight - renderedHeight) / 2 + pan.y
+      const sourceX = Math.max(0, -left / scale)
+      const sourceY = Math.max(0, -top / scale)
+      const sourceWidth = Math.min(imageSize.width - sourceX, frameWidth / scale)
+      const sourceHeight = Math.min(imageSize.height - sourceY, frameHeight / scale)
+
+      const canvas = document.createElement('canvas')
+      canvas.width = config.width
+      canvas.height = config.height
+      const ctx = canvas.getContext('2d')
+      if (!ctx) throw new Error('Could not prepare image crop')
+      ctx.imageSmoothingQuality = 'high'
+      ctx.drawImage(
+        image,
+        sourceX,
+        sourceY,
+        sourceWidth,
+        sourceHeight,
+        0,
+        0,
+        config.width,
+        config.height,
+      )
+      const blob = await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob(
+          (result) => {
+            if (result) resolve(result)
+            else reject(new Error('Could not export image crop'))
+          },
+          draft.file.type || 'image/png',
+          0.92,
+        )
+      })
+      onComplete(new File([blob], draft.file.name, { type: blob.type }))
+    } catch {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-3 py-8">
+      <div className="bg-background w-full max-w-xl border shadow-lg">
+        <div className="flex items-center justify-between border-b px-4 py-3">
+          <div className="font-semibold">
+            {draft.kind === 'avatar' ? 'Crop avatar' : 'Crop header'}
+          </div>
+          <Button variant="ghost" size="sm" onClick={onCancel} disabled={busy}>
+            Cancel
+          </Button>
+        </div>
+        <div className="space-y-4 p-4">
+          <div
+            ref={frameRef}
+            className="bg-muted relative w-full touch-none overflow-hidden border"
+            style={{ aspectRatio: String(config.aspect) }}
+            onPointerDown={(event) => {
+              event.currentTarget.setPointerCapture(event.pointerId)
+              dragRef.current = {
+                pointerId: event.pointerId,
+                x: event.clientX,
+                y: event.clientY,
+              }
+            }}
+            onPointerMove={(event) => {
+              const drag = dragRef.current
+              if (!drag || drag.pointerId !== event.pointerId) return
+              const dx = event.clientX - drag.x
+              const dy = event.clientY - drag.y
+              dragRef.current = { ...drag, x: event.clientX, y: event.clientY }
+              setPan((current) => clampPan({ x: current.x + dx, y: current.y + dy }))
+            }}
+            onPointerUp={(event) => {
+              if (dragRef.current?.pointerId === event.pointerId) dragRef.current = null
+            }}
+            onPointerCancel={() => {
+              dragRef.current = null
+            }}
+          >
+            <img
+              ref={imageRef}
+              src={draft.url}
+              alt=""
+              draggable={false}
+              className="absolute top-1/2 left-1/2 max-w-none select-none"
+              style={{
+                width: imageSize.width
+                  ? `${imageSize.width * Math.max(
+                      (frameRef.current?.clientWidth ?? 1) / imageSize.width,
+                      (frameRef.current?.clientHeight ?? 1) / imageSize.height,
+                    ) * zoom}px`
+                  : undefined,
+                transform: `translate(calc(-50% + ${pan.x}px), calc(-50% + ${pan.y}px))`,
+              }}
+              onLoad={(event) => {
+                setImageSize({
+                  width: event.currentTarget.naturalWidth,
+                  height: event.currentTarget.naturalHeight,
+                })
+              }}
+            />
+          </div>
+          <label className="grid gap-2 text-sm">
+            <span className="text-muted-foreground">Zoom</span>
+            <input
+              type="range"
+              min="1"
+              max="3"
+              step="0.01"
+              value={zoom}
+              onChange={(event) => {
+                const nextZoom = event.currentTarget.valueAsNumber
+                setZoom(nextZoom)
+                setPan((current) => clampPan(current, nextZoom))
+              }}
+            />
+          </label>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={onCancel} disabled={busy}>
+              Cancel
+            </Button>
+            <Button onClick={() => void complete()} disabled={busy || imageSize.width === 0}>
+              Save
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Profile() {
   const { acct = '' } = useParams()
   const handle = acct.replace(/^@/, '')
@@ -38,6 +243,7 @@ export default function Profile() {
   const [relationshipBusy, setRelationshipBusy] = useState(false)
   const [imageBusy, setImageBusy] = useState<'avatar' | 'header' | null>(null)
   const [imageError, setImageError] = useState<string | null>(null)
+  const [cropDraft, setCropDraft] = useState<CropDraft | null>(null)
   const avatarInputRef = useRef<HTMLInputElement>(null)
   const headerInputRef = useRef<HTMLInputElement>(null)
 
@@ -131,12 +337,33 @@ export default function Profile() {
     (kind: 'avatar' | 'header') => (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.currentTarget.files?.[0] ?? null
       event.currentTarget.value = ''
-      if (file) void updateProfileImage(kind, file)
+      if (!file) return
+      if (file.type === 'image/gif') {
+        void updateProfileImage(kind, file)
+        return
+      }
+      setCropDraft({ kind, file, url: URL.createObjectURL(file) })
     }
+
+  const closeCrop = () => {
+    if (cropDraft) URL.revokeObjectURL(cropDraft.url)
+    setCropDraft(null)
+  }
 
   return (
     <div className="page-frame">
       <TopBar />
+      {cropDraft && (
+        <ProfileImageCropModal
+          draft={cropDraft}
+          onCancel={closeCrop}
+          onComplete={(file) => {
+            const kind = cropDraft.kind
+            closeCrop()
+            void updateProfileImage(kind, file)
+          }}
+        />
+      )}
       {error && <p className="text-destructive text-sm">{error}</p>}
       {account && (
         <>
