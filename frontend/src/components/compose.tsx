@@ -9,13 +9,37 @@ import { Paperclip, X } from 'lucide-react'
 
 import type { mastodon } from '../masto.ts'
 import { postStatus, updateMediaDescription, uploadMedia } from '../api.ts'
-import { getDefaultVisibility, loadMe } from '../me.ts'
+import { getDefaultVisibility, getMeId, loadMe } from '../me.ts'
 import { useMentionAutocomplete } from '../hooks/use-mention-autocomplete.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Card, CardContent } from '@/components/ui/card.tsx'
 import { cn } from '@/lib/utils.ts'
 
 const MAX_ATTACHMENTS = 4
+
+// Seed a reply's text with the handles of everyone in the conversation, the way
+// Mastodon's web client does (reducers/compose.js `statusToTextMentions`): the
+// replied-to author first, then the status's other mentions, excluding oneself
+// and de-duplicated. Without these handles in the body the server — which
+// derives mentions by parsing @handles from the text — creates no mention row
+// for the author, so they never get a reply/mention notification.
+function statusToTextMentions(
+  status: mastodon.v1.Status,
+  meId: string | null,
+): string {
+  const handles: string[] = []
+  const seen = new Set<string>()
+  const add = (acct: string) => {
+    if (seen.has(acct)) return
+    seen.add(acct)
+    handles.push(`@${acct}`)
+  }
+  if (status.account.id !== meId) add(status.account.acct)
+  for (const mention of status.mentions) {
+    if (mention.id !== meId) add(mention.acct)
+  }
+  return handles.length > 0 ? `${handles.join(' ')} ` : ''
+}
 
 export function Compose({
   token,
@@ -53,6 +77,24 @@ export function Compose({
       cancelled = true
     }
   }, [token])
+
+  // When a reply is opened, prefill the composer with the conversation's
+  // handles (like Mastodon's COMPOSE_REPLY) and park the caret after them so
+  // the user types their message after the mentions.
+  useEffect(() => {
+    if (!replyTo) return
+    const seed = statusToTextMentions(replyTo, getMeId())
+    setText(seed)
+    setCaret(seed.length)
+    requestAnimationFrame(() => {
+      const el = textareaRef.current
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(seed.length, seed.length)
+    })
+    // Reseed only when the reply target changes, never on each keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replyTo?.id])
 
   const onFiles = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? [])
