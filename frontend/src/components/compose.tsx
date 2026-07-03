@@ -3,6 +3,7 @@ import {
   useRef,
   useState,
   type ChangeEvent,
+  type KeyboardEvent,
   type SyntheticEvent,
 } from 'react'
 import { Paperclip, X } from 'lucide-react'
@@ -159,6 +160,19 @@ export function Compose({
   const syncCaret = (e: SyntheticEvent<HTMLTextAreaElement>) =>
     setCaret(e.currentTarget.selectionStart ?? 0)
 
+  // Cmd+Enter (macOS) / Ctrl+Enter posts, including replies. Checked before the
+  // mention handler so the shortcut fires even while the autocomplete popup is
+  // open; plain Enter still selects a suggestion there. submit() guards against
+  // empty/in-flight posts, so calling it unconditionally is safe.
+  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault()
+      void submit()
+      return
+    }
+    mentions.onKeyDown(e)
+  }
+
   const canPost = (text.trim().length > 0 || attachments.length > 0) && !uploading
 
   const content = (
@@ -185,7 +199,7 @@ export function Compose({
               setCaret(e.target.selectionStart ?? 0)
             }}
             onSelect={syncCaret}
-            onKeyDown={mentions.onKeyDown}
+            onKeyDown={onKeyDown}
           />
           {mentions.open && (
             <ul
@@ -303,7 +317,12 @@ export function Compose({
               <span className="text-muted-foreground text-xs">Uploading…</span>
             )}
           </div>
-          <Button size="sm" disabled={busy || !canPost} onClick={submit}>
+          <Button
+            size="sm"
+            disabled={busy || !canPost}
+            onClick={submit}
+            title={`${replyTo ? 'Reply' : 'Post'} (⌘/Ctrl + Enter)`}
+          >
             {replyTo ? 'Reply' : 'Post'}
           </Button>
         </div>
