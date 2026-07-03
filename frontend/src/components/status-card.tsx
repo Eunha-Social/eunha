@@ -60,8 +60,8 @@ function VisibilityIcon({ v }: { v: mastodon.v1.StatusVisibility }) {
   )
 }
 
-// Non-accepted quotes serialize a placeholder (no embedded status). Mirror
-// Mastodon's copy for why the quoted post isn't shown.
+// When the quoted post body isn't available (deleted / unauthorized / not yet
+// fetched), explain why in place of the embedded post. Mirrors Mastodon's copy.
 const QUOTE_PLACEHOLDER: Record<string, string> = {
   pending: 'Quote pending the author’s approval.',
   rejected: 'The author declined this quote.',
@@ -73,22 +73,33 @@ const QUOTE_PLACEHOLDER: Record<string, string> = {
   muted_account: 'Quoted post from a muted account.',
 }
 
-// The post embedded by a quote. `quote.quotedStatus` is present (and the state
-// is "accepted") only when the viewer may see it; otherwise show a placeholder.
+// The post embedded by a quote. Following Mastodon (a non-legacy quote is
+// "acceptable" regardless of approval state), we show the quoted post whenever
+// its body is present — including while a remote quote authorization is still
+// pending — and only fall back to a placeholder when the body is absent.
 function QuotedStatus({
   quote,
 }: {
   quote: NonNullable<mastodon.v1.Status['quote']>
 }) {
   const quoted = 'quotedStatus' in quote ? quote.quotedStatus : null
-  if (quote.state !== 'accepted' || !quoted) {
+  if (!quoted) {
     return (
       <div className="text-muted-foreground rounded-md border px-3 py-2 text-xs">
         {QUOTE_PLACEHOLDER[quote.state] ?? 'Quoted post unavailable.'}
       </div>
     )
   }
-  return <QuotedPost status={quoted} />
+  return (
+    <div className="space-y-1">
+      {quote.state === 'pending' && (
+        <p className="text-muted-foreground text-xs">
+          Quote pending the author’s approval
+        </p>
+      )}
+      <QuotedPost status={quoted} />
+    </div>
+  )
 }
 
 function ActionButton({
