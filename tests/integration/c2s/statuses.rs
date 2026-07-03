@@ -5897,6 +5897,43 @@ async fn test_silenced_account_public_downgraded_to_unlisted() {
     );
 }
 
+/// A direct-message quote of someone else's post must mention the quoted
+/// author, else it is rejected (Mastodon safeguard_private_mention_quote!).
+#[tokio::test]
+async fn test_direct_quote_requires_mentioning_quoted_author() {
+    let ctx = TestContext::new("direct-quote-safeguard").await;
+
+    let original = ctx
+        .api
+        .post_status(&ctx.alice_token, "alice public post", "public")
+        .await;
+    let original_id = original["id"].as_str().unwrap();
+
+    // Direct quote without mentioning Alice → 422.
+    let resp = ctx.api.post_json(
+        "/api/v1/statuses",
+        Some(&ctx.bob_token),
+        &json!({"status": "sneaky private quote", "quoted_status_id": original_id, "visibility": "direct"}),
+    ).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "direct quote without mentioning the quoted author must be rejected"
+    );
+
+    // Direct quote that mentions Alice → accepted.
+    let resp = ctx.api.post_json(
+        "/api/v1/statuses",
+        Some(&ctx.bob_token),
+        &json!({"status": "@alice look at this", "quoted_status_id": original_id, "visibility": "direct"}),
+    ).await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "direct quote mentioning the quoted author should be accepted"
+    );
+}
+
 /// Quoting a followers-only status forces the quote down to followers-only,
 /// even when the client asks for public. Mirrors Mastodon's
 /// PostStatusService#preprocess_attributes.

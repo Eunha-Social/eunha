@@ -327,6 +327,7 @@ pub async fn post_status(
     };
 
     // Validate quoted_status_id
+    let mut quoted_author_id: Option<i64> = None;
     let quote_of_id: Option<i64> = if let Some(ref qid_str) = form.quoted_status_id {
         let qid = qid_str
             .parse::<i64>()
@@ -372,6 +373,7 @@ pub async fn post_status(
                 "not allowed to interact with this post".into(),
             ));
         }
+        quoted_author_id = Some(quoted.account_id);
         Some(quoted.id)
     } else {
         None
@@ -380,6 +382,20 @@ pub async fn post_status(
     let hashtags = extract_hashtags(&text);
     let mention_handles = extract_mention_handles(&text);
     let resolved = resolve_mention_accounts(&state, &mention_handles, &instance.domain).await;
+
+    // Mastodon safeguard_private_mention_quote!: a direct post that quotes
+    // someone else's status must mention that author, otherwise they would be
+    // quoted into a conversation they cannot see.
+    if visibility == "direct" {
+        if let Some(qauthor) = quoted_author_id {
+            if qauthor != account.id && !resolved.iter().any(|(_, a)| a.id == qauthor) {
+                return Err(AppError::Unprocessable(
+                    "Validation failed: The quoted user must be mentioned in a direct message"
+                        .into(),
+                ));
+            }
+        }
+    }
 
     // Safeguard: if the caller passed allowed_mentions, reject the post if any resolved
     // mentions are not in that list (mirrors Mastodon's PostStatusService#safeguard_mentions!).
