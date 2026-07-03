@@ -14,6 +14,7 @@ import { getDefaultVisibility, getMeId, loadMe } from '../me.ts'
 import { useMentionAutocomplete } from '../hooks/use-mention-autocomplete.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Card, CardContent } from '@/components/ui/card.tsx'
+import { QuotedPost } from '@/components/quoted-post.tsx'
 import { cn } from '@/lib/utils.ts'
 
 const MAX_ATTACHMENTS = 4
@@ -197,13 +198,16 @@ export function Compose({
           </div>
         )}
         {quoteOf && (
-          <div className="text-muted-foreground flex items-center justify-between text-xs">
-            <span>Quoting @{quoteOf.account.acct}</span>
-            {onCancelReply && (
-              <button className="underline" onClick={onCancelReply}>
-                cancel
-              </button>
-            )}
+          <div className="space-y-1">
+            <div className="text-muted-foreground flex items-center justify-between text-xs">
+              <span>Quoting this post</span>
+              {onCancelReply && (
+                <button className="underline" onClick={onCancelReply}>
+                  cancel
+                </button>
+              )}
+            </div>
+            <QuotedPost status={quoteOf} linked={false} />
           </div>
         )}
         <div className="relative">

@@ -36,6 +36,7 @@ import {
 } from '@/components/ui/dropdown-menu.tsx'
 import { MediaAttachments } from '@/components/media-attachments.tsx'
 import { Poll } from '@/components/poll.tsx'
+import { QuotedPost } from '@/components/quoted-post.tsx'
 import { RelativeTime } from '@/components/relative-time.tsx'
 import { useComposeModal } from '@/components/compose-modal.tsx'
 import { cn } from '@/lib/utils.ts'
@@ -87,32 +88,7 @@ function QuotedStatus({
       </div>
     )
   }
-  const name = quoted.account.displayName || quoted.account.username
-  return (
-    <Link
-      to={`/@${quoted.account.acct}/${quoted.id}`}
-      className="hover:bg-accent/40 block rounded-md border p-2 no-underline"
-    >
-      <div className="flex items-center gap-1.5 text-xs">
-        <Avatar className="size-4 rounded">
-          <AvatarImage src={quoted.account.avatar} alt="" />
-          <AvatarFallback>{name.slice(0, 1).toUpperCase()}</AvatarFallback>
-        </Avatar>
-        <span className="text-foreground font-semibold">{name}</span>
-        <span className="text-muted-foreground">@{quoted.account.acct}</span>
-      </div>
-      <div
-        className="text-foreground/90 mt-1 line-clamp-6 text-sm [&_a]:underline"
-        dangerouslySetInnerHTML={{ __html: quoted.content }}
-      />
-      {quoted.mediaAttachments.length > 0 && (
-        <p className="text-muted-foreground mt-1 text-xs">
-          {quoted.mediaAttachments.length} attachment
-          {quoted.mediaAttachments.length > 1 ? 's' : ''}
-        </p>
-      )}
-    </Link>
-  )
+  return <QuotedPost status={quoted} />
 }
 
 function ActionButton({
