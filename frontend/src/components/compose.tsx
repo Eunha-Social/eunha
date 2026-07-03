@@ -1,11 +1,19 @@
-import { useEffect, useRef, useState, type ChangeEvent } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type SyntheticEvent,
+} from 'react'
 import { Paperclip, X } from 'lucide-react'
 
 import type { mastodon } from '../masto.ts'
 import { postStatus, updateMediaDescription, uploadMedia } from '../api.ts'
 import { getDefaultVisibility, loadMe } from '../me.ts'
+import { useMentionAutocomplete } from '../hooks/use-mention-autocomplete.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Card, CardContent } from '@/components/ui/card.tsx'
+import { cn } from '@/lib/utils.ts'
 
 const MAX_ATTACHMENTS = 4
 
@@ -23,6 +31,8 @@ export function Compose({
   framed?: boolean
 }) {
   const [text, setText] = useState('')
+  const [caret, setCaret] = useState(0)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [visibility, setVisibility] =
     useState<mastodon.v1.StatusVisibility>(() => getDefaultVisibility())
   const [attachments, setAttachments] = useState<mastodon.v1.MediaAttachment[]>([])
@@ -94,6 +104,19 @@ export function Compose({
     }
   }
 
+  const mentions = useMentionAutocomplete({
+    token,
+    text,
+    setText,
+    caret,
+    setCaret,
+    textareaRef,
+  })
+
+  // Keep the tracked caret in sync as it moves (arrows, clicks, selection).
+  const syncCaret = (e: SyntheticEvent<HTMLTextAreaElement>) =>
+    setCaret(e.currentTarget.selectionStart ?? 0)
+
   const canPost = (text.trim().length > 0 || attachments.length > 0) && !uploading
 
   const content = (
@@ -108,13 +131,57 @@ export function Compose({
             )}
           </div>
         )}
-        <textarea
-          className="bg-background focus-visible:ring-ring w-full resize-y rounded-md border p-2 text-sm outline-none focus-visible:ring-[3px]"
-          rows={3}
-          placeholder="What's on your mind?"
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-        />
+        <div className="relative">
+          <textarea
+            ref={textareaRef}
+            className="bg-background focus-visible:ring-ring w-full resize-y rounded-md border p-2 text-sm outline-none focus-visible:ring-[3px]"
+            rows={3}
+            placeholder="What's on your mind?"
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value)
+              setCaret(e.target.selectionStart ?? 0)
+            }}
+            onSelect={syncCaret}
+            onKeyDown={mentions.onKeyDown}
+          />
+          {mentions.open && (
+            <ul
+              className="bg-popover absolute top-full right-0 left-0 z-50 mt-1 max-h-56 overflow-auto rounded-md border py-1 shadow-md"
+              role="listbox"
+            >
+              {mentions.suggestions.map((a, i) => (
+                <li key={a.id} role="option" aria-selected={i === mentions.active}>
+                  <button
+                    type="button"
+                    // mousedown (not click) so the textarea keeps focus/caret.
+                    onMouseDown={(e) => {
+                      e.preventDefault()
+                      mentions.select(a)
+                    }}
+                    onMouseEnter={() => mentions.setActive(i)}
+                    className={cn(
+                      'flex w-full items-center gap-2 px-2 py-1.5 text-left text-sm',
+                      i === mentions.active && 'bg-accent',
+                    )}
+                  >
+                    <img
+                      src={a.avatar}
+                      alt=""
+                      className="size-6 shrink-0 rounded"
+                    />
+                    <span className="truncate font-medium">
+                      {a.displayName || a.username}
+                    </span>
+                    <span className="text-muted-foreground truncate text-xs">
+                      @{a.acct}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
 
         {attachments.length > 0 && (
           <div className="grid grid-cols-2 gap-2">

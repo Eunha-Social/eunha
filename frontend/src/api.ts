@@ -190,6 +190,15 @@ export async function getTagTimeline(
   return restClient(token).v1.timelines.tag.$select(name).list({ limit: 40, maxId })
 }
 
+export async function searchAccounts(
+  q: string,
+  token: string,
+  limit = 6,
+): Promise<mastodon.v1.Account[]> {
+  // Mention autocomplete: no WebFinger resolution (fast, local/known accounts).
+  return restClient(token).v1.accounts.search.list({ q, limit, resolve: false })
+}
+
 export async function getFollowRequests(
   token: string,
   maxId?: string,
