@@ -2269,7 +2269,7 @@ pub async fn admin_trending_tags(
     query: axum::extract::Query<super::trends::TrendParams>,
     auth: axum::extract::Extension<AuthenticatedUser>,
 ) -> AppResult<axum::Json<Vec<super::types::Tag>>> {
-    require_admin(&state, auth.account_id).await?;
+    require_permission(&state, auth.account_id, perm::MANAGE_TAXONOMIES).await?;
     super::trends::trending_tags(state, instance, query, None).await
 }
 
@@ -2278,7 +2278,7 @@ pub async fn admin_trending_statuses(
     query: axum::extract::Query<super::trends::TrendParams>,
     auth: axum::extract::Extension<AuthenticatedUser>,
 ) -> AppResult<axum::Json<Vec<super::types::Status>>> {
-    require_admin(&state, auth.account_id).await?;
+    require_permission(&state, auth.account_id, perm::MANAGE_TAXONOMIES).await?;
     super::trends::trending_statuses(state, query, Some(axum::extract::Extension(crate::middleware::AuthenticatedUser { account_id: auth.account_id, user_id: auth.user_id, token_id: auth.token_id, scopes: auth.scopes.clone(), application_id: auth.application_id }))).await
 }
 
@@ -2287,7 +2287,7 @@ pub async fn admin_trending_links(
     query: axum::extract::Query<super::trends::TrendParams>,
     auth: axum::extract::Extension<AuthenticatedUser>,
 ) -> AppResult<axum::Json<Vec<super::types::PreviewCard>>> {
-    require_admin(&state, auth.account_id).await?;
+    require_permission(&state, auth.account_id, perm::MANAGE_TAXONOMIES).await?;
     super::trends::trending_links(state, query).await
 }
 
@@ -2502,7 +2502,7 @@ pub async fn list_admin_tags(
     Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
     Query(params): Query<AdminTagsParams>,
 ) -> AppResult<Json<Vec<AdminTag>>> {
-    require_admin(&state, auth.account_id).await?;
+    require_permission(&state, auth.account_id, perm::MANAGE_TAXONOMIES).await?;
     let domain = &instance.domain;
     let limit = params.pagination.limit_clamped(100, 100);
     let max_id = params.pagination.max_id.as_deref().and_then(|s| s.parse::<i64>().ok());
@@ -2545,7 +2545,7 @@ pub async fn get_admin_tag(
     Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
     Path(id): Path<i64>,
 ) -> AppResult<Json<AdminTag>> {
-    require_admin(&state, auth.account_id).await?;
+    require_permission(&state, auth.account_id, perm::MANAGE_TAXONOMIES).await?;
     let domain = &instance.domain;
     let r = sqlx::query!(
         "SELECT id, name, trendable, usable, listable, reviewed_at FROM tags WHERE id = $1",
@@ -2572,7 +2572,7 @@ pub async fn update_admin_tag(
     Path(id): Path<i64>,
     Json(form): Json<UpdateAdminTagForm>,
 ) -> AppResult<Json<AdminTag>> {
-    require_admin(&state, auth.account_id).await?;
+    require_permission(&state, auth.account_id, perm::MANAGE_TAXONOMIES).await?;
     let domain = &instance.domain;
     let r = sqlx::query!(
         r#"UPDATE tags SET
