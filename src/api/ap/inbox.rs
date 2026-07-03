@@ -3210,6 +3210,51 @@ async fn fetch_remote_status_depth(
 
 /// Looks up a remote account by URI, fetching it from the remote server if unknown.
 pub async fn resolve_or_fetch_remote_account(state: &AppState, actor_uri: &str) -> AppResult<i64> {
+    // An actor URI on our own domain is a *local* account, not a remote one.
+    // Resolve it directly (local accounts store an empty `uri`, so the lookup
+    // below would miss it) rather than signed-fetching our own actor endpoint,
+    // which would mint a remote-looking duplicate with domain = our own domain.
+    // Such duplicates break every `domain IS NULL` local check — e.g. a mention
+    // resolving to the duplicate never fires the local mention notification.
+    if let Ok(parsed) = url::Url::parse(actor_uri) {
+        if parsed
+            .host_str()
+            .is_some_and(|h| h.eq_ignore_ascii_case(&state.instance.domain))
+        {
+            let segments: Vec<&str> = parsed
+                .path_segments()
+                .map(|s| s.collect())
+                .unwrap_or_default();
+            let local_id = match segments.as_slice() {
+                // https://{domain}/users/{username}
+                ["users", username] => {
+                    sqlx::query_scalar!(
+                        "SELECT id FROM accounts WHERE username = $1 AND domain IS NULL",
+                        username,
+                    )
+                    .fetch_optional(&state.db)
+                    .await?
+                }
+                // https://{domain}/ap/users/{id}
+                ["ap", "users", id] => match id.parse::<i64>() {
+                    Ok(numeric) => {
+                        sqlx::query_scalar!(
+                            "SELECT id FROM accounts WHERE id = $1 AND domain IS NULL",
+                            numeric,
+                        )
+                        .fetch_optional(&state.db)
+                        .await?
+                    }
+                    Err(_) => None,
+                },
+                _ => None,
+            };
+            // On our own domain, never fall through to a remote fetch: either we
+            // found the local account or there is no such account.
+            return local_id.ok_or(AppError::NotFound);
+        }
+    }
+
     if let Some(id) = sqlx::query_scalar!("SELECT id FROM accounts WHERE uri = $1", actor_uri)
         .fetch_optional(&state.db)
         .await?
