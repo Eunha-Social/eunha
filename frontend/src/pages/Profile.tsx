@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ImageUp, Trash2 } from 'lucide-react'
+import { ImageUp, Trash2, UserPlus } from 'lucide-react'
 
 import type { mastodon } from '../masto.ts'
 import {
@@ -469,6 +469,13 @@ export default function Profile() {
               </div>
               <div className="text-muted-foreground">@{account.acct}</div>
             </div>
+            {isSelf && (
+              <Button asChild size="sm" variant="outline">
+                <Link to="/follow-requests" className="no-underline">
+                  <UserPlus /> Follow requests
+                </Link>
+              </Button>
+            )}
             {token && rel && !isSelf && (
               <div className="flex flex-col items-end gap-2">
                 <Button
