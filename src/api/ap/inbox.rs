@@ -1452,20 +1452,29 @@ async fn handle_announce(
         .map(|t| t.with_timezone(&chrono::Utc).naive_utc())
         .unwrap_or_else(|| chrono::Utc::now().naive_utc());
 
+    // Derive the boost's visibility from the Announce's own `to`/`cc` audience,
+    // mirroring Mastodon's ActivityPub::Activity::Announce#visibility_from_audience
+    // (public collection in `to` → public, in `cc` → unlisted, a followers
+    // collection → private, otherwise direct) instead of assuming public.
+    let announce_to = as_string_vec(activity.get("to"));
+    let announce_cc = as_string_vec(activity.get("cc"));
+    let visibility = crate::db::models::vis::from_audience(&announce_to, &announce_cc);
+
     let boost_id = crate::snowflake::next_id();
-    sqlx::query!(
+    let inserted = sqlx::query_scalar!(
         r#"INSERT INTO statuses
              (id, account_id, reblog_of_id, visibility, uri, url, local, created_at, updated_at)
            VALUES ($1, $2, $3, $4, $5, $5, false, $6, now())
-           ON CONFLICT (uri) WHERE uri IS NOT NULL AND uri != '' DO NOTHING"#,
+           ON CONFLICT (uri) WHERE uri IS NOT NULL AND uri != '' DO NOTHING
+           RETURNING id"#,
         boost_id,
         booster_id,
         original_id,
-        crate::db::models::vis::PUBLIC,
+        visibility,
         announce_uri,
         published,
     )
-    .execute(&state.db)
+    .fetch_optional(&state.db)
     .await?;
 
     // Update the original status's reblogs_count
@@ -1491,6 +1500,34 @@ async fn handle_announce(
         "boosted your post",
     )
     .await;
+
+    // Fan the boost into followers' home and list feeds so it appears
+    // immediately, not only after a feed repopulate. Mirrors the local reblog
+    // path (mastodon::statuses::reblog_status) and the incoming-post path
+    // (handle_create). Skipped when the Announce was a duplicate (no row
+    // inserted) so we never push a non-existent status id, and — like
+    // Mastodon's ActivityPub::Activity::Announce#distribute, which only
+    // enqueues DistributionWorker when the reblog is within_realtime_window? —
+    // skipped for boosts older than the 6h real-time window so backfilled
+    // announces don't resurface at the top of feeds.
+    let within_realtime_window =
+        chrono::Utc::now().naive_utc() - published < chrono::Duration::hours(6);
+    if let (Some(boost_id), true) = (inserted, within_realtime_window) {
+        let mut redis = state.redis.clone();
+        let db = state.db.clone();
+        let vis_str = crate::db::models::vis::to_str(visibility);
+        if crate::feed::sync_fanout() {
+            crate::feed::fanout_new_status(&mut redis, &db, booster_id, boost_id, &[]).await;
+            crate::feed::fanout_to_lists(&mut redis, &db, booster_id, boost_id, None, vis_str)
+                .await;
+        } else {
+            tokio::spawn(async move {
+                crate::feed::fanout_new_status(&mut redis, &db, booster_id, boost_id, &[]).await;
+                crate::feed::fanout_to_lists(&mut redis, &db, booster_id, boost_id, None, vis_str)
+                    .await;
+            });
+        }
+    }
 
     Ok(())
 }
