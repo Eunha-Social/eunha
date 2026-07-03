@@ -18,11 +18,6 @@ export function TimelineTabs() {
           Home
         </NavLink>
       )}
-      {token && (
-        <NavLink to="/notifications" className={cls}>
-          Notifications
-        </NavLink>
-      )}
       <NavLink to="/local" className={cls}>
         Local
       </NavLink>
