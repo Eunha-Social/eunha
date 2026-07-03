@@ -7,6 +7,18 @@ use axum::{
 use serde::Deserialize;
 use std::collections::HashMap;
 
+use super::scheduled_statuses::ScheduledStatusResponse;
+use super::{
+    accounts::{
+        batch_account_emojis, batch_account_roles, batch_accounts_to_api, batch_reblog_data,
+        batch_status_cards, batch_status_emojis, batch_status_media, batch_status_mentions,
+        batch_status_polls, batch_statuses_tags, build_status, fetch_reblog_data,
+        fetch_status_media, spawn_card_fetch,
+    },
+    convert::{account_from_db, status_from_db},
+    formatting::{render_content, HASHTAG_RE, MENTION_RE},
+    types::{PaginationParams, Status, StatusContext, StatusEdit, StatusSource},
+};
 use crate::{
     db::models::{Account, Status as DbStatus},
     error::{AppError, AppResult},
@@ -16,18 +28,6 @@ use crate::{
     state::AppState,
     streaming::Event,
 };
-use super::{
-    accounts::{
-        batch_account_emojis, batch_account_roles, batch_accounts_to_api, batch_reblog_data,
-        batch_status_cards, batch_status_emojis, batch_status_media, batch_status_mentions,
-        batch_status_polls, batch_statuses_tags, build_status, fetch_reblog_data,
-        fetch_status_media, spawn_card_fetch,
-    },
-    convert::{account_from_db, status_from_db},
-    formatting::{HASHTAG_RE, MENTION_RE, render_content},
-    types::{PaginationParams, Status, StatusContext, StatusEdit, StatusSource},
-};
-use super::scheduled_statuses::ScheduledStatusResponse;
 
 #[derive(Debug, Deserialize, Default)]
 pub struct PollForm {
@@ -159,7 +159,9 @@ pub async fn post_status(
             .await?
             {
                 let media = fetch_status_media(&state, status.id).await?;
-                let viewer_ctx = build_viewer_context(&state, auth.account_id, status.id).await.ok();
+                let viewer_ctx = build_viewer_context(&state, auth.account_id, status.id)
+                    .await
+                    .ok();
                 let api_status = super::accounts::build_status_with_app(
                     &state, &status, &account, media, None, viewer_ctx, None,
                 )
@@ -177,13 +179,20 @@ pub async fn post_status(
     if text.is_empty() && spoiler_was_present && form.quoted_status_id.is_none() {
         text = std::mem::take(&mut spoiler_text);
     }
-    if text.is_empty() && form.media_ids.as_ref().is_none_or(|m| m.is_empty()) && form.poll.is_none() {
-        return Err(AppError::Unprocessable("Status must have text or media".into()));
+    if text.is_empty()
+        && form.media_ids.as_ref().is_none_or(|m| m.is_empty())
+        && form.poll.is_none()
+    {
+        return Err(AppError::Unprocessable(
+            "Status must have text or media".into(),
+        ));
     }
     // Mastodon StatusLengthValidator: spoiler + body, URLs as 23 chars, mentions
     // without their domain, counted in grapheme clusters.
     if super::formatting::countable_length(&text, &spoiler_text) > 500 {
-        return Err(AppError::Unprocessable("Validation failed: Text character limit of 500 exceeded".into()));
+        return Err(AppError::Unprocessable(
+            "Validation failed: Text character limit of 500 exceeded".into(),
+        ));
     }
 
     // Validate poll options before inserting anything
@@ -251,7 +260,9 @@ pub async fn post_status(
                 r#"INSERT INTO scheduled_statuses (account_id, scheduled_at, params)
                    VALUES ($1, $2, $3)
                    RETURNING id, scheduled_at"#,
-                account.id, scheduled_at, params,
+                account.id,
+                scheduled_at,
+                params,
             )
             .fetch_one(&state.db)
             .await?;
@@ -278,12 +289,24 @@ pub async fn post_status(
 
     // Fall back to the user's stored posting defaults when the form omits them.
     let defaults = super::accounts::user_defaults(&state, auth.account_id).await;
-    let mut visibility = form.visibility.as_deref().map(str::to_owned).unwrap_or(defaults.privacy);
+    let mut visibility = form
+        .visibility
+        .as_deref()
+        .map(str::to_owned)
+        .unwrap_or(defaults.privacy);
+    // A silenced account cannot post publicly: Mastodon downgrades public to
+    // unlisted so the post stays out of public and federated timelines.
+    if visibility == "public" && account.silenced_at.is_some() {
+        visibility = "unlisted".to_string();
+    }
     // Mastodon forces sensitive when a content warning is present
     // (PostStatusService: `sensitive || spoiler_text.present?`).
     let sensitive = form.sensitive.unwrap_or(defaults.sensitive) || spoiler_was_present;
     let language = form.language.clone().or(defaults.language);
-    let in_reply_to_id = form.in_reply_to_id.as_deref().and_then(|s| s.parse::<i64>().ok());
+    let in_reply_to_id = form
+        .in_reply_to_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
 
     // Look up the parent author for in_reply_to_account_id
     let in_reply_to_account_id: Option<i64> = if let Some(parent_id) = in_reply_to_id {
@@ -294,7 +317,9 @@ pub async fn post_status(
         .fetch_optional(&state.db)
         .await?;
         if account_id.is_none() {
-            return Err(AppError::Unprocessable("in_reply_to_id does not exist".into()));
+            return Err(AppError::Unprocessable(
+                "in_reply_to_id does not exist".into(),
+            ));
         }
         account_id
     } else {
@@ -303,7 +328,9 @@ pub async fn post_status(
 
     // Validate quoted_status_id
     let quote_of_id: Option<i64> = if let Some(ref qid_str) = form.quoted_status_id {
-        let qid = qid_str.parse::<i64>().map_err(|_| AppError::Unprocessable("invalid quoted_status_id".into()))?;
+        let qid = qid_str
+            .parse::<i64>()
+            .map_err(|_| AppError::Unprocessable("invalid quoted_status_id".into()))?;
         let quoted = sqlx::query!(
             "SELECT id, account_id, visibility, reblog_of_id FROM statuses WHERE id = $1 AND deleted_at IS NULL",
             qid,
@@ -313,7 +340,9 @@ pub async fn post_status(
         .ok_or_else(|| AppError::Unprocessable("quoted_status_id does not exist".into()))?;
         // Cannot quote direct messages
         if quoted.visibility == 3 {
-            return Err(AppError::Unprocessable("cannot quote a direct message".into()));
+            return Err(AppError::Unprocessable(
+                "cannot quote a direct message".into(),
+            ));
         }
         // Cannot quote a reblog; must quote the original post directly
         if quoted.reblog_of_id.is_some() {
@@ -333,12 +362,15 @@ pub async fn post_status(
                WHERE (account_id = $1 AND target_account_id = $2)
                   OR (account_id = $2 AND target_account_id = $1)
                LIMIT 1"#,
-            account.id, quoted.account_id,
+            account.id,
+            quoted.account_id,
         )
         .fetch_optional(&state.db)
         .await?;
         if blocked.is_some() {
-            return Err(AppError::Unprocessable("not allowed to interact with this post".into()));
+            return Err(AppError::Unprocessable(
+                "not allowed to interact with this post".into(),
+            ));
         }
         Some(quoted.id)
     } else {
@@ -352,7 +384,8 @@ pub async fn post_status(
     // Safeguard: if the caller passed allowed_mentions, reject the post if any resolved
     // mentions are not in that list (mirrors Mastodon's PostStatusService#safeguard_mentions!).
     if let Some(ref allowed_ids) = form.allowed_mentions {
-        let unexpected: Vec<serde_json::Value> = resolved.iter()
+        let unexpected: Vec<serde_json::Value> = resolved
+            .iter()
             .filter(|(_, acct)| !allowed_ids.iter().any(|aid| aid == &acct.id.to_string()))
             .map(|(_, acct)| serde_json::json!({ "id": acct.id.to_string(), "acct": acct.acct() }))
             .collect();
@@ -369,9 +402,18 @@ pub async fn post_status(
     let content = render_content(&text, &instance.domain, &mention_map);
 
     let status_id = crate::snowflake::next_id();
-    let uri = crate::federation::tag::status_uri(&instance.domain, account.id, account.id_scheme, &account.username, status_id);
+    let uri = crate::federation::tag::status_uri(
+        &instance.domain,
+        account.id,
+        account.id_scheme,
+        &account.username,
+        status_id,
+    );
     // Human permalink — always the /@username form, independent of id_scheme.
-    let human_url = format!("https://{}/@{}/{}", instance.domain, account.username, status_id);
+    let human_url = format!(
+        "https://{}/@{}/{}",
+        instance.domain, account.username, status_id
+    );
 
     // Validate media_ids before inserting the status (Mastodon
     // PostStatusService#validate_media!) — fail early so no cleanup is needed.
@@ -392,13 +434,15 @@ pub async fn post_status(
             let row = sqlx::query!(
                 r#"SELECT "type", processing FROM media_attachments
                    WHERE id = $1 AND account_id = $2 AND status_id IS NULL"#,
-                media_id, account.id,
+                media_id,
+                account.id,
             )
             .fetch_optional(&state.db)
             .await?;
             let Some(row) = row else {
                 return Err(AppError::Unprocessable(format!(
-                    "media_ids: '{}' not found, already attached, or not owned by you", id_str
+                    "media_ids: '{}' not found, already attached, or not owned by you",
+                    id_str
                 )));
             };
             // audio(3)/video(2) can't be combined with other media (gifv is exempt,
@@ -430,7 +474,9 @@ pub async fn post_status(
     let is_reply = in_reply_to_id.is_some();
     let visibility_int = crate::db::models::vis::from_str(&visibility);
     let quote_policy_int = crate::db::models::quote_policy::from_str(
-        form.quote_approval_policy.as_deref().unwrap_or(&defaults.quote_policy),
+        form.quote_approval_policy
+            .as_deref()
+            .unwrap_or(&defaults.quote_policy),
     );
     let status = sqlx::query_as!(
         DbStatus,
@@ -488,7 +534,10 @@ pub async fn post_status(
             (crate::db::models::quote_state::PENDING, Some(au))
         } else {
             use crate::db::models::quote_policy;
-            let policy = quoted.as_ref().map(|q| q.quote_approval_policy).unwrap_or(quote_policy::PUBLIC);
+            let policy = quoted
+                .as_ref()
+                .map(|q| q.quote_approval_policy)
+                .unwrap_or(quote_policy::PUBLIC);
             // The author's own quotes are always accepted; a manual-approval
             // policy holds others' quotes pending until the author approves.
             let st = if quoted_account_id == account.id {
@@ -566,7 +615,8 @@ pub async fn post_status(
 
     sqlx::query!(
         "UPDATE statuses SET conversation_id = $1 WHERE id = $2",
-        conv_id, status.id
+        conv_id,
+        status.id
     )
     .execute(&state.db)
     .await?;
@@ -580,10 +630,10 @@ pub async fn post_status(
 
     // For direct messages, also manage the account_conversations inbox.
     if visibility == "direct" {
-
         // Build sorted participant ID lists for each party's account_conversations row.
         // Mastodon convention: participant_account_ids = everyone else in the conversation.
-        let mut mentioned_ids: Vec<i64> = resolved.iter()
+        let mut mentioned_ids: Vec<i64> = resolved
+            .iter()
             .map(|(_, m)| m.id)
             .collect::<std::collections::HashSet<_>>()
             .into_iter()
@@ -608,9 +658,12 @@ pub async fn post_status(
         // Each recipient sees the sender (plus other recipients) as participants.
         for (_, mentioned) in &resolved {
             let mut recipient_participants: Vec<i64> = std::iter::once(account.id)
-                .chain(resolved.iter()
-                    .filter(|(_, m)| m.id != mentioned.id)
-                    .map(|(_, m)| m.id))
+                .chain(
+                    resolved
+                        .iter()
+                        .filter(|(_, m)| m.id != mentioned.id)
+                        .map(|(_, m)| m.id),
+                )
                 .collect::<std::collections::HashSet<_>>()
                 .into_iter()
                 .collect();
@@ -665,7 +718,9 @@ pub async fn post_status(
         sqlx::query!(
             "UPDATE media_attachments SET status_id = $1
              WHERE id = $2 AND account_id = $3 AND status_id IS NULL",
-            status.id, media_id, account.id
+            status.id,
+            media_id,
+            account.id
         )
         .execute(&state.db)
         .await?;
@@ -673,7 +728,9 @@ pub async fn post_status(
 
     // Create poll if requested (options already validated above)
     if let Some(ref poll_form) = form.poll {
-        let expires_at = poll_form.expires_in.map(|secs| chrono::Utc::now().naive_utc() + chrono::Duration::seconds(secs));
+        let expires_at = poll_form
+            .expires_in
+            .map(|secs| chrono::Utc::now().naive_utc() + chrono::Duration::seconds(secs));
         let poll_options: Vec<String> = poll_form.options.clone();
         let poll_id = sqlx::query_scalar!(
             r#"INSERT INTO polls
@@ -691,7 +748,8 @@ pub async fn post_status(
         // path so `statuses.poll_id` is consistently populated for local polls.
         sqlx::query!(
             "UPDATE statuses SET poll_id = $1 WHERE id = $2",
-            poll_id, status.id,
+            poll_id,
+            status.id,
         )
         .execute(&state.db)
         .await?;
@@ -710,14 +768,28 @@ pub async fn post_status(
         .await
         .ok()
         .flatten()
-        .map(|r| super::types::Application { name: r.name, website: r.website })
+        .map(|r| super::types::Application {
+            name: r.name,
+            website: r.website,
+        })
     } else {
         None
     };
 
     let media = fetch_status_media(&state, status.id).await?;
-    let viewer_ctx = build_viewer_context(&state, auth.account_id, status.id).await.ok();
-    let api_status = super::accounts::build_status_with_app(&state, &status, &account, media, None, viewer_ctx, application).await?;
+    let viewer_ctx = build_viewer_context(&state, auth.account_id, status.id)
+        .await
+        .ok();
+    let api_status = super::accounts::build_status_with_app(
+        &state,
+        &status,
+        &account,
+        media,
+        None,
+        viewer_ctx,
+        application,
+    )
+    .await?;
 
     spawn_card_fetch(&state, status.id, content.clone());
 
@@ -755,7 +827,8 @@ pub async fn post_status(
                 format!("{} mentioned you", account.display_name),
                 account.acct().clone(),
                 super::convert::account_avatar_url_for(&account),
-            ).await;
+            )
+            .await;
             notified.insert(parent.account_id);
         }
     }
@@ -774,15 +847,15 @@ pub async fn post_status(
             format!("{} mentioned you", account.display_name),
             account.acct().clone(),
             super::convert::account_avatar_url_for(&account),
-        ).await;
+        )
+        .await;
         notified.insert(mentioned.id);
     }
 
     // Notify followers who opted in to per-account posting notifications (the
     // "bell"). Mastodon's FeedInsertWorker#notify? excludes replies to other
     // accounts (self-replies still notify), reblogs, and edits.
-    let is_reply_to_other =
-        in_reply_to_id.is_some() && in_reply_to_account_id != Some(account.id);
+    let is_reply_to_other = in_reply_to_id.is_some() && in_reply_to_account_id != Some(account.id);
     if (visibility == "public" || visibility == "unlisted") && !is_reply_to_other {
         if let Ok(followers) = sqlx::query!(
             r#"SELECT account_id FROM follows
@@ -793,7 +866,9 @@ pub async fn post_status(
         .await
         {
             for row in followers {
-                if notified.contains(&row.account_id) { continue; }
+                if notified.contains(&row.account_id) {
+                    continue;
+                }
                 push::create_and_push(
                     &state,
                     row.account_id,
@@ -803,7 +878,8 @@ pub async fn post_status(
                     format!("{} posted a new status", account.display_name),
                     account.acct().clone(),
                     super::convert::account_avatar_url_for(&account),
-                ).await;
+                )
+                .await;
             }
         }
     }
@@ -826,109 +902,129 @@ pub async fn post_status(
         let vis = visibility.clone();
         if feed::sync_fanout() {
             feed::fanout_new_status(&mut redis, &db, author_id, status_id, &tag_ids).await;
-            feed::fanout_to_lists(&mut redis, &db, author_id, status_id, reply_to_account, &vis).await;
+            feed::fanout_to_lists(
+                &mut redis,
+                &db,
+                author_id,
+                status_id,
+                reply_to_account,
+                &vis,
+            )
+            .await;
         } else {
             tokio::spawn(async move {
                 feed::fanout_new_status(&mut redis, &db, author_id, status_id, &tag_ids).await;
-                feed::fanout_to_lists(&mut redis, &db, author_id, status_id, reply_to_account, &vis).await;
+                feed::fanout_to_lists(
+                    &mut redis,
+                    &db,
+                    author_id,
+                    status_id,
+                    reply_to_account,
+                    &vis,
+                )
+                .await;
             });
         }
     }
 
     // Federate outgoing statuses to remote inboxes
-    if matches!(visibility.as_str(), "public" | "unlisted" | "private" | "direct")
-        && account.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
-            let domain = &instance.domain;
-            let actor_url = crate::federation::tag::account_uri_of(domain, &account);
-            let key_id = format!("{}#main-key", actor_url);
+    if matches!(
+        visibility.as_str(),
+        "public" | "unlisted" | "private" | "direct"
+    ) && account
+        .private_key
+        .as_deref()
+        .is_some_and(|s| !s.is_empty())
+    {
+        let domain = &instance.domain;
+        let actor_url = crate::federation::tag::account_uri_of(domain, &account);
+        let key_id = format!("{}#main-key", actor_url);
 
-            // Build the Create(Note) from the persisted status so the wire shape
-            // matches what we serve at the note's own URI (content, media
-            // attachments, and the mention/hashtag/emoji tag array).
-            let Some(bundle) =
-                crate::api::ap::note::build_note(&state, domain, status.id).await?
-            else {
-                return Err(AppError::Internal(anyhow::anyhow!(
-                    "failed to build Note for status {}",
-                    status.id
-                )));
-            };
-            let activity = bundle.into_create();
+        // Build the Create(Note) from the persisted status so the wire shape
+        // matches what we serve at the note's own URI (content, media
+        // attachments, and the mention/hashtag/emoji tag array).
+        let Some(bundle) = crate::api::ap::note::build_note(&state, domain, status.id).await?
+        else {
+            return Err(AppError::Internal(anyhow::anyhow!(
+                "failed to build Note for status {}",
+                status.id
+            )));
+        };
+        let activity = bundle.into_create();
 
-            // FEP-044f: ask a remote quoted author for consent to quote them.
-            if let (Some(qr_uri), Some(qid)) = (&quote_request_activity_uri, quote_of_id) {
-                let quoted_uri: Option<String> =
-                    sqlx::query_scalar!("SELECT uri FROM statuses WHERE id = $1", qid)
-                        .fetch_optional(&state.db)
-                        .await
-                        .ok()
-                        .flatten()
-                        .flatten();
-                if let (Some(quoted_status_uri), Ok(Some(qa))) = (
-                    quoted_uri,
-                    sqlx::query!(
-                        "SELECT a.inbox_url, a.shared_inbox_url
+        // FEP-044f: ask a remote quoted author for consent to quote them.
+        if let (Some(qr_uri), Some(qid)) = (&quote_request_activity_uri, quote_of_id) {
+            let quoted_uri: Option<String> =
+                sqlx::query_scalar!("SELECT uri FROM statuses WHERE id = $1", qid)
+                    .fetch_optional(&state.db)
+                    .await
+                    .ok()
+                    .flatten()
+                    .flatten();
+            if let (Some(quoted_status_uri), Ok(Some(qa))) = (
+                quoted_uri,
+                sqlx::query!(
+                    "SELECT a.inbox_url, a.shared_inbox_url
                          FROM statuses s JOIN accounts a ON a.id = s.account_id
                          WHERE s.id = $1",
-                        qid,
-                    )
-                    .fetch_optional(&state.db)
-                    .await,
-                ) {
-                    let qinbox = if !qa.shared_inbox_url.is_empty() {
-                        qa.shared_inbox_url
-                    } else {
-                        qa.inbox_url
-                    };
-                    if !qinbox.is_empty() {
-                        if let Ok(qr) = crate::federation::consent::quote_request(
-                            qr_uri,
-                            &actor_url,
-                            &quoted_status_uri,
-                            &uri,
-                        ) {
-                            if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
-                                &state,
-                                qr,
-                                vec![qinbox],
-                                key_id.clone(),
-                            )
-                            .await
-                            {
-                                tracing::warn!(error = %e, "failed to enqueue QuoteRequest");
-                            }
+                    qid,
+                )
+                .fetch_optional(&state.db)
+                .await,
+            ) {
+                let qinbox = if !qa.shared_inbox_url.is_empty() {
+                    qa.shared_inbox_url
+                } else {
+                    qa.inbox_url
+                };
+                if !qinbox.is_empty() {
+                    if let Ok(qr) = crate::federation::consent::quote_request(
+                        qr_uri,
+                        &actor_url,
+                        &quoted_status_uri,
+                        &uri,
+                    ) {
+                        if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+                            &state,
+                            qr,
+                            vec![qinbox],
+                            key_id.clone(),
+                        )
+                        .await
+                        {
+                            tracing::warn!(error = %e, "failed to enqueue QuoteRequest");
                         }
                     }
                 }
             }
+        }
 
-            // Reach the full status audience (StatusReachFinder): followers +
-            // mentions + replied-to author + quoted author + relays (public).
-            use crate::db::models::vis;
-            let vis_int = vis::from_str(&visibility);
-            let inboxes = crate::federation::delivery::status_reach_inboxes(
-                &state,
-                status.id,
-                account.id,
-                in_reply_to_account_id,
-                matches!(vis_int, vis::PUBLIC | vis::UNLISTED),
-                false,
-                vis_int == vis::PUBLIC,
-                matches!(vis_int, vis::PUBLIC | vis::UNLISTED | vis::PRIVATE),
-                None,
-            )
-            .await
-            .unwrap_or_default();
-            if !inboxes.is_empty() {
-                if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
-                    &state, activity, inboxes, key_id,
-                )
-                .await
-                {
-                    tracing::warn!(error = %e, "failed to enqueue status delivery");
-                }
+        // Reach the full status audience (StatusReachFinder): followers +
+        // mentions + replied-to author + quoted author + relays (public).
+        use crate::db::models::vis;
+        let vis_int = vis::from_str(&visibility);
+        let inboxes = crate::federation::delivery::status_reach_inboxes(
+            &state,
+            status.id,
+            account.id,
+            in_reply_to_account_id,
+            matches!(vis_int, vis::PUBLIC | vis::UNLISTED),
+            false,
+            vis_int == vis::PUBLIC,
+            matches!(vis_int, vis::PUBLIC | vis::UNLISTED | vis::PRIVATE),
+            None,
+        )
+        .await
+        .unwrap_or_default();
+        if !inboxes.is_empty() {
+            if let Err(e) =
+                crate::federation::delivery::deliver_to_inboxes(&state, activity, inboxes, key_id)
+                    .await
+            {
+                tracing::warn!(error = %e, "failed to enqueue status delivery");
             }
         }
+    }
 
     // Record the idempotency mapping so a retried request replays this status.
     if let Some(ref ik) = idempotency_key {
@@ -974,14 +1070,24 @@ async fn extract_post_status_form(request: axum::extract::Request) -> AppResult<
                 .map_err(|e| AppError::Unprocessable(e.to_string()))?;
             match name.as_str() {
                 "status" => form.status = Some(text),
-                "in_reply_to_id" => form.in_reply_to_id = if text.is_empty() { None } else { Some(text) },
-                "quoted_status_id" | "quote_id" => form.quoted_status_id = if text.is_empty() { None } else { Some(text) },
-                "quote_approval_policy" => form.quote_approval_policy = if text.is_empty() { None } else { Some(text) },
-                "spoiler_text" => form.spoiler_text = if text.is_empty() { None } else { Some(text) },
+                "in_reply_to_id" => {
+                    form.in_reply_to_id = if text.is_empty() { None } else { Some(text) }
+                }
+                "quoted_status_id" | "quote_id" => {
+                    form.quoted_status_id = if text.is_empty() { None } else { Some(text) }
+                }
+                "quote_approval_policy" => {
+                    form.quote_approval_policy = if text.is_empty() { None } else { Some(text) }
+                }
+                "spoiler_text" => {
+                    form.spoiler_text = if text.is_empty() { None } else { Some(text) }
+                }
                 "visibility" => form.visibility = Some(text),
                 "language" => form.language = if text.is_empty() { None } else { Some(text) },
                 "sensitive" => form.sensitive = Some(text == "true" || text == "1"),
-                "scheduled_at" => form.scheduled_at = if text.is_empty() { None } else { Some(text) },
+                "scheduled_at" => {
+                    form.scheduled_at = if text.is_empty() { None } else { Some(text) }
+                }
                 "media_ids[]" | "media_ids" => {
                     if !text.is_empty() {
                         media_ids.push(text);
@@ -999,10 +1105,12 @@ async fn extract_post_status_form(request: axum::extract::Request) -> AppResult<
                     }
                 }
                 "poll[multiple]" => {
-                    form.poll.get_or_insert_with(PollForm::default).multiple = Some(text == "true" || text == "1");
+                    form.poll.get_or_insert_with(PollForm::default).multiple =
+                        Some(text == "true" || text == "1");
                 }
                 "poll[hide_totals]" => {
-                    form.poll.get_or_insert_with(PollForm::default).hide_totals = Some(text == "true" || text == "1");
+                    form.poll.get_or_insert_with(PollForm::default).hide_totals =
+                        Some(text == "true" || text == "1");
                 }
                 _ => {}
             }
@@ -1058,7 +1166,8 @@ pub async fn get_statuses_batch(
 
     // Batch block check
     let blocked_account_ids: std::collections::HashSet<i64> = if let Some(vid) = viewer_id {
-        let other_ids: Vec<i64> = statuses.iter()
+        let other_ids: Vec<i64> = statuses
+            .iter()
             .filter(|s| s.account_id != vid)
             .map(|s| s.account_id)
             .collect::<std::collections::HashSet<_>>()
@@ -1084,13 +1193,18 @@ pub async fn get_statuses_batch(
     };
 
     // Batch follow check for private statuses
-    let private_author_ids: Vec<i64> = statuses.iter()
-        .filter(|s| s.visibility == crate::db::models::vis::PRIVATE && viewer_id != Some(s.account_id))
+    let private_author_ids: Vec<i64> = statuses
+        .iter()
+        .filter(|s| {
+            s.visibility == crate::db::models::vis::PRIVATE && viewer_id != Some(s.account_id)
+        })
         .map(|s| s.account_id)
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .collect();
-    let followed_ids: std::collections::HashSet<i64> = if let (Some(vid), false) = (viewer_id, private_author_ids.is_empty()) {
+    let followed_ids: std::collections::HashSet<i64> = if let (Some(vid), false) =
+        (viewer_id, private_author_ids.is_empty())
+    {
         sqlx::query_scalar!(
             "SELECT target_account_id FROM follows WHERE account_id = $1 AND target_account_id = ANY($2::bigint[])",
             vid, &private_author_ids,
@@ -1104,7 +1218,8 @@ pub async fn get_statuses_batch(
     };
 
     // Batch mention check for statuses whose visibility can be granted by mention.
-    let mention_checked_ids: Vec<i64> = statuses.iter()
+    let mention_checked_ids: Vec<i64> = statuses
+        .iter()
         .filter(|s| {
             matches!(
                 s.visibility,
@@ -1113,7 +1228,9 @@ pub async fn get_statuses_batch(
         })
         .map(|s| s.id)
         .collect();
-    let mentioned_status_ids: std::collections::HashSet<i64> = if let (Some(vid), false) = (viewer_id, mention_checked_ids.is_empty()) {
+    let mentioned_status_ids: std::collections::HashSet<i64> = if let (Some(vid), false) =
+        (viewer_id, mention_checked_ids.is_empty())
+    {
         sqlx::query_scalar!(
             "SELECT status_id FROM mentions WHERE account_id = $1 AND status_id = ANY($2::bigint[])",
             vid, &mention_checked_ids,
@@ -1126,7 +1243,8 @@ pub async fn get_statuses_batch(
         std::collections::HashSet::new()
     };
 
-    let visible: Vec<DbStatus> = statuses.into_iter()
+    let visible: Vec<DbStatus> = statuses
+        .into_iter()
         .filter(|s| {
             if viewer_id != Some(s.account_id) && blocked_account_ids.contains(&s.account_id) {
                 return false;
@@ -1137,7 +1255,9 @@ pub async fn get_statuses_batch(
                         || followed_ids.contains(&s.account_id)
                         || mentioned_status_ids.contains(&s.id)
                 }
-                crate::db::models::vis::DIRECT => viewer_id == Some(s.account_id) || mentioned_status_ids.contains(&s.id),
+                crate::db::models::vis::DIRECT => {
+                    viewer_id == Some(s.account_id) || mentioned_status_ids.contains(&s.id)
+                }
                 _ => true,
             }
         })
@@ -1147,8 +1267,12 @@ pub async fn get_statuses_batch(
         return Ok(Json(vec![]));
     }
 
-    let account_ids: Vec<i64> = visible.iter().map(|s| s.account_id)
-        .collect::<std::collections::HashSet<_>>().into_iter().collect();
+    let account_ids: Vec<i64> = visible
+        .iter()
+        .map(|s| s.account_id)
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
     let accounts_vec: Vec<Account> = sqlx::query_as!(
         Account,
         "SELECT * FROM accounts WHERE id = ANY($1::bigint[])",
@@ -1156,8 +1280,7 @@ pub async fn get_statuses_batch(
     )
     .fetch_all(&state.db)
     .await?;
-    let account_map: HashMap<i64, Account> =
-        accounts_vec.into_iter().map(|a| (a.id, a)).collect();
+    let account_map: HashMap<i64, Account> = accounts_vec.into_iter().map(|a| (a.id, a)).collect();
 
     let all_ids: Vec<i64> = visible.iter().map(|s| s.id).collect();
     let media_map = batch_status_media(&state, &all_ids).await?;
@@ -1167,7 +1290,9 @@ pub async fn get_statuses_batch(
     enrich_ids.extend_from_slice(&reblog_ids);
     let tags_map = batch_statuses_tags(&state, &enrich_ids).await?;
     let mentions_map = batch_status_mentions(&state, &enrich_ids).await?;
-    let all_for_emoji: Vec<DbStatus> = visible.iter().cloned()
+    let all_for_emoji: Vec<DbStatus> = visible
+        .iter()
+        .cloned()
         .chain(reblog_map.values().map(|(rs, _, _)| rs.clone()))
         .collect();
     let emojis_map = batch_status_emojis(&state, &all_for_emoji).await?;
@@ -1180,15 +1305,17 @@ pub async fn get_statuses_batch(
     };
 
     // Preserve original request order
-    let id_order: HashMap<i64, usize> =
-        ids.iter().enumerate().map(|(i, &id)| (id, i)).collect();
+    let id_order: HashMap<i64, usize> = ids.iter().enumerate().map(|(i, &id)| (id, i)).collect();
     let mut indexed: Vec<(usize, Status)> = Vec::with_capacity(visible.len());
     for s in &visible {
-        let Some(account) = account_map.get(&s.account_id) else { continue };
+        let Some(account) = account_map.get(&s.account_id) else {
+            continue;
+        };
         let media = media_map.get(&s.id).cloned().unwrap_or_default();
         let reblog = reblog_map.get(&s.id).cloned();
         let mentions = mentions_map.get(&s.id).cloned().unwrap_or_default();
-        let rb_mentions = reblog.as_ref()
+        let rb_mentions = reblog
+            .as_ref()
             .and_then(|(rs, _, _)| mentions_map.get(&rs.id))
             .cloned()
             .unwrap_or_default();
@@ -1222,12 +1349,9 @@ pub async fn get_status(
     auth: Option<Extension<AuthenticatedUser>>,
 ) -> AppResult<Json<Status>> {
     // Check existence including deleted rows so we can return 410 vs 404 correctly.
-    let deleted_at = sqlx::query_scalar!(
-        "SELECT deleted_at FROM statuses WHERE id = $1",
-        id
-    )
-    .fetch_optional(&state.db)
-    .await?;
+    let deleted_at = sqlx::query_scalar!("SELECT deleted_at FROM statuses WHERE id = $1", id)
+        .fetch_optional(&state.db)
+        .await?;
     match deleted_at {
         None => return Err(AppError::NotFound),
         Some(Some(_)) => return Err(AppError::Gone("Status has been deleted".into())),
@@ -1244,7 +1368,8 @@ pub async fn get_status(
                 r#"SELECT 1 FROM blocks
                    WHERE (account_id = $1 AND target_account_id = $2)
                       OR (account_id = $2 AND target_account_id = $1)"#,
-                vid, status.account_id
+                vid,
+                status.account_id
             )
             .fetch_optional(&state.db)
             .await?
@@ -1261,7 +1386,8 @@ pub async fn get_status(
             let is_follower = if let Some(vid) = viewer_id {
                 sqlx::query_scalar!(
                     "SELECT 1 as e FROM follows WHERE account_id = $1 AND target_account_id = $2",
-                    vid, status.account_id
+                    vid,
+                    status.account_id
                 )
                 .fetch_optional(&state.db)
                 .await?
@@ -1272,7 +1398,8 @@ pub async fn get_status(
             let is_mentioned = if let Some(vid) = viewer_id {
                 sqlx::query_scalar!(
                     "SELECT 1 as e FROM mentions WHERE status_id = $1 AND account_id = $2",
-                    id, vid,
+                    id,
+                    vid,
                 )
                 .fetch_optional(&state.db)
                 .await?
@@ -1284,23 +1411,23 @@ pub async fn get_status(
                 return Err(AppError::NotFound);
             }
         }
-        crate::db::models::vis::DIRECT
-            if viewer_id != Some(status.account_id) => {
-                let is_mentioned = if let Some(vid) = viewer_id {
-                    sqlx::query_scalar!(
-                        "SELECT 1 as e FROM mentions WHERE status_id = $1 AND account_id = $2",
-                        id, vid,
-                    )
-                    .fetch_optional(&state.db)
-                    .await?
-                    .is_some()
-                } else {
-                    false
-                };
-                if !is_mentioned {
-                    return Err(AppError::NotFound);
-                }
+        crate::db::models::vis::DIRECT if viewer_id != Some(status.account_id) => {
+            let is_mentioned = if let Some(vid) = viewer_id {
+                sqlx::query_scalar!(
+                    "SELECT 1 as e FROM mentions WHERE status_id = $1 AND account_id = $2",
+                    id,
+                    vid,
+                )
+                .fetch_optional(&state.db)
+                .await?
+                .is_some()
+            } else {
+                false
+            };
+            if !is_mentioned {
+                return Err(AppError::NotFound);
             }
+        }
         _ => {}
     }
 
@@ -1320,12 +1447,24 @@ pub async fn get_status(
         .await
         .ok()
         .flatten()
-        .map(|r| super::types::Application { name: r.name, website: r.website })
+        .map(|r| super::types::Application {
+            name: r.name,
+            website: r.website,
+        })
     } else {
         None
     };
 
-    let s = super::accounts::build_status_with_app(&state, &status, &account, media, reblog, viewer_ctx, application).await?;
+    let s = super::accounts::build_status_with_app(
+        &state,
+        &status,
+        &account,
+        media,
+        reblog,
+        viewer_ctx,
+        application,
+    )
+    .await?;
     Ok(Json(s))
 }
 
@@ -1364,12 +1503,9 @@ pub async fn delete_status(
         .await;
     }
 
-    sqlx::query!(
-        "UPDATE statuses SET deleted_at = now() WHERE id = $1",
-        id
-    )
-    .execute(&state.db)
-    .await?;
+    sqlx::query!("UPDATE statuses SET deleted_at = now() WHERE id = $1", id)
+        .execute(&state.db)
+        .await?;
 
     sqlx::query!(
         r#"UPDATE account_stats SET statuses_count = GREATEST(statuses_count - 1, 0), updated_at = now()
@@ -1438,9 +1574,9 @@ pub async fn delete_status(
     .execute(&state.db)
     .await?;
 
-    state.streaming.publish(Event::DeleteStatus {
-        status_id: id,
-    });
+    state
+        .streaming
+        .publish(Event::DeleteStatus { status_id: id });
 
     // Remove from follower feeds and list feeds in background
     {
@@ -1466,15 +1602,21 @@ pub async fn delete_status(
     // Federate the removal (Mastodon RemoveStatusService): a reblog sends
     // Undo(Announce); any other status sends Delete(Tombstone). Reach is the
     // full StatusReachFinder (unsafe) audience.
-    if account.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
+    if account
+        .private_key
+        .as_deref()
+        .is_some_and(|s| !s.is_empty())
+    {
         let domain = &state.instance.domain;
         let actor_url = crate::federation::tag::account_uri_of(domain, &account);
         let key_id = format!("{}#main-key", actor_url);
         use crate::db::models::vis;
         let distributable = matches!(status.visibility, vis::PUBLIC | vis::UNLISTED);
         let is_public = status.visibility == vis::PUBLIC;
-        let followers_allowed =
-            matches!(status.visibility, vis::PUBLIC | vis::UNLISTED | vis::PRIVATE);
+        let followers_allowed = matches!(
+            status.visibility,
+            vis::PUBLIC | vis::UNLISTED | vis::PRIVATE
+        );
 
         let plan: Option<(serde_json::Value, Option<i64>)> =
             if let Some(original_id) = status.reblog_of_id {
@@ -1484,11 +1626,17 @@ pub async fn delete_status(
                 )
                 .fetch_optional(&state.db)
                 .await?;
-                let original_uri = original.as_ref().and_then(|r| r.uri.clone()).unwrap_or_default();
+                let original_uri = original
+                    .as_ref()
+                    .and_then(|r| r.uri.clone())
+                    .unwrap_or_default();
                 let announce_id = format!("{actor_url}/statuses/{}/activity", id);
                 let undo_id = format!("{announce_id}#undo");
                 let undo = crate::federation::activity::undo_announce(
-                    &undo_id, &actor_url, &announce_id, &original_uri,
+                    &undo_id,
+                    &actor_url,
+                    &announce_id,
+                    &original_uri,
                 )?;
                 Some((undo, original.map(|r| r.account_id)))
             } else if let Some(ref status_uri) = status.uri {
@@ -1521,8 +1669,10 @@ pub async fn delete_status(
             .await
             .unwrap_or_default();
             if !inboxes.is_empty() {
-                if let Err(e) =
-                    crate::federation::delivery::deliver_to_inboxes(&state, activity, inboxes, key_id).await
+                if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+                    &state, activity, inboxes, key_id,
+                )
+                .await
                 {
                     tracing::warn!(error = %e, "failed to enqueue status removal delivery");
                 }
@@ -1582,35 +1732,40 @@ pub async fn favourite_status(
         format!("{} favourited your post", from_account.display_name),
         account_from_db(&account).acct.clone(),
         super::convert::account_avatar_url_for(&account),
-    ).await;
+    )
+    .await;
 
     // Send Like to remote status author
     if account.domain.is_some()
-        && from_account.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
-            let domain = state.instance.domain.clone();
-            let actor_url = crate::federation::tag::account_uri_of(&domain, &from_account);
-            let like_id = format!("https://{}/users/{}/likes/{}", domain, from_account.username, id);
-            let status_uri = status.uri.clone().unwrap_or_default();
-            let like = crate::federation::activity::like(&like_id, &actor_url, &status_uri)?;
-            let key_id = format!("{}#main-key", actor_url);
-            let inbox = if !account.shared_inbox_url.is_empty() {
-                account.shared_inbox_url.clone()
-            } else {
-                account.inbox_url.clone()
-            };
-            if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
-                &state,
-                like,
-                vec![inbox],
-                key_id,
-            )
-            .await
-            {
-                tracing::warn!(error = %e, "failed to enqueue Like delivery");
-            }
+        && from_account
+            .private_key
+            .as_deref()
+            .is_some_and(|s| !s.is_empty())
+    {
+        let domain = state.instance.domain.clone();
+        let actor_url = crate::federation::tag::account_uri_of(&domain, &from_account);
+        let like_id = format!(
+            "https://{}/users/{}/likes/{}",
+            domain, from_account.username, id
+        );
+        let status_uri = status.uri.clone().unwrap_or_default();
+        let like = crate::federation::activity::like(&like_id, &actor_url, &status_uri)?;
+        let key_id = format!("{}#main-key", actor_url);
+        let inbox = if !account.shared_inbox_url.is_empty() {
+            account.shared_inbox_url.clone()
+        } else {
+            account.inbox_url.clone()
+        };
+        if let Err(e) =
+            crate::federation::delivery::deliver_to_inboxes(&state, like, vec![inbox], key_id).await
+        {
+            tracing::warn!(error = %e, "failed to enqueue Like delivery");
         }
+    }
 
-    Ok(Json(build_status(&state, &status, &account, media, reblog, Some(ctx)).await?))
+    Ok(Json(
+        build_status(&state, &status, &account, media, reblog, Some(ctx)).await?,
+    ))
 }
 
 // ── POST /api/v1/statuses/:id/unfavourite ─────────────────────────────────
@@ -1626,7 +1781,8 @@ pub async fn unfavourite_status(
 
     sqlx::query!(
         "DELETE FROM favourites WHERE account_id = $1 AND status_id = $2",
-        auth.account_id, id
+        auth.account_id,
+        id
     )
     .execute(&state.db)
     .await?;
@@ -1677,7 +1833,9 @@ pub async fn unfavourite_status(
     let media = fetch_status_media(&state, id).await?;
     let reblog = fetch_reblog_data(&state, &status).await?;
     let ctx = build_viewer_context(&state, auth.account_id, id).await?;
-    Ok(Json(build_status(&state, &status, &account, media, reblog, Some(ctx)).await?))
+    Ok(Json(
+        build_status(&state, &status, &account, media, reblog, Some(ctx)).await?,
+    ))
 }
 
 // ── PUT /api/v1/statuses/:id/emoji_reactions/:name ───────────────────────
@@ -1748,7 +1906,9 @@ pub async fn add_emoji_reaction(
     let media = fetch_status_media(&state, id).await?;
     let reblog = fetch_reblog_data(&state, &status).await?;
     let ctx = build_viewer_context(&state, auth.account_id, id).await?;
-    Ok(Json(build_status(&state, &status, &account, media, reblog, Some(ctx)).await?))
+    Ok(Json(
+        build_status(&state, &status, &account, media, reblog, Some(ctx)).await?,
+    ))
 }
 
 // ── DELETE /api/v1/statuses/:id/emoji_reactions/:name ────────────────────
@@ -1776,7 +1936,9 @@ pub async fn remove_emoji_reaction(
     let media = fetch_status_media(&state, id).await?;
     let reblog = fetch_reblog_data(&state, &status).await?;
     let ctx = build_viewer_context(&state, auth.account_id, id).await?;
-    Ok(Json(build_status(&state, &status, &account, media, reblog, Some(ctx)).await?))
+    Ok(Json(
+        build_status(&state, &status, &account, media, reblog, Some(ctx)).await?,
+    ))
 }
 
 // ── POST /api/v1/statuses/:id/reblog ──────────────────────────────────────
@@ -1806,7 +1968,8 @@ pub async fn reblog_status(
     check_status_visible(&state, &original, auth.account_id).await?;
     // direct messages are never rebloggable; private statuses only by their author
     if original.visibility == crate::db::models::vis::DIRECT
-        || (original.visibility == crate::db::models::vis::PRIVATE && original.account_id != auth.account_id)
+        || (original.visibility == crate::db::models::vis::PRIVATE
+            && original.account_id != auth.account_id)
     {
         return Err(AppError::Forbidden);
     }
@@ -1847,7 +2010,8 @@ pub async fn reblog_status(
     let existing = sqlx::query_as!(
         DbStatus,
         "SELECT * FROM statuses WHERE account_id = $1 AND reblog_of_id = $2 AND deleted_at IS NULL",
-        auth.account_id, original_id,
+        auth.account_id,
+        original_id,
     )
     .fetch_optional(&state.db)
     .await?;
@@ -1855,7 +2019,9 @@ pub async fn reblog_status(
         let ctx = build_viewer_context(&state, auth.account_id, original_id).await?;
         let media = fetch_status_media(&state, boost.id).await?;
         let reblog = fetch_reblog_data(&state, &boost).await?;
-        return Ok(Json(build_status(&state, &boost, &boost_account, media, reblog, Some(ctx)).await?));
+        return Ok(Json(
+            build_status(&state, &boost, &boost_account, media, reblog, Some(ctx)).await?,
+        ));
     }
 
     let boost_id = crate::snowflake::next_id();
@@ -1904,7 +2070,8 @@ pub async fn reblog_status(
         format!("{} boosted your post", boost_account.display_name),
         boost_account.acct().clone(),
         super::convert::account_avatar_url_for(&boost_account),
-    ).await;
+    )
+    .await;
 
     // Build viewer context against the ORIGINAL so the nested reblog object
     // carries correct favourited/bookmarked/reblogged flags for the iOS client.
@@ -1943,17 +2110,29 @@ pub async fn reblog_status(
     }
 
     // Send Announce activity to followers and original status author (if remote)
-    if boost_account.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
+    if boost_account
+        .private_key
+        .as_deref()
+        .is_some_and(|s| !s.is_empty())
+    {
         let domain = state.instance.domain.clone();
         let actor_url = crate::federation::tag::account_uri_of(&domain, &boost_account);
         let followers_url = format!("{}/followers", actor_url);
-        let announce_id = format!("https://{}/users/{}/statuses/{}/activity", domain, boost_account.username, boost_id);
+        let announce_id = format!(
+            "https://{}/users/{}/statuses/{}/activity",
+            domain, boost_account.username, boost_id
+        );
         let original_uri = original.uri.clone().unwrap_or_default();
         let original_account = sqlx::query!(
             "SELECT uri, inbox_url, shared_inbox_url, domain FROM accounts WHERE id = $1",
             original.account_id,
-        ).fetch_optional(&state.db).await?;
-        let original_author_url = original_account.as_ref().map(|a| a.uri.clone()).unwrap_or_default();
+        )
+        .fetch_optional(&state.db)
+        .await?;
+        let original_author_url = original_account
+            .as_ref()
+            .map(|a| a.uri.clone())
+            .unwrap_or_default();
         // Address the Announce by the boost's visibility (Mastodon TagManager),
         // always cc'ing the original author.
         let (to_strs, mut cc_strs) =
@@ -1964,7 +2143,14 @@ pub async fn reblog_status(
         let to_refs: Vec<&str> = to_strs.iter().map(String::as_str).collect();
         let cc_refs: Vec<&str> = cc_strs.iter().map(String::as_str).collect();
         let published = boost.created_at.and_utc().to_rfc3339();
-        let announce = crate::federation::activity::announce(&announce_id, &actor_url, &original_uri, &to_refs, &cc_refs, &published)?;
+        let announce = crate::federation::activity::announce(
+            &announce_id,
+            &actor_url,
+            &original_uri,
+            &to_refs,
+            &cc_refs,
+            &published,
+        )?;
         let key_id = format!("{}#main-key", actor_url);
 
         // Reach the reblog audience (StatusReachFinder reblog branch): the
@@ -1984,10 +2170,9 @@ pub async fn reblog_status(
         .await
         .unwrap_or_default();
         if !inboxes.is_empty() {
-            if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
-                &state, announce, inboxes, key_id,
-            )
-            .await
+            if let Err(e) =
+                crate::federation::delivery::deliver_to_inboxes(&state, announce, inboxes, key_id)
+                    .await
             {
                 tracing::warn!(error = %e, "failed to enqueue Announce delivery");
             }
@@ -2019,15 +2204,21 @@ pub async fn get_status_context(
     match viewer_id {
         Some(vid) => check_status_visible(&state, &root, vid).await?,
         None => {
-            if !matches!(root.visibility, crate::db::models::vis::PUBLIC | crate::db::models::vis::UNLISTED) {
+            if !matches!(
+                root.visibility,
+                crate::db::models::vis::PUBLIC | crate::db::models::vis::UNLISTED
+            ) {
                 return Err(AppError::NotFound);
             }
         }
     }
 
     // Mastodon limits: authenticated=4096 each; unauthenticated=40 ancestors, 60 descendants (depth 20).
-    let (ancestor_limit, descendant_limit, depth_limit): (i64, i64, i64) =
-        if viewer_id.is_some() { (4096, 4096, 4096) } else { (40, 60, 20) };
+    let (ancestor_limit, descendant_limit, depth_limit): (i64, i64, i64) = if viewer_id.is_some() {
+        (4096, 4096, 4096)
+    } else {
+        (40, 60, 20)
+    };
 
     let ancestor_rows = sqlx::query_as::<_, DbStatus>(
         r#"WITH RECURSIVE ancestor_chain AS (
@@ -2037,7 +2228,7 @@ pub async fn get_status_context(
                JOIN ancestor_chain a ON s.id = a.in_reply_to_id
              WHERE s.deleted_at IS NULL
            )
-           SELECT * FROM ancestor_chain WHERE id != $1 ORDER BY id ASC LIMIT $2"#
+           SELECT * FROM ancestor_chain WHERE id != $1 ORDER BY id ASC LIMIT $2"#,
     )
     .bind(id)
     .bind(ancestor_limit)
@@ -2056,7 +2247,7 @@ pub async fn get_status_context(
              WHERE s.deleted_at IS NULL AND r.depth < $3 AND NOT s.id = ANY(r.path)
            ),
            bounded AS (SELECT id, path FROM reply_tree ORDER BY path LIMIT $2)
-           SELECT s.* FROM statuses s JOIN bounded b ON s.id = b.id ORDER BY b.path"#
+           SELECT s.* FROM statuses s JOIN bounded b ON s.id = b.id ORDER BY b.path"#,
     )
     .bind(id)
     .bind(descendant_limit)
@@ -2066,7 +2257,8 @@ pub async fn get_status_context(
 
     // Collect blocked account IDs for the viewer (batch query, avoids n+1 per status).
     let blocked_accounts: std::collections::HashSet<i64> = if let Some(vid) = viewer_id {
-        let all_account_ids: Vec<i64> = ancestor_rows.iter()
+        let all_account_ids: Vec<i64> = ancestor_rows
+            .iter()
             .chain(descendant_rows.iter())
             .map(|s| s.account_id)
             .filter(|aid| *aid != vid)
@@ -2097,12 +2289,18 @@ pub async fn get_status_context(
     };
 
     // Filter by visibility first, then apply "thread" context custom filters.
-    let visible_ancestors: Vec<&DbStatus> = ancestor_rows.iter()
+    let visible_ancestors: Vec<&DbStatus> = ancestor_rows
+        .iter()
         .filter(|s| {
-            if viewer_id.is_some_and(|vid| vid != s.account_id) && blocked_accounts.contains(&s.account_id) {
+            if viewer_id.is_some_and(|vid| vid != s.account_id)
+                && blocked_accounts.contains(&s.account_id)
+            {
                 return false;
             }
-            if matches!(s.visibility, crate::db::models::vis::PRIVATE | crate::db::models::vis::DIRECT) {
+            if matches!(
+                s.visibility,
+                crate::db::models::vis::PRIVATE | crate::db::models::vis::DIRECT
+            ) {
                 viewer_id.is_some()
             } else {
                 true
@@ -2111,10 +2309,15 @@ pub async fn get_status_context(
         .collect();
     let visible_descendants: Vec<&DbStatus> = {
         let filtered = descendant_rows.iter().filter(|s| {
-            if viewer_id.is_some_and(|vid| vid != s.account_id) && blocked_accounts.contains(&s.account_id) {
+            if viewer_id.is_some_and(|vid| vid != s.account_id)
+                && blocked_accounts.contains(&s.account_id)
+            {
                 return false;
             }
-            if matches!(s.visibility, crate::db::models::vis::PRIVATE | crate::db::models::vis::DIRECT) {
+            if matches!(
+                s.visibility,
+                crate::db::models::vis::PRIVATE | crate::db::models::vis::DIRECT
+            ) {
                 viewer_id.is_some()
             } else {
                 true
@@ -2132,7 +2335,10 @@ pub async fn get_status_context(
     let anc_owned: Vec<DbStatus> = {
         let mut v = Vec::new();
         for s in &visible_ancestors {
-            if matches!(s.visibility, crate::db::models::vis::PRIVATE | crate::db::models::vis::DIRECT) {
+            if matches!(
+                s.visibility,
+                crate::db::models::vis::PRIVATE | crate::db::models::vis::DIRECT
+            ) {
                 if let Some(vid) = viewer_id {
                     if check_status_visible(&state, s, vid).await.is_err() {
                         continue;
@@ -2146,7 +2352,10 @@ pub async fn get_status_context(
     let desc_owned: Vec<DbStatus> = {
         let mut v = Vec::new();
         for s in &visible_descendants {
-            if matches!(s.visibility, crate::db::models::vis::PRIVATE | crate::db::models::vis::DIRECT) {
+            if matches!(
+                s.visibility,
+                crate::db::models::vis::PRIVATE | crate::db::models::vis::DIRECT
+            ) {
                 if let Some(vid) = viewer_id {
                     if check_status_visible(&state, s, vid).await.is_err() {
                         continue;
@@ -2167,21 +2376,27 @@ pub async fn get_status_context(
     };
 
     // Build ancestors and descendants using batch fetches instead of N+1 queries.
-    let build_batch = |statuses: Vec<DbStatus>, filters: HashMap<i64, (bool, serde_json::Value)>| {
+    let build_batch = |statuses: Vec<DbStatus>,
+                       filters: HashMap<i64, (bool, serde_json::Value)>| {
         let state = state.clone();
         async move {
             if statuses.is_empty() {
                 return Ok::<Vec<Status>, crate::error::AppError>(vec![]);
             }
-            let visible: Vec<DbStatus> = statuses.into_iter()
+            let visible: Vec<DbStatus> = statuses
+                .into_iter()
                 .filter(|s| !filters.get(&s.id).is_some_and(|(hide, _)| *hide))
                 .collect();
             if visible.is_empty() {
                 return Ok(vec![]);
             }
 
-            let account_ids: Vec<i64> = visible.iter().map(|s| s.account_id)
-                .collect::<std::collections::HashSet<_>>().into_iter().collect();
+            let account_ids: Vec<i64> = visible
+                .iter()
+                .map(|s| s.account_id)
+                .collect::<std::collections::HashSet<_>>()
+                .into_iter()
+                .collect();
             let accounts_vec: Vec<Account> = sqlx::query_as!(
                 Account,
                 "SELECT * FROM accounts WHERE id = ANY($1::bigint[])",
@@ -2200,7 +2415,9 @@ pub async fn get_status_context(
             enrich_ids.extend_from_slice(&reblog_ids);
             let tags_map = batch_statuses_tags(&state, &enrich_ids).await?;
             let mentions_map = batch_status_mentions(&state, &enrich_ids).await?;
-            let all_statuses_for_emoji: Vec<DbStatus> = visible.iter().cloned()
+            let all_statuses_for_emoji: Vec<DbStatus> = visible
+                .iter()
+                .cloned()
                 .chain(reblog_map.values().map(|(rs, _, _)| rs.clone()))
                 .collect();
             let emojis_map = batch_status_emojis(&state, &all_statuses_for_emoji).await?;
@@ -2213,7 +2430,8 @@ pub async fn get_status_context(
             };
             let all_accounts_for_emoji: Vec<Account> = {
                 let mut seen = std::collections::HashSet::new();
-                account_map.values()
+                account_map
+                    .values()
                     .chain(reblog_map.values().map(|(_, ra, _)| ra))
                     .filter(|a| seen.insert(a.id))
                     .cloned()
@@ -2224,18 +2442,28 @@ pub async fn get_status_context(
 
             let mut result = Vec::with_capacity(visible.len());
             for s in &visible {
-                let Some(account) = account_map.get(&s.account_id) else { continue };
+                let Some(account) = account_map.get(&s.account_id) else {
+                    continue;
+                };
                 let media = media_map.get(&s.id).cloned().unwrap_or_default();
                 let reblog = reblog_map.get(&s.id).cloned();
                 let mentions = mentions_map.get(&s.id).cloned().unwrap_or_default();
-                let rb_mentions = reblog.as_ref()
+                let rb_mentions = reblog
+                    .as_ref()
                     .and_then(|(rs, _, _)| mentions_map.get(&rs.id))
                     .cloned()
                     .unwrap_or_default();
                 let ctx = viewer_ctxs.get(&s.id).cloned();
-                let mut api = status_from_db(s, account, media, reblog, ctx, &mentions, &rb_mentions);
-                api.account.emojis = account_emojis_map.get(&account.id).cloned().unwrap_or_default();
-                api.account.roles = account_roles_map.get(&account.id).cloned().unwrap_or_default();
+                let mut api =
+                    status_from_db(s, account, media, reblog, ctx, &mentions, &rb_mentions);
+                api.account.emojis = account_emojis_map
+                    .get(&account.id)
+                    .cloned()
+                    .unwrap_or_default();
+                api.account.roles = account_roles_map
+                    .get(&account.id)
+                    .cloned()
+                    .unwrap_or_default();
                 api.tags = tags_map.get(&s.id).cloned().unwrap_or_default();
                 api.mentions = mentions;
                 api.emojis = emojis_map.get(&s.id).cloned().unwrap_or_default();
@@ -2268,7 +2496,10 @@ pub async fn get_status_context(
     let ancestors = build_batch(anc_owned, anc_filters).await?;
     let descendants = build_batch(desc_owned, desc_filters).await?;
 
-    Ok(Json(StatusContext { ancestors, descendants }))
+    Ok(Json(StatusContext {
+        ancestors,
+        descendants,
+    }))
 }
 
 // ── POST /api/v1/statuses/:id/unreblog ────────────────────────────────────
@@ -2358,7 +2589,9 @@ pub async fn unreblog_status(
     let media = fetch_status_media(&state, original_id).await?;
     let reblog = fetch_reblog_data(&state, &original).await?;
     let ctx = build_viewer_context(&state, auth.account_id, original_id).await?;
-    Ok(Json(build_status(&state, &original, &account, media, reblog, Some(ctx)).await?))
+    Ok(Json(
+        build_status(&state, &original, &account, media, reblog, Some(ctx)).await?,
+    ))
 }
 
 // ── POST /api/v1/statuses/:id/bookmark ────────────────────────────────────
@@ -2383,7 +2616,9 @@ pub async fn bookmark_status(
     let media = fetch_status_media(&state, id).await?;
     let reblog = fetch_reblog_data(&state, &status).await?;
     let ctx = build_viewer_context(&state, auth.account_id, id).await?;
-    Ok(Json(build_status(&state, &status, &account, media, reblog, Some(ctx)).await?))
+    Ok(Json(
+        build_status(&state, &status, &account, media, reblog, Some(ctx)).await?,
+    ))
 }
 
 // ── POST /api/v1/statuses/:id/unbookmark ──────────────────────────────────
@@ -2399,7 +2634,8 @@ pub async fn unbookmark_status(
 
     sqlx::query!(
         "DELETE FROM bookmarks WHERE account_id = $1 AND status_id = $2",
-        auth.account_id, id
+        auth.account_id,
+        id
     )
     .execute(&state.db)
     .await?;
@@ -2408,7 +2644,9 @@ pub async fn unbookmark_status(
     let media = fetch_status_media(&state, id).await?;
     let reblog = fetch_reblog_data(&state, &status).await?;
     let ctx = build_viewer_context(&state, auth.account_id, id).await?;
-    Ok(Json(build_status(&state, &status, &account, media, reblog, Some(ctx)).await?))
+    Ok(Json(
+        build_status(&state, &status, &account, media, reblog, Some(ctx)).await?,
+    ))
 }
 
 // ── POST /api/v1/statuses/:id/pin ─────────────────────────────────────────
@@ -2417,24 +2655,40 @@ pub async fn unbookmark_status(
 /// collection, delivered to followers (Mastodon PinsController). No-op for
 /// remote authors or accounts without a signing key.
 async fn federate_pin_change(state: &AppState, account: &Account, status: &DbStatus, is_add: bool) {
-    if account.domain.is_some()
-        || account.private_key.as_deref().is_none_or(|s| s.is_empty())
-    {
+    if account.domain.is_some() || account.private_key.as_deref().is_none_or(|s| s.is_empty()) {
         return;
     }
-    let Some(status_uri) = status.uri.clone().filter(|s| !s.is_empty()) else { return };
+    let Some(status_uri) = status.uri.clone().filter(|s| !s.is_empty()) else {
+        return;
+    };
     let domain = &state.instance.domain;
     let actor_url = crate::federation::tag::account_uri_of(domain, account);
     let target = format!("{actor_url}/collections/featured");
-    let activity_id = format!("https://{}/activities/{}", domain, crate::snowflake::next_id());
+    let activity_id = format!(
+        "https://{}/activities/{}",
+        domain,
+        crate::snowflake::next_id()
+    );
     let activity = if is_add {
-        crate::federation::activity::add_to_collection(&activity_id, &actor_url, &status_uri, &target)
+        crate::federation::activity::add_to_collection(
+            &activity_id,
+            &actor_url,
+            &status_uri,
+            &target,
+        )
     } else {
-        crate::federation::activity::remove_from_collection(&activity_id, &actor_url, &status_uri, &target)
+        crate::federation::activity::remove_from_collection(
+            &activity_id,
+            &actor_url,
+            &status_uri,
+            &target,
+        )
     };
     let Ok(activity) = activity else { return };
     let key_id = format!("{actor_url}#main-key");
-    if let Err(e) = crate::federation::delivery::fanout_to_followers(state, activity, account.id, key_id).await {
+    if let Err(e) =
+        crate::federation::delivery::fanout_to_followers(state, activity, account.id, key_id).await
+    {
         tracing::warn!(error = %e, "failed to enqueue pin Add/Remove delivery");
     }
 }
@@ -2447,10 +2701,14 @@ pub async fn pin_status(
     auth.require_scope("write:accounts")?;
     let (status, account) = fetch_status_with_account(&state, id).await?;
     if status.account_id != auth.account_id {
-        return Err(AppError::Unprocessable("Validation failed: You can only pin your own statuses".into()));
+        return Err(AppError::Unprocessable(
+            "Validation failed: You can only pin your own statuses".into(),
+        ));
     }
     if status.reblog_of_id.is_some() {
-        return Err(AppError::Unprocessable("Validation failed: Reblogs cannot be pinned".into()));
+        return Err(AppError::Unprocessable(
+            "Validation failed: Reblogs cannot be pinned".into(),
+        ));
     }
     let pin_count = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM status_pins WHERE account_id = $1",
@@ -2460,7 +2718,9 @@ pub async fn pin_status(
     .await?
     .unwrap_or(0);
     if pin_count >= 5 {
-        return Err(AppError::Unprocessable("Validation failed: You have already pinned the maximum number of statuses".into()));
+        return Err(AppError::Unprocessable(
+            "Validation failed: You have already pinned the maximum number of statuses".into(),
+        ));
     }
     let inserted = sqlx::query!(
         "INSERT INTO status_pins (account_id, status_id, created_at, updated_at) VALUES ($1, $2, now(), now()) ON CONFLICT DO NOTHING",
@@ -2474,7 +2734,9 @@ pub async fn pin_status(
     let media = fetch_status_media(&state, id).await?;
     let reblog = fetch_reblog_data(&state, &status).await?;
     let ctx = build_viewer_context(&state, auth.account_id, id).await?;
-    Ok(Json(build_status(&state, &status, &account, media, reblog, Some(ctx)).await?))
+    Ok(Json(
+        build_status(&state, &status, &account, media, reblog, Some(ctx)).await?,
+    ))
 }
 
 // ── POST /api/v1/statuses/:id/unpin ───────────────────────────────────────
@@ -2488,7 +2750,8 @@ pub async fn unpin_status(
     let (status, account) = fetch_status_with_account(&state, id).await?;
     let deleted = sqlx::query!(
         "DELETE FROM status_pins WHERE account_id = $1 AND status_id = $2",
-        auth.account_id, id
+        auth.account_id,
+        id
     )
     .execute(&state.db)
     .await?;
@@ -2498,7 +2761,9 @@ pub async fn unpin_status(
     let media = fetch_status_media(&state, id).await?;
     let reblog = fetch_reblog_data(&state, &status).await?;
     let ctx = build_viewer_context(&state, auth.account_id, id).await?;
-    Ok(Json(build_status(&state, &status, &account, media, reblog, Some(ctx)).await?))
+    Ok(Json(
+        build_status(&state, &status, &account, media, reblog, Some(ctx)).await?,
+    ))
 }
 
 // ── POST /api/v1/statuses/:id/mute ────────────────────────────────────────
@@ -2521,7 +2786,9 @@ pub async fn mute_status(
     let media = fetch_status_media(&state, id).await?;
     let reblog = fetch_reblog_data(&state, &status).await?;
     let ctx = build_viewer_context(&state, auth.account_id, id).await?;
-    Ok(Json(build_status(&state, &status, &account, media, reblog, Some(ctx)).await?))
+    Ok(Json(
+        build_status(&state, &status, &account, media, reblog, Some(ctx)).await?,
+    ))
 }
 
 // ── POST /api/v1/statuses/:id/unmute ──────────────────────────────────────
@@ -2542,7 +2809,9 @@ pub async fn unmute_status(
     let media = fetch_status_media(&state, id).await?;
     let reblog = fetch_reblog_data(&state, &status).await?;
     let ctx = build_viewer_context(&state, auth.account_id, id).await?;
-    Ok(Json(build_status(&state, &status, &account, media, reblog, Some(ctx)).await?))
+    Ok(Json(
+        build_status(&state, &status, &account, media, reblog, Some(ctx)).await?,
+    ))
 }
 
 // ── GET /api/v1/statuses/:id/favourited_by ────────────────────────────────
@@ -2559,14 +2828,26 @@ pub async fn favourited_by(
     let viewer_id = auth.as_ref().map(|Extension(a)| a.account_id);
     if let Some(vid) = viewer_id {
         check_status_visible(&state, &status, vid).await?;
-    } else if matches!(status.visibility, crate::db::models::vis::PRIVATE | crate::db::models::vis::DIRECT) {
+    } else if matches!(
+        status.visibility,
+        crate::db::models::vis::PRIVATE | crate::db::models::vis::DIRECT
+    ) {
         return Err(AppError::NotFound);
     }
 
     let limit = pagination.limit_clamped(40, 80);
-    let max_id = pagination.max_id.as_deref().and_then(|s| s.parse::<i64>().ok());
-    let since_id = pagination.since_id.as_deref().and_then(|s| s.parse::<i64>().ok());
-    let min_id = pagination.min_id.as_deref().and_then(|s| s.parse::<i64>().ok());
+    let max_id = pagination
+        .max_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
+    let since_id = pagination
+        .since_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
+    let min_id = pagination
+        .min_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
 
     // Paginate by favourite.id (matching Mastodon's Favourite.paginate_by_max_id)
     let fav_rows = sqlx::query!(
@@ -2586,7 +2867,12 @@ pub async fn favourited_by(
              AND ($4::bigint IS NULL OR f.id > $4)
              AND ($5::bigint IS NULL OR f.id > $5)
            ORDER BY f.id DESC LIMIT $6"#,
-        id, viewer_id, max_id, since_id, min_id, limit,
+        id,
+        viewer_id,
+        max_id,
+        since_id,
+        min_id,
+        limit,
     )
     .fetch_all(&state.db)
     .await?;
@@ -2597,11 +2883,19 @@ pub async fn favourited_by(
     let account_map: std::collections::HashMap<i64, Account> = if account_ids.is_empty() {
         std::collections::HashMap::new()
     } else {
-        sqlx::query_as!(Account, "SELECT * FROM accounts WHERE id = ANY($1::bigint[])", &account_ids)
-            .fetch_all(&state.db).await?
-            .into_iter().map(|a| (a.id, a)).collect()
+        sqlx::query_as!(
+            Account,
+            "SELECT * FROM accounts WHERE id = ANY($1::bigint[])",
+            &account_ids
+        )
+        .fetch_all(&state.db)
+        .await?
+        .into_iter()
+        .map(|a| (a.id, a))
+        .collect()
     };
-    let accounts: Vec<Account> = fav_rows.iter()
+    let accounts: Vec<Account> = fav_rows
+        .iter()
         .filter_map(|r| account_map.get(&r.account_id).cloned())
         .collect();
 
@@ -2633,14 +2927,26 @@ pub async fn reblogged_by(
     let viewer_id = auth.as_ref().map(|Extension(a)| a.account_id);
     if let Some(vid) = viewer_id {
         check_status_visible(&state, &status, vid).await?;
-    } else if matches!(status.visibility, crate::db::models::vis::PRIVATE | crate::db::models::vis::DIRECT) {
+    } else if matches!(
+        status.visibility,
+        crate::db::models::vis::PRIVATE | crate::db::models::vis::DIRECT
+    ) {
         return Err(AppError::NotFound);
     }
 
     let limit = pagination.limit_clamped(40, 80);
-    let max_id = pagination.max_id.as_deref().and_then(|s| s.parse::<i64>().ok());
-    let since_id = pagination.since_id.as_deref().and_then(|s| s.parse::<i64>().ok());
-    let min_id = pagination.min_id.as_deref().and_then(|s| s.parse::<i64>().ok());
+    let max_id = pagination
+        .max_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
+    let since_id = pagination
+        .since_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
+    let min_id = pagination
+        .min_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
 
     // Paginate by reblog status.id (matching Mastodon's Status.paginate_by_max_id)
     let reblog_rows = sqlx::query!(
@@ -2661,7 +2967,12 @@ pub async fn reblogged_by(
              AND ($4::bigint IS NULL OR s.id > $4)
              AND ($5::bigint IS NULL OR s.id > $5)
            ORDER BY s.id DESC LIMIT $6"#,
-        id, viewer_id, max_id, since_id, min_id, limit,
+        id,
+        viewer_id,
+        max_id,
+        since_id,
+        min_id,
+        limit,
     )
     .fetch_all(&state.db)
     .await?;
@@ -2672,11 +2983,19 @@ pub async fn reblogged_by(
     let account_map: std::collections::HashMap<i64, Account> = if account_ids.is_empty() {
         std::collections::HashMap::new()
     } else {
-        sqlx::query_as!(Account, "SELECT * FROM accounts WHERE id = ANY($1::bigint[])", &account_ids)
-            .fetch_all(&state.db).await?
-            .into_iter().map(|a| (a.id, a)).collect()
+        sqlx::query_as!(
+            Account,
+            "SELECT * FROM accounts WHERE id = ANY($1::bigint[])",
+            &account_ids
+        )
+        .fetch_all(&state.db)
+        .await?
+        .into_iter()
+        .map(|a| (a.id, a))
+        .collect()
     };
-    let accounts: Vec<Account> = reblog_rows.iter()
+    let accounts: Vec<Account> = reblog_rows
+        .iter()
         .filter_map(|r| account_map.get(&r.account_id).cloned())
         .collect();
 
@@ -2745,11 +3064,16 @@ pub async fn edit_status(
 
     // Compute the proposed new values.
     let new_text = form.status.clone().unwrap_or_else(|| status.text.clone());
-    let new_spoiler = form.spoiler_text.clone().unwrap_or_else(|| status.spoiler_text.clone());
+    let new_spoiler = form
+        .spoiler_text
+        .clone()
+        .unwrap_or_else(|| status.spoiler_text.clone());
     // Mastodon StatusLengthValidator: spoiler + body, URLs as 23 chars, mentions
     // without their domain, counted in grapheme clusters.
     if super::formatting::countable_length(&new_text, &new_spoiler) > 500 {
-        return Err(AppError::Unprocessable("Validation failed: Text character limit of 500 exceeded".into()));
+        return Err(AppError::Unprocessable(
+            "Validation failed: Text character limit of 500 exceeded".into(),
+        ));
     }
     // Mastodon forces sensitive when a content warning is present.
     let new_sensitive = form.sensitive.unwrap_or(status.sensitive) || !new_spoiler.is_empty();
@@ -2760,7 +3084,8 @@ pub async fn edit_status(
     let media_changed = form.media_attributes.is_some()
         || match form.media_ids {
             Some(ref ids) => {
-                let mut parsed: Vec<i64> = ids.iter().filter_map(|s| s.parse::<i64>().ok()).collect();
+                let mut parsed: Vec<i64> =
+                    ids.iter().filter_map(|s| s.parse::<i64>().ok()).collect();
                 let mut current: Vec<i64> = sqlx::query_scalar!(
                     "SELECT id FROM media_attachments WHERE status_id = $1",
                     id,
@@ -2811,7 +3136,9 @@ pub async fn edit_status(
         let media = fetch_status_media(&state, id).await?;
         let reblog = fetch_reblog_data(&state, &status).await?;
         let ctx = build_viewer_context(&state, auth.account_id, id).await?;
-        return Ok(Json(build_status(&state, &status, &account, media, reblog, Some(ctx)).await?));
+        return Ok(Json(
+            build_status(&state, &status, &account, media, reblog, Some(ctx)).await?,
+        ));
     }
 
     // Save the current version to the edit history before updating. The snapshot
@@ -2864,9 +3191,7 @@ pub async fn edit_status(
         }
     }
     if let Some(ref ids) = form.media_ids {
-        let parsed: Vec<i64> = ids.iter()
-            .filter_map(|s| s.parse::<i64>().ok())
-            .collect();
+        let parsed: Vec<i64> = ids.iter().filter_map(|s| s.parse::<i64>().ok()).collect();
         // Detach old media not in the new set
         let _ = sqlx::query!(
             "UPDATE media_attachments SET status_id = NULL WHERE status_id = $1 AND id != ALL($2::bigint[])",
@@ -3011,9 +3336,15 @@ pub async fn edit_status(
     let media = fetch_status_media(&state, id).await?;
     let reblog = fetch_reblog_data(&state, &updated_status).await?;
     let ctx = build_viewer_context(&state, auth.account_id, id).await?;
-    let api_status = build_status(&state, &updated_status, &account, media, reblog, Some(ctx)).await?;
+    let api_status =
+        build_status(&state, &updated_status, &account, media, reblog, Some(ctx)).await?;
 
-    if matches!(updated_status.visibility, crate::db::models::vis::PUBLIC | crate::db::models::vis::UNLISTED | crate::db::models::vis::PRIVATE) {
+    if matches!(
+        updated_status.visibility,
+        crate::db::models::vis::PUBLIC
+            | crate::db::models::vis::UNLISTED
+            | crate::db::models::vis::PRIVATE
+    ) {
         if let Ok(payload) = serde_json::to_string(&api_status) {
             let hashtags: Vec<String> = api_status.tags.iter().map(|t| t.name.clone()).collect();
             state.streaming.publish(Event::StatusUpdate {
@@ -3054,7 +3385,10 @@ pub async fn get_status_history(
     match viewer_id {
         Some(vid) => check_status_visible(&state, &status, vid).await?,
         None => {
-            if !matches!(status.visibility, crate::db::models::vis::PUBLIC | crate::db::models::vis::UNLISTED) {
+            if !matches!(
+                status.visibility,
+                crate::db::models::vis::PUBLIC | crate::db::models::vis::UNLISTED
+            ) {
                 return Err(AppError::NotFound);
             }
         }
@@ -3077,7 +3411,9 @@ pub async fn get_status_history(
     .await?;
 
     // Render current version content on the fly
-    let current_mentions = super::accounts::fetch_status_mentions(&state, id).await.unwrap_or_default();
+    let current_mentions = super::accounts::fetch_status_mentions(&state, id)
+        .await
+        .unwrap_or_default();
     let current_content = if account.domain.is_none() {
         let instance_domain = state.instance.domain.clone();
         let map = super::formatting::mention_map_from_api(&current_mentions, &instance_domain);
@@ -3093,10 +3429,16 @@ pub async fn get_status_history(
     api_account.roles = account_roles.get(&account.id).cloned().unwrap_or_default();
 
     // Collect all media attachment IDs needed across all edits, then batch-fetch them.
-    let all_media_ids: Vec<i64> = edits.iter()
+    let all_media_ids: Vec<i64> = edits
+        .iter()
         .filter_map(|e| e.ordered_media_attachment_ids.as_ref())
         .flat_map(|ids| ids.iter().copied())
-        .chain(status.ordered_media_attachment_ids.iter().flat_map(|ids| ids.iter().copied()))
+        .chain(
+            status
+                .ordered_media_attachment_ids
+                .iter()
+                .flat_map(|ids| ids.iter().copied()),
+        )
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .collect();
@@ -3120,7 +3462,9 @@ pub async fn get_status_history(
             list.iter()
                 .filter_map(|id| media_map.get(id))
                 .map(|m| super::convert::media_from_db(m))
-                .filter(|m| m.url.is_some() || m.remote_url.as_deref().is_some_and(|u| !u.is_empty()))
+                .filter(|m| {
+                    m.url.is_some() || m.remote_url.as_deref().is_some_and(|u| !u.is_empty())
+                })
                 .collect()
         })
         .unwrap_or_default()
@@ -3201,7 +3545,8 @@ pub async fn get_status_source(
             let is_author = status.account_id == auth.account_id;
             let is_follower = sqlx::query_scalar!(
                 "SELECT 1 as e FROM follows WHERE account_id = $1 AND target_account_id = $2",
-                auth.account_id, status.account_id,
+                auth.account_id,
+                status.account_id,
             )
             .fetch_optional(&state.db)
             .await?
@@ -3214,7 +3559,8 @@ pub async fn get_status_source(
             let is_author = status.account_id == auth.account_id;
             let is_mentioned = sqlx::query_scalar!(
                 "SELECT 1 as e FROM mentions WHERE status_id = $1 AND account_id = $2",
-                id, auth.account_id,
+                id,
+                auth.account_id,
             )
             .fetch_optional(&state.db)
             .await?
@@ -3267,7 +3613,10 @@ pub async fn get_status_card(
     match viewer_id {
         Some(vid) => check_status_visible(&state, &status, vid).await?,
         None => {
-            if !matches!(status.visibility, crate::db::models::vis::PUBLIC | crate::db::models::vis::UNLISTED) {
+            if !matches!(
+                status.visibility,
+                crate::db::models::vis::PUBLIC | crate::db::models::vis::UNLISTED
+            ) {
                 return Err(AppError::NotFound);
             }
         }
@@ -3334,7 +3683,8 @@ pub async fn update_interaction_policy(
             };
             sqlx::query!(
                 "UPDATE statuses SET quote_approval_policy = $1 WHERE id = $2",
-                policy, id,
+                policy,
+                id,
             )
             .execute(&state.db)
             .await?;
@@ -3355,7 +3705,9 @@ pub async fn update_interaction_policy(
     let media = super::accounts::fetch_status_media(&state, id).await?;
     let reblog = fetch_reblog_data(&state, &status).await?;
     let ctx = build_viewer_context(&state, auth.account_id, id).await?;
-    Ok(Json(build_status(&state, &status, &account, media, reblog, Some(ctx)).await?))
+    Ok(Json(
+        build_status(&state, &status, &account, media, reblog, Some(ctx)).await?,
+    ))
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -3373,14 +3725,16 @@ async fn check_status_visible(
             }
             let is_follower = sqlx::query_scalar!(
                 "SELECT 1 as e FROM follows WHERE account_id = $1 AND target_account_id = $2",
-                viewer_id, status.account_id,
+                viewer_id,
+                status.account_id,
             )
             .fetch_optional(&state.db)
             .await?
             .is_some();
             let is_mentioned = sqlx::query_scalar!(
                 "SELECT 1 as e FROM mentions WHERE status_id = $1 AND account_id = $2",
-                status.id, viewer_id,
+                status.id,
+                viewer_id,
             )
             .fetch_optional(&state.db)
             .await?
@@ -3389,19 +3743,19 @@ async fn check_status_visible(
                 return Err(AppError::NotFound);
             }
         }
-        crate::db::models::vis::DIRECT
-            if status.account_id != viewer_id => {
-                let is_mentioned = sqlx::query_scalar!(
-                    "SELECT 1 as e FROM mentions WHERE status_id = $1 AND account_id = $2",
-                    status.id, viewer_id,
-                )
-                .fetch_optional(&state.db)
-                .await?
-                .is_some();
-                if !is_mentioned {
-                    return Err(AppError::NotFound);
-                }
+        crate::db::models::vis::DIRECT if status.account_id != viewer_id => {
+            let is_mentioned = sqlx::query_scalar!(
+                "SELECT 1 as e FROM mentions WHERE status_id = $1 AND account_id = $2",
+                status.id,
+                viewer_id,
+            )
+            .fetch_optional(&state.db)
+            .await?
+            .is_some();
+            if !is_mentioned {
+                return Err(AppError::NotFound);
             }
+        }
         _ => {}
     }
     Ok(())
@@ -3458,10 +3812,11 @@ async fn federate_status_update(
         return Ok(());
     }
 
-    let bundle = match crate::api::ap::note::build_note(state, &state.instance.domain, status_id).await? {
-        Some(bundle) => bundle,
-        None => return Ok(()),
-    };
+    let bundle =
+        match crate::api::ap::note::build_note(state, &state.instance.domain, status_id).await? {
+            Some(bundle) => bundle,
+            None => return Ok(()),
+        };
 
     let updated_at = status
         .edited_at
@@ -3490,7 +3845,10 @@ async fn federate_status_update(
         matches!(status.visibility, vis::PUBLIC | vis::UNLISTED),
         false,
         status.visibility == vis::PUBLIC,
-        matches!(status.visibility, vis::PUBLIC | vis::UNLISTED | vis::PRIVATE),
+        matches!(
+            status.visibility,
+            vis::PUBLIC | vis::UNLISTED | vis::PRIVATE
+        ),
         None,
     )
     .await?;
@@ -3508,8 +3866,8 @@ pub(super) async fn batch_viewer_contexts(
     viewer_id: i64,
     status_ids: &[i64],
 ) -> AppResult<std::collections::HashMap<i64, super::convert::StatusViewerContext>> {
-    use std::collections::{HashMap, HashSet};
     use super::convert::StatusViewerContext;
+    use std::collections::{HashMap, HashSet};
 
     if status_ids.is_empty() {
         return Ok(HashMap::new());
@@ -3517,7 +3875,8 @@ pub(super) async fn batch_viewer_contexts(
 
     let fav_set: HashSet<i64> = sqlx::query_scalar!(
         "SELECT status_id FROM favourites WHERE account_id = $1 AND status_id = ANY($2::bigint[])",
-        viewer_id, status_ids,
+        viewer_id,
+        status_ids,
     )
     .fetch_all(&state.db)
     .await?
@@ -3527,7 +3886,8 @@ pub(super) async fn batch_viewer_contexts(
     let reb_set: HashSet<i64> = sqlx::query_scalar!(
         r#"SELECT reblog_of_id as "reblog_of_id!: i64" FROM statuses
            WHERE account_id = $1 AND reblog_of_id = ANY($2::bigint[]) AND deleted_at IS NULL"#,
-        viewer_id, status_ids,
+        viewer_id,
+        status_ids,
     )
     .fetch_all(&state.db)
     .await?
@@ -3536,7 +3896,8 @@ pub(super) async fn batch_viewer_contexts(
 
     let book_set: HashSet<i64> = sqlx::query_scalar!(
         "SELECT status_id FROM bookmarks WHERE account_id = $1 AND status_id = ANY($2::bigint[])",
-        viewer_id, status_ids,
+        viewer_id,
+        status_ids,
     )
     .fetch_all(&state.db)
     .await?
@@ -3554,7 +3915,8 @@ pub(super) async fn batch_viewer_contexts(
 
     let pin_set: HashSet<i64> = sqlx::query_scalar!(
         "SELECT status_id FROM status_pins WHERE account_id = $1 AND status_id = ANY($2::bigint[])",
-        viewer_id, status_ids,
+        viewer_id,
+        status_ids,
     )
     .fetch_all(&state.db)
     .await?
@@ -3574,7 +3936,8 @@ pub(super) async fn batch_viewer_contexts(
         .map(|r| (r.status_id, r.account_id))
         .collect();
 
-    let author_ids: Vec<i64> = status_to_author.values()
+    let author_ids: Vec<i64> = status_to_author
+        .values()
         .cloned()
         .collect::<HashSet<_>>()
         .into_iter()
@@ -3611,16 +3974,19 @@ pub(super) async fn batch_viewer_contexts(
     let mut result = HashMap::with_capacity(status_ids.len());
     for &id in status_ids {
         let author_id = status_to_author.get(&id).cloned().unwrap_or(0);
-        result.insert(id, StatusViewerContext {
-            account_id: viewer_id,
-            follows_author: viewer_follows_set.contains(&author_id),
-            author_follows: author_follows_set.contains(&author_id),
-            favourited: fav_set.contains(&id),
-            reblogged: reb_set.contains(&id),
-            bookmarked: book_set.contains(&id),
-            muted: mute_set.contains(&id),
-            pinned: pin_set.contains(&id),
-        });
+        result.insert(
+            id,
+            StatusViewerContext {
+                account_id: viewer_id,
+                follows_author: viewer_follows_set.contains(&author_id),
+                author_follows: author_follows_set.contains(&author_id),
+                favourited: fav_set.contains(&id),
+                reblogged: reb_set.contains(&id),
+                bookmarked: book_set.contains(&id),
+                muted: mute_set.contains(&id),
+                pinned: pin_set.contains(&id),
+            },
+        );
     }
     Ok(result)
 }
@@ -3653,12 +4019,10 @@ pub async fn get_status_quotes(
     .ok_or(AppError::NotFound)?;
 
     // Only return accepted quotes; private quoting statuses are hidden from non-owners
-    let quoted_owner: Option<i64> = sqlx::query_scalar!(
-        "SELECT account_id FROM statuses WHERE id = $1",
-        id,
-    )
-    .fetch_optional(&state.db)
-    .await?;
+    let quoted_owner: Option<i64> =
+        sqlx::query_scalar!("SELECT account_id FROM statuses WHERE id = $1", id,)
+            .fetch_optional(&state.db)
+            .await?;
     let viewer_is_owner = viewer_id.is_some() && viewer_id == quoted_owner;
 
     let quotes = sqlx::query_as!(
@@ -3673,7 +4037,12 @@ pub async fn get_status_quotes(
              AND ($4::bigint IS NULL OR q.id > $4)
            ORDER BY q.id DESC
            LIMIT $5"#,
-        id, max_id, since_id, min_id, limit, viewer_is_owner,
+        id,
+        max_id,
+        since_id,
+        min_id,
+        limit,
+        viewer_is_owner,
     )
     .fetch_all(&state.db)
     .await?;
@@ -3709,7 +4078,8 @@ pub async fn revoke_quote(
         r#"SELECT q.id, q.status_id, q.quoted_status_id, q.quoted_account_id, q.state
            FROM quotes q
            WHERE q.quoted_status_id = $1 AND q.status_id = $2 AND q.state != 3"#,
-        quoted_status_id, quoting_status_id,
+        quoted_status_id,
+        quoting_status_id,
     )
     .fetch_optional(&state.db)
     .await?
@@ -3719,12 +4089,9 @@ pub async fn revoke_quote(
         return Err(AppError::Forbidden);
     }
 
-    sqlx::query!(
-        "UPDATE quotes SET state = 3 WHERE id = $1",
-        quote.id,
-    )
-    .execute(&state.db)
-    .await?;
+    sqlx::query!("UPDATE quotes SET state = 3 WHERE id = $1", quote.id,)
+        .execute(&state.db)
+        .await?;
 
     // Return the quoting status
     let quoting_status = sqlx::query_as!(
@@ -3739,7 +4106,9 @@ pub async fn revoke_quote(
     let account = fetch_account(&state, quoting_status.account_id).await?;
     let media = fetch_status_media(&state, quoting_status.id).await?;
     let reblog = fetch_reblog_data(&state, &quoting_status).await?;
-    let ctx = build_viewer_context(&state, auth.account_id, quoting_status.id).await.ok();
+    let ctx = build_viewer_context(&state, auth.account_id, quoting_status.id)
+        .await
+        .ok();
     let api_status = build_status(&state, &quoting_status, &account, media, reblog, ctx).await?;
     Ok(Json(api_status))
 }
@@ -3751,7 +4120,8 @@ pub async fn build_viewer_context(
 ) -> AppResult<super::convert::StatusViewerContext> {
     let favourited = sqlx::query!(
         "SELECT 1 as e FROM favourites WHERE account_id = $1 AND status_id = $2",
-        viewer_id, status_id
+        viewer_id,
+        status_id
     )
     .fetch_optional(&state.db)
     .await?
@@ -3767,7 +4137,8 @@ pub async fn build_viewer_context(
 
     let bookmarked = sqlx::query!(
         "SELECT 1 as e FROM bookmarks WHERE account_id = $1 AND status_id = $2",
-        viewer_id, status_id
+        viewer_id,
+        status_id
     )
     .fetch_optional(&state.db)
     .await?
@@ -3783,25 +4154,25 @@ pub async fn build_viewer_context(
 
     let pinned = sqlx::query!(
         "SELECT 1 as e FROM status_pins WHERE account_id = $1 AND status_id = $2",
-        viewer_id, status_id
+        viewer_id,
+        status_id
     )
     .fetch_optional(&state.db)
     .await?
     .is_some();
 
-    let author_id: i64 = sqlx::query_scalar!(
-        "SELECT account_id FROM statuses WHERE id = $1",
-        status_id
-    )
-    .fetch_optional(&state.db)
-    .await
-    .ok()
-    .flatten()
-    .unwrap_or(0);
+    let author_id: i64 =
+        sqlx::query_scalar!("SELECT account_id FROM statuses WHERE id = $1", status_id)
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or(0);
 
     let follows_author = sqlx::query!(
         "SELECT 1 as e FROM follows WHERE account_id = $1 AND target_account_id = $2",
-        viewer_id, author_id
+        viewer_id,
+        author_id
     )
     .fetch_optional(&state.db)
     .await?
@@ -3809,7 +4180,8 @@ pub async fn build_viewer_context(
 
     let author_follows = sqlx::query!(
         "SELECT 1 as e FROM follows WHERE account_id = $1 AND target_account_id = $2",
-        author_id, viewer_id
+        author_id,
+        viewer_id
     )
     .fetch_optional(&state.db)
     .await?
@@ -3829,17 +4201,23 @@ pub async fn build_viewer_context(
 
 pub fn extract_hashtags(text: &str) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
-    HASHTAG_RE.captures_iter(text)
+    HASHTAG_RE
+        .captures_iter(text)
         .filter_map(|c| {
             let tag = c[2].to_lowercase();
-            if seen.insert(tag.clone()) { Some(tag) } else { None }
+            if seen.insert(tag.clone()) {
+                Some(tag)
+            } else {
+                None
+            }
         })
         .collect()
 }
 
 pub fn extract_mention_handles(text: &str) -> Vec<(String, Option<String>)> {
     let mut seen = std::collections::HashSet::new();
-    MENTION_RE.captures_iter(text)
+    MENTION_RE
+        .captures_iter(text)
         .filter_map(|c| {
             let username = c[2].to_lowercase();
             let domain = c.get(3).map(|m| m.as_str().to_lowercase());
@@ -3847,7 +4225,11 @@ pub fn extract_mention_handles(text: &str) -> Vec<(String, Option<String>)> {
                 Some(d) => format!("{}@{}", username, d),
                 None => username.clone(),
             };
-            if seen.insert(key) { Some((username, domain)) } else { None }
+            if seen.insert(key) {
+                Some((username, domain))
+            } else {
+                None
+            }
         })
         .collect()
 }
@@ -3870,7 +4252,8 @@ pub async fn resolve_mention_accounts(
             sqlx::query_as!(
                 Account,
                 "SELECT * FROM accounts WHERE LOWER(username) = $1 AND domain = $2 LIMIT 1",
-                username, d,
+                username,
+                d,
             )
             .fetch_optional(&state.db)
             .await
@@ -3894,13 +4277,21 @@ pub async fn resolve_mention_accounts(
         let account = match account {
             Some(acct) => Some(acct),
             None => match domain {
-                Some(d) => match crate::federation::webfinger::resolve(&state.fetch, username, d).await {
-                    Ok(actor_url) => match crate::api::ap::inbox::resolve_or_fetch_remote_account(state, &actor_url).await {
-                        Ok(id) => sqlx::query_as!(Account, "SELECT * FROM accounts WHERE id = $1", id)
-                            .fetch_optional(&state.db)
-                            .await
-                            .ok()
-                            .flatten(),
+                Some(d) => match crate::federation::webfinger::resolve(&state.fetch, username, d)
+                    .await
+                {
+                    Ok(actor_url) => match crate::api::ap::inbox::resolve_or_fetch_remote_account(
+                        state, &actor_url,
+                    )
+                    .await
+                    {
+                        Ok(id) => {
+                            sqlx::query_as!(Account, "SELECT * FROM accounts WHERE id = $1", id)
+                                .fetch_optional(&state.db)
+                                .await
+                                .ok()
+                                .flatten()
+                        }
                         Err(e) => {
                             tracing::debug!(handle = %format!("{username}@{d}"), error = %e, "mention actor fetch failed");
                             None
@@ -3932,18 +4323,29 @@ pub fn build_mention_map(
         let display = account.acct();
         map.insert(username_lower.clone(), (url.clone(), display.clone()));
         if let Some(ref d) = account.domain {
-            map.insert(format!("{}@{}", username_lower, d.to_lowercase()), (url, display));
+            map.insert(
+                format!("{}@{}", username_lower, d.to_lowercase()),
+                (url, display),
+            );
         } else if !local_domain.is_empty() {
             // Local accounts are stored with domain NULL, but users may still
             // write the fully-qualified `@alice@this.instance` form; map that key
             // too so it renders as a link instead of plain text.
-            map.insert(format!("{}@{}", username_lower, local_domain.to_lowercase()), (url, display));
+            map.insert(
+                format!("{}@{}", username_lower, local_domain.to_lowercase()),
+                (url, display),
+            );
         }
     }
     map
 }
 
-pub async fn store_statuses_tags(state: &AppState, status_id: i64, account_id: i64, hashtags: &[String]) -> AppResult<()> {
+pub async fn store_statuses_tags(
+    state: &AppState,
+    status_id: i64,
+    account_id: i64,
+    hashtags: &[String],
+) -> AppResult<()> {
     sqlx::query!("DELETE FROM statuses_tags WHERE status_id = $1", status_id)
         .execute(&state.db)
         .await?;
@@ -3958,7 +4360,8 @@ pub async fn store_statuses_tags(state: &AppState, status_id: i64, account_id: i
         .await?;
         sqlx::query!(
             "INSERT INTO statuses_tags (status_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-            status_id, tag_id,
+            status_id,
+            tag_id,
         )
         .execute(&state.db)
         .await?;
