@@ -1,8 +1,9 @@
-import { useRef, useState, type ChangeEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent } from 'react'
 import { Paperclip, X } from 'lucide-react'
 
 import type { mastodon } from '../masto.ts'
 import { postStatus, updateMediaDescription, uploadMedia } from '../api.ts'
+import { getDefaultVisibility, loadMe } from '../me.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Card, CardContent } from '@/components/ui/card.tsx'
 
@@ -23,12 +24,25 @@ export function Compose({
 }) {
   const [text, setText] = useState('')
   const [visibility, setVisibility] =
-    useState<mastodon.v1.StatusVisibility>('public')
+    useState<mastodon.v1.StatusVisibility>(() => getDefaultVisibility())
   const [attachments, setAttachments] = useState<mastodon.v1.MediaAttachment[]>([])
   const [busy, setBusy] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    loadMe(token)
+      .then((me) => {
+        if (!cancelled && me) setVisibility(me.defaultVisibility)
+      })
+      .catch(() => {})
+
+    return () => {
+      cancelled = true
+    }
+  }, [token])
 
   const onFiles = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? [])

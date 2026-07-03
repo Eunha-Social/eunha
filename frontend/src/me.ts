@@ -1,6 +1,7 @@
 // Caches the signed-in account so UI can synchronously render current-user
 // affordances without a request per component mount.
 import { getCurrentAccount } from './api.ts'
+import type { mastodon } from './masto.ts'
 
 const ID_KEY = 'eunha:me-id'
 const ACCOUNT_KEY = 'eunha:me-account'
@@ -8,6 +9,7 @@ const ACCOUNT_KEY = 'eunha:me-account'
 export interface MeAccount {
   id: string
   acct: string
+  defaultVisibility: mastodon.v1.StatusVisibility
 }
 
 let cachedId: string | null = localStorage.getItem(ID_KEY)
@@ -19,10 +21,29 @@ function readCachedAccount(): MeAccount | null {
 
   try {
     const parsed = JSON.parse(raw) as Partial<MeAccount>
-    return parsed.id && parsed.acct ? { id: parsed.id, acct: parsed.acct } : null
+    return parsed.id && parsed.acct
+      ? {
+          id: parsed.id,
+          acct: parsed.acct,
+          defaultVisibility: isStatusVisibility(parsed.defaultVisibility)
+            ? parsed.defaultVisibility
+            : 'public',
+        }
+      : null
   } catch {
     return null
   }
+}
+
+function isStatusVisibility(
+  value: unknown,
+): value is mastodon.v1.StatusVisibility {
+  return (
+    value === 'public' ||
+    value === 'unlisted' ||
+    value === 'private' ||
+    value === 'direct'
+  )
 }
 
 export function getMeId(): string | null {
@@ -33,11 +54,19 @@ export function getMeAccount(): MeAccount | null {
   return cachedAccount
 }
 
+export function getDefaultVisibility(): mastodon.v1.StatusVisibility {
+  return cachedAccount?.defaultVisibility ?? 'public'
+}
+
 export async function loadMe(token: string): Promise<MeAccount | null> {
   try {
     const me = await getCurrentAccount(token)
     cachedId = me.id
-    cachedAccount = { id: me.id, acct: me.acct }
+    cachedAccount = {
+      id: me.id,
+      acct: me.acct,
+      defaultVisibility: me.source.privacy ?? 'public',
+    }
     localStorage.setItem(ID_KEY, me.id)
     localStorage.setItem(ACCOUNT_KEY, JSON.stringify(cachedAccount))
     return cachedAccount
