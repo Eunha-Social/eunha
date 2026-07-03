@@ -4950,12 +4950,21 @@ pub struct UserDefaults {
 
 pub async fn user_defaults(state: &AppState, account_id: i64) -> UserDefaults {
     let s = user_settings_json(state, account_id).await;
+    let locked = sqlx::query_scalar!(
+        "SELECT locked FROM accounts WHERE id = $1",
+        account_id
+    )
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten()
+    .unwrap_or(false);
     UserDefaults {
         privacy: s
             .get("default_privacy")
             .or_else(|| s.get("privacy"))
             .and_then(|v| v.as_str())
-            .unwrap_or("public")
+            .unwrap_or(if locked { "private" } else { "public" })
             .to_string(),
         sensitive: s
             .get("web.default_sensitive")
