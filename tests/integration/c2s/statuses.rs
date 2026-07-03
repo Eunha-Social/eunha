@@ -3839,6 +3839,42 @@ async fn test_status_mentions_populated() {
     assert!(mention["url"].as_str().is_some(), "mention url should be present");
 }
 
+/// A fully-qualified mention to a local account (`@bob@this.instance`) should
+/// resolve to the local user, since local accounts are stored with a NULL
+/// domain. Mirrors Mastodon's TagManager#local_domain? normalization.
+#[tokio::test]
+async fn test_status_mention_local_fully_qualified() {
+    let ctx = TestContext::new("status-mention-fq-local").await;
+
+    let text = format!("@bob@{} hello", ctx.domain);
+    let status = ctx.api.post_status(&ctx.alice_token, &text, "public").await;
+    let sid = status["id"].as_str().unwrap();
+
+    let s: Value = ctx
+        .api
+        .get(&format!("/api/v1/statuses/{sid}"), Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+
+    let mentions = s["mentions"].as_array().expect("mentions should be an array");
+    assert_eq!(
+        mentions.len(),
+        1,
+        "fully-qualified local mention should resolve, got: {:?}",
+        mentions
+    );
+    assert_eq!(mentions[0]["username"].as_str(), Some("bob"));
+
+    // The rendered content should link the mention rather than leave it as text.
+    let content = s["content"].as_str().unwrap_or_default();
+    assert!(
+        content.contains("h-card"),
+        "mention should render as a linked h-card: {content}"
+    );
+}
+
 /// When a user has set a default language, posting without an explicit language
 /// should inherit the default rather than store null.
 #[tokio::test]

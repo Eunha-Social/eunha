@@ -103,8 +103,8 @@ async fn publish_one(
 
     let hashtags = extract_hashtags(&text);
     let mention_handles = extract_mention_handles(&text);
-    let resolved = resolve_mention_accounts(state, &mention_handles).await;
-    let mention_map = build_mention_map(&resolved);
+    let resolved = resolve_mention_accounts(state, &mention_handles, domain).await;
+    let mention_map = build_mention_map(&resolved, domain);
     let content = render_content(&text, domain, &mention_map);
 
     let status_id = crate::snowflake::next_id();

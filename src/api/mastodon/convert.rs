@@ -234,7 +234,7 @@ fn render_status_content(
             .and_then(|uri| uri.strip_prefix("https://"))
             .and_then(|rest| rest.split('/').next())
             .unwrap_or("");
-        let map = mention_map_from_api(mentions);
+        let map = mention_map_from_api(mentions, domain);
         render_content(&s.text, domain, &map)
     } else {
         // Remote: text is ActivityPub HTML, sanitize before serving

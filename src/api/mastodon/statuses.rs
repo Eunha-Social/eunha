@@ -332,7 +332,7 @@ pub async fn post_status(
 
     let hashtags = extract_hashtags(&text);
     let mention_handles = extract_mention_handles(&text);
-    let resolved = resolve_mention_accounts(&state, &mention_handles).await;
+    let resolved = resolve_mention_accounts(&state, &mention_handles, &instance.domain).await;
 
     // Safeguard: if the caller passed allowed_mentions, reject the post if any resolved
     // mentions are not in that list (mirrors Mastodon's PostStatusService#safeguard_mentions!).
@@ -350,7 +350,7 @@ pub async fn post_status(
         }
     }
 
-    let mention_map = build_mention_map(&resolved);
+    let mention_map = build_mention_map(&resolved, &instance.domain);
     let content = render_content(&text, &instance.domain, &mention_map);
 
     let status_id = crate::snowflake::next_id();
@@ -2719,8 +2719,8 @@ pub async fn edit_status(
 
     let hashtags = extract_hashtags(&new_text);
     let mention_handles = extract_mention_handles(&new_text);
-    let resolved = resolve_mention_accounts(&state, &mention_handles).await;
-    let mention_map = build_mention_map(&resolved);
+    let resolved = resolve_mention_accounts(&state, &mention_handles, &instance_domain).await;
+    let mention_map = build_mention_map(&resolved, &instance_domain);
     let new_content = render_content(&new_text, &instance_domain, &mention_map);
 
     sqlx::query!(
@@ -2966,7 +2966,7 @@ pub async fn get_status_history(
     let current_mentions = super::accounts::fetch_status_mentions(&state, id).await.unwrap_or_default();
     let current_content = if account.domain.is_none() {
         let instance_domain = state.instance.domain.clone();
-        let map = super::formatting::mention_map_from_api(&current_mentions);
+        let map = super::formatting::mention_map_from_api(&current_mentions, &instance_domain);
         super::formatting::render_content(&status.text, &instance_domain, &map)
     } else {
         ammonia::clean(&status.text)
@@ -3741,9 +3741,17 @@ pub fn extract_mention_handles(text: &str) -> Vec<(String, Option<String>)> {
 pub async fn resolve_mention_accounts(
     state: &AppState,
     handles: &[(String, Option<String>)],
+    local_domain: &str,
 ) -> Vec<(String, Account)> {
     let mut result = Vec::new();
     for (username, domain) in handles {
+        // A mention that names this instance's own domain refers to a local
+        // account, which is stored with domain IS NULL (mirrors Mastodon's
+        // TagManager#local_domain? normalization).
+        let domain = domain
+            .as_deref()
+            .filter(|d| local_domain.is_empty() || !d.eq_ignore_ascii_case(local_domain));
+
         let account = if let Some(d) = domain {
             sqlx::query_as!(
                 Account,
@@ -3765,6 +3773,34 @@ pub async fn resolve_mention_accounts(
             .ok()
             .flatten()
         };
+
+        // Unknown remote account: resolve it via WebFinger and fetch the actor,
+        // mirroring Mastodon's ProcessMentionsService, so that mentioning a user
+        // this instance has never seen still creates the mention and federates.
+        let account = match account {
+            Some(acct) => Some(acct),
+            None => match domain {
+                Some(d) => match crate::federation::webfinger::resolve(&state.fetch, username, d).await {
+                    Ok(actor_url) => match crate::api::ap::inbox::resolve_or_fetch_remote_account(state, &actor_url).await {
+                        Ok(id) => sqlx::query_as!(Account, "SELECT * FROM accounts WHERE id = $1", id)
+                            .fetch_optional(&state.db)
+                            .await
+                            .ok()
+                            .flatten(),
+                        Err(e) => {
+                            tracing::debug!(handle = %format!("{username}@{d}"), error = %e, "mention actor fetch failed");
+                            None
+                        }
+                    },
+                    Err(e) => {
+                        tracing::debug!(handle = %format!("{username}@{d}"), error = %e, "mention webfinger failed");
+                        None
+                    }
+                },
+                None => None,
+            },
+        };
+
         if let Some(acct) = account {
             result.push((username.clone(), acct));
         }
@@ -3772,7 +3808,10 @@ pub async fn resolve_mention_accounts(
     result
 }
 
-pub fn build_mention_map(resolved: &[(String, Account)]) -> HashMap<String, (String, String)> {
+pub fn build_mention_map(
+    resolved: &[(String, Account)],
+    local_domain: &str,
+) -> HashMap<String, (String, String)> {
     let mut map = HashMap::new();
     for (username_lower, account) in resolved {
         let url = account.url.clone().unwrap_or_default();
@@ -3780,6 +3819,11 @@ pub fn build_mention_map(resolved: &[(String, Account)]) -> HashMap<String, (Str
         map.insert(username_lower.clone(), (url.clone(), display.clone()));
         if let Some(ref d) = account.domain {
             map.insert(format!("{}@{}", username_lower, d.to_lowercase()), (url, display));
+        } else if !local_domain.is_empty() {
+            // Local accounts are stored with domain NULL, but users may still
+            // write the fully-qualified `@alice@this.instance` form; map that key
+            // too so it renders as a link instead of plain text.
+            map.insert(format!("{}@{}", username_lower, local_domain.to_lowercase()), (url, display));
         }
     }
     map

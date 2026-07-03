@@ -240,7 +240,10 @@ fn linkify_urls(text: &str) -> String {
 
 /// Build a mention lookup map from a `StatusMention` slice.
 /// Keys are the lowercase acct handle (`user` or `user@domain`).
-pub fn mention_map_from_api(mentions: &[StatusMention]) -> HashMap<String, (String, String)> {
+pub fn mention_map_from_api(
+    mentions: &[StatusMention],
+    local_domain: &str,
+) -> HashMap<String, (String, String)> {
     let mut map = HashMap::new();
     for m in mentions {
         let key_short = m.username.to_lowercase();
@@ -248,6 +251,12 @@ pub fn mention_map_from_api(mentions: &[StatusMention]) -> HashMap<String, (Stri
             .or_insert_with(|| (m.url.clone(), m.acct.clone()));
         if m.acct.contains('@') {
             map.entry(m.acct.to_lowercase())
+                .or_insert_with(|| (m.url.clone(), m.acct.clone()));
+        } else if !local_domain.is_empty() {
+            // A local mention's acct is bare (`bob`), but the source text may use
+            // the fully-qualified `@bob@this.instance` form; map that key too so
+            // it still renders as a link.
+            map.entry(format!("{}@{}", key_short, local_domain.to_lowercase()))
                 .or_insert_with(|| (m.url.clone(), m.acct.clone()));
         }
     }
