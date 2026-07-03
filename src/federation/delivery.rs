@@ -151,6 +151,11 @@ pub async fn fanout_to_followers(
 /// - `reblog_of_account_id`: when set, the status is a reblog — Mastodon's
 ///   `StatusReachFinder` then reaches only the original author (plus followers +
 ///   relays), skipping the mention/quote/interactor unions.
+/// - `extra_account_ids`: additional accounts to reach unconditionally. The
+///   Delete path passes the rebloggers whose reblogs were just cascade-deleted:
+///   the interactor union can no longer see them (their reblog rows are now
+///   soft-deleted), mirroring Mastodon's `reblogs.rewhere(deleted_at: [nil,
+///   @status.deleted_at])`, which keeps reaching reblogs removed alongside it.
 #[allow(clippy::too_many_arguments)]
 pub async fn status_reach_inboxes(
     state: &AppState,
@@ -162,6 +167,7 @@ pub async fn status_reach_inboxes(
     is_public: bool,
     followers_allowed: bool,
     reblog_of_account_id: Option<i64>,
+    extra_account_ids: &[i64],
 ) -> anyhow::Result<Vec<String>> {
     let rows: Vec<String> = sqlx::query_scalar!(
         r#"
@@ -211,6 +217,13 @@ pub async fn status_reach_inboxes(
                 )
               )
             UNION
+            -- explicitly supplied extra accounts (e.g. rebloggers whose reblogs
+            -- were cascade-deleted with this status, so the interactor union
+            -- above no longer sees them)
+            SELECT CASE WHEN a.shared_inbox_url <> '' THEN a.shared_inbox_url ELSE a.inbox_url END
+            FROM accounts a
+            WHERE a.id = ANY($9::bigint[]) AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.inbox_url <> ''
+            UNION
             -- relays (public only)
             SELECT inbox_url FROM relays WHERE $6::bool AND state = 2 AND inbox_url <> ''
         ) reach
@@ -224,6 +237,7 @@ pub async fn status_reach_inboxes(
         is_public,
         followers_allowed,
         reblog_of_account_id,
+        extra_account_ids,
     )
     .fetch_all(&state.db)
     .await?;

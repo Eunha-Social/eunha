@@ -1029,6 +1029,7 @@ pub async fn post_status(
             vis_int == vis::PUBLIC,
             matches!(vis_int, vis::PUBLIC | vis::UNLISTED | vis::PRIVATE),
             None,
+            &[],
         )
         .await
         .unwrap_or_default();
@@ -1681,6 +1682,7 @@ pub async fn delete_status(
                 is_public,
                 followers_allowed,
                 reblog_of_account_id,
+                &reblogger_ids,
             )
             .await
             .unwrap_or_default();
@@ -2079,6 +2081,7 @@ pub async fn reblog_status(
             boost_visibility == vis::PUBLIC,
             matches!(boost_visibility, vis::PUBLIC | vis::UNLISTED | vis::PRIVATE),
             Some(original.account_id),
+            &[],
         )
         .await
         .unwrap_or_default();
@@ -3763,6 +3766,7 @@ async fn federate_status_update(
             vis::PUBLIC | vis::UNLISTED | vis::PRIVATE
         ),
         None,
+        &[],
     )
     .await?;
     if !inboxes.is_empty() {
