@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
-import { Bell, LogIn, LogOut, Pencil, Search, User } from 'lucide-react'
+import { Bell, LogIn, LogOut, Pencil, Search, User, UserPlus } from 'lucide-react'
 
 import { getInstance } from '../api.ts'
 import { beginLogin, getToken, logout } from '../auth.ts'
@@ -45,6 +45,14 @@ function Sidebar({
         >
           <Bell className="size-4" /> Notifications
         </NavLink>
+        {token && (
+          <NavLink
+            to="/follow-requests"
+            className={({ isActive }) => cn(navLink, isActive && activeNavLink)}
+          >
+            <UserPlus className="size-4" /> Follow requests
+          </NavLink>
+        )}
         <NavLink
           to="/search"
           className={({ isActive }) => cn(navLink, isActive && activeNavLink)}

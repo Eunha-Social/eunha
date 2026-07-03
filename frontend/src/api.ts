@@ -190,6 +190,27 @@ export async function getTagTimeline(
   return restClient(token).v1.timelines.tag.$select(name).list({ limit: 40, maxId })
 }
 
+export async function getFollowRequests(
+  token: string,
+  maxId?: string,
+): Promise<mastodon.v1.Account[]> {
+  return restClient(token).v1.followRequests.list({ limit: 40, maxId })
+}
+
+export function authorizeFollowRequest(
+  id: string,
+  token: string,
+): Promise<mastodon.v1.Relationship> {
+  return restClient(token).v1.followRequests.$select(id).authorize()
+}
+
+export function rejectFollowRequest(
+  id: string,
+  token: string,
+): Promise<mastodon.v1.Relationship> {
+  return restClient(token).v1.followRequests.$select(id).reject()
+}
+
 export async function getFollowers(
   id: string,
   token?: string,

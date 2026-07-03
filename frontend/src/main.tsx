@@ -7,6 +7,7 @@ import Profile from './pages/Profile.tsx'
 import StatusThread from './pages/StatusThread.tsx'
 import PublicTimeline from './pages/PublicTimeline.tsx'
 import Notifications from './pages/Notifications.tsx'
+import FollowRequests from './pages/FollowRequests.tsx'
 import SearchPage from './pages/Search.tsx'
 import TagTimeline from './pages/TagTimeline.tsx'
 import AccountList from './pages/AccountList.tsx'
@@ -31,6 +32,7 @@ const router = createBrowserRouter([
   { path: '/local', element: <PublicTimeline /> },
   { path: '/public', element: <PublicTimeline /> },
   { path: '/notifications', element: <Notifications /> },
+  { path: '/follow-requests', element: <FollowRequests /> },
   { path: '/search', element: <SearchPage /> },
   { path: '/tags/:name', element: <TagTimeline /> },
   { path: '/:acct', element: <Profile /> },

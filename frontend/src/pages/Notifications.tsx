@@ -10,6 +10,7 @@ import { useStreamingSubscription } from '../hooks/use-streaming-subscription.ts
 import { TopBar } from '@/components/top-bar.tsx'
 import { TimelineTabs } from '@/components/timeline-tabs.tsx'
 import { StatusCard } from '@/components/status-card.tsx'
+import { FollowRequestActions } from '@/components/follow-request-actions.tsx'
 import { InfiniteScroll } from '@/components/infinite-scroll.tsx'
 import { Card, CardContent } from '@/components/ui/card.tsx'
 import { Button } from '@/components/ui/button.tsx'
@@ -43,9 +44,12 @@ function describe(type: string): { icon: ReactNode; verb: string } {
 function NotificationItem({
   n,
   token,
+  onResolve,
 }: {
   n: mastodon.v1.Notification
   token: string
+  // Removes this notification once its follow request is accepted/rejected.
+  onResolve: (id: string) => void
 }) {
   const { icon, verb } = describe(n.type)
   const name = n.account.displayName || n.account.username
@@ -76,7 +80,16 @@ function NotificationItem({
   }
   return (
     <Card className="rounded-none border-0 py-3 shadow-none">
-      <CardContent className="px-3 sm:px-4">{header}</CardContent>
+      <CardContent className="space-y-2 px-3 sm:px-4">
+        {header}
+        {n.type === 'follow_request' && (
+          <FollowRequestActions
+            account={n.account}
+            token={token}
+            onResolved={() => onResolve(n.id)}
+          />
+        )}
+      </CardContent>
     </Card>
   )
 }
@@ -88,6 +101,10 @@ export default function Notifications() {
     [token],
   )
   const { mutate } = feed
+  const removeNotification = useCallback(
+    (id: string) => mutate((items) => items.filter((item) => item.id !== id)),
+    [mutate],
+  )
   const subscribeNotifications = useCallback(
     (client: mastodon.streaming.Client) => client.user.notification.subscribe(),
     [],
@@ -154,7 +171,12 @@ export default function Notifications() {
           {!!items?.length && (
             <TimelineStack>
               {items.map((n) => (
-                <NotificationItem key={n.id} n={n} token={token} />
+                <NotificationItem
+                  key={n.id}
+                  n={n}
+                  token={token}
+                  onResolve={removeNotification}
+                />
               ))}
             </TimelineStack>
           )}
