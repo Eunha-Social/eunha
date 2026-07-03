@@ -1871,7 +1871,7 @@ dependencies = [
 [[package]]
 name = "feder-core"
 version = "0.1.0"
-source = "git+https://github.com/limeburst/feder.git#540c00a33ed0a204c97b457e5d66a2ba1a36bfbd"
+source = "git+https://github.com/limeburst/feder.git#99b62ab481b7bde2fb3d656268631cce8dbf4e0b"
 dependencies = [
  "feder-vocab",
 ]
@@ -1879,7 +1879,7 @@ dependencies = [
 [[package]]
 name = "feder-runtime"
 version = "0.1.0"
-source = "git+https://github.com/limeburst/feder.git#540c00a33ed0a204c97b457e5d66a2ba1a36bfbd"
+source = "git+https://github.com/limeburst/feder.git#99b62ab481b7bde2fb3d656268631cce8dbf4e0b"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -1894,7 +1894,7 @@ dependencies = [
 [[package]]
 name = "feder-vocab"
 version = "0.1.0"
-source = "git+https://github.com/limeburst/feder.git#540c00a33ed0a204c97b457e5d66a2ba1a36bfbd"
+source = "git+https://github.com/limeburst/feder.git#99b62ab481b7bde2fb3d656268631cce8dbf4e0b"
 dependencies = [
  "iri-string",
  "serde",
@@ -2594,7 +2594,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -3839,7 +3839,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls 0.23.40",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -3876,7 +3876,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.3",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.59.0",
 ]
