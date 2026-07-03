@@ -4950,10 +4950,8 @@ pub struct UserDefaults {
 
 pub async fn user_defaults(state: &AppState, account_id: i64) -> UserDefaults {
     let s = user_settings_json(state, account_id).await;
-    let locked = sqlx::query_scalar!(
-        "SELECT locked FROM accounts WHERE id = $1",
-        account_id
-    )
+    let locked = sqlx::query_scalar::<_, bool>("SELECT locked FROM accounts WHERE id = $1")
+        .bind(account_id)
     .fetch_optional(&state.db)
     .await
     .ok()
