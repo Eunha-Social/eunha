@@ -86,7 +86,11 @@ pub async fn build_note(
                   quoted_s.uri AS "quote_uri?"
            FROM statuses s
            JOIN accounts a ON a.id = s.account_id
-           LEFT JOIN quotes qr ON qr.status_id = s.id AND qr.state = 1
+           -- Include pending (0) and accepted (1) quotes, not rejected/revoked:
+           -- the `quote` field declares the quote relationship (needed even
+           -- while pending, e.g. as a QuoteRequest's inlined instrument), while
+           -- `quoteAuthorization` separately proves it once accepted.
+           LEFT JOIN quotes qr ON qr.status_id = s.id AND qr.state IN (0, 1)
            LEFT JOIN statuses quoted_s ON quoted_s.id = qr.quoted_status_id AND quoted_s.deleted_at IS NULL
            WHERE s.id = $1 AND s.deleted_at IS NULL AND a.domain IS NULL
              AND s.reblog_of_id IS NULL"#,

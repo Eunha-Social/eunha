@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT s.id, s.account_id, s.text, s.spoiler_text, s.visibility, s.sensitive,\n                  s.created_at, s.edited_at, s.uri, s.url, s.in_reply_to_id, s.language,\n                  s.quote_approval_policy,\n                  a.username, a.uri AS account_uri, a.id_scheme,\n                  quoted_s.uri AS \"quote_uri?\"\n           FROM statuses s\n           JOIN accounts a ON a.id = s.account_id\n           LEFT JOIN quotes qr ON qr.status_id = s.id AND qr.state = 1\n           LEFT JOIN statuses quoted_s ON quoted_s.id = qr.quoted_status_id AND quoted_s.deleted_at IS NULL\n           WHERE s.id = $1 AND s.deleted_at IS NULL AND a.domain IS NULL\n             AND s.reblog_of_id IS NULL",
+  "query": "SELECT s.id, s.account_id, s.text, s.spoiler_text, s.visibility, s.sensitive,\n                  s.created_at, s.edited_at, s.uri, s.url, s.in_reply_to_id, s.language,\n                  s.quote_approval_policy,\n                  a.username, a.uri AS account_uri, a.id_scheme,\n                  quoted_s.uri AS \"quote_uri?\"\n           FROM statuses s\n           JOIN accounts a ON a.id = s.account_id\n           -- Include pending (0) and accepted (1) quotes, not rejected/revoked:\n           -- the `quote` field declares the quote relationship (needed even\n           -- while pending, e.g. as a QuoteRequest's inlined instrument), while\n           -- `quoteAuthorization` separately proves it once accepted.\n           LEFT JOIN quotes qr ON qr.status_id = s.id AND qr.state IN (0, 1)\n           LEFT JOIN statuses quoted_s ON quoted_s.id = qr.quoted_status_id AND quoted_s.deleted_at IS NULL\n           WHERE s.id = $1 AND s.deleted_at IS NULL AND a.domain IS NULL\n             AND s.reblog_of_id IS NULL",
   "describe": {
     "columns": [
       {
@@ -114,5 +114,5 @@
       true
     ]
   },
-  "hash": "cdb5edd29ce1df4c1665ce245766c4caa1355abd1137a87e4dcad5c32fc70919"
+  "hash": "7ea970c07a9dfed781e2ac3473b4eae13ae6477800d888452a9e569bb7434cb6"
 }
