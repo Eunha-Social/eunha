@@ -1622,16 +1622,16 @@ async fn do_update_credentials(
         let mut settings = user_settings_json(state, auth.account_id).await;
         let obj = settings.as_object_mut().expect("settings json object");
         if let Some(p) = &source_privacy {
-            obj.insert("privacy".into(), serde_json::json!(p));
+            obj.insert("default_privacy".into(), serde_json::json!(p));
         }
         if let Some(s) = source_sensitive {
-            obj.insert("sensitive".into(), serde_json::json!(s));
+            obj.insert("web.default_sensitive".into(), serde_json::json!(s));
         }
         if let Some(l) = &source_language {
-            obj.insert("language".into(), serde_json::to_value(l).unwrap_or(serde_json::Value::Null));
+            obj.insert("default_language".into(), serde_json::to_value(l).unwrap_or(serde_json::Value::Null));
         }
         if let Some(q) = &source_quote_policy {
-            obj.insert("quote_policy".into(), serde_json::json!(q));
+            obj.insert("default_quote_policy".into(), serde_json::json!(q));
         }
         let s = settings.to_string();
         sqlx::query!(
@@ -4951,10 +4951,28 @@ pub struct UserDefaults {
 pub async fn user_defaults(state: &AppState, account_id: i64) -> UserDefaults {
     let s = user_settings_json(state, account_id).await;
     UserDefaults {
-        privacy: s.get("privacy").and_then(|v| v.as_str()).unwrap_or("public").to_string(),
-        sensitive: s.get("sensitive").and_then(|v| v.as_bool()).unwrap_or(false),
-        language: s.get("language").and_then(|v| v.as_str()).map(String::from),
-        quote_policy: s.get("quote_policy").and_then(|v| v.as_str()).unwrap_or("public").to_string(),
+        privacy: s
+            .get("default_privacy")
+            .or_else(|| s.get("privacy"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("public")
+            .to_string(),
+        sensitive: s
+            .get("web.default_sensitive")
+            .or_else(|| s.get("sensitive"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false),
+        language: s
+            .get("default_language")
+            .or_else(|| s.get("language"))
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        quote_policy: s
+            .get("default_quote_policy")
+            .or_else(|| s.get("quote_policy"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("public")
+            .to_string(),
     }
 }
 
