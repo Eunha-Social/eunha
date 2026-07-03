@@ -168,8 +168,15 @@ pub async fn post_status(
             }
         }
     }
-    let text = form.status.clone().unwrap_or_default();
-    let spoiler_text = form.spoiler_text.clone().unwrap_or_default();
+    let mut text = form.status.clone().unwrap_or_default();
+    let mut spoiler_text = form.spoiler_text.clone().unwrap_or_default();
+    // Mastodon PostStatusService#preprocess_attributes promotes a lone content
+    // warning (no body, no quote) into the body, leaving no CW. `sensitive` is
+    // still forced on below because the CW was present when it was evaluated.
+    let spoiler_was_present = !spoiler_text.is_empty();
+    if text.is_empty() && spoiler_was_present && form.quoted_status_id.is_none() {
+        text = std::mem::take(&mut spoiler_text);
+    }
     if text.is_empty() && form.media_ids.as_ref().is_none_or(|m| m.is_empty()) && form.poll.is_none() {
         return Err(AppError::Unprocessable("Status must have text or media".into()));
     }
@@ -228,7 +235,7 @@ pub async fn post_status(
             let params = serde_json::json!({
                 "text": text,
                 "visibility": form.visibility,
-                "spoiler_text": form.spoiler_text,
+                "spoiler_text": spoiler_text,
                 "sensitive": form.sensitive,
                 "language": form.language,
                 "in_reply_to_id": form.in_reply_to_id,
@@ -274,7 +281,7 @@ pub async fn post_status(
     let visibility = form.visibility.as_deref().map(str::to_owned).unwrap_or(defaults.privacy);
     // Mastodon forces sensitive when a content warning is present
     // (PostStatusService: `sensitive || spoiler_text.present?`).
-    let sensitive = form.sensitive.unwrap_or(defaults.sensitive) || !spoiler_text.is_empty();
+    let sensitive = form.sensitive.unwrap_or(defaults.sensitive) || spoiler_was_present;
     let language = form.language.clone().or(defaults.language);
     let in_reply_to_id = form.in_reply_to_id.as_deref().and_then(|s| s.parse::<i64>().ok());
 
@@ -428,7 +435,7 @@ pub async fn post_status(
         status_id,
         account.id,
         text,
-        form.spoiler_text.unwrap_or_default(),
+        spoiler_text,
         visibility_int,
         language,
         sensitive,

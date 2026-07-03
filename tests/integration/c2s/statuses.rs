@@ -3839,6 +3839,41 @@ async fn test_status_mentions_populated() {
     assert!(mention["url"].as_str().is_some(), "mention url should be present");
 }
 
+/// Posting a lone content warning with no body promotes the CW into the body
+/// (leaving no CW) but still marks the status sensitive. Mirrors Mastodon's
+/// PostStatusService#preprocess_attributes.
+#[tokio::test]
+async fn test_post_status_spoiler_only_promotes_to_body() {
+    let ctx = TestContext::new("status-spoiler-only").await;
+
+    let resp = ctx
+        .api
+        .post_json(
+            "/api/v1/statuses",
+            Some(&ctx.alice_token),
+            &serde_json::json!({ "status": "", "spoiler_text": "just a warning" }),
+        )
+        .await;
+    assert_eq!(resp.status(), StatusCode::OK, "CW-only post should be accepted");
+    let s: Value = resp.json().await.unwrap();
+
+    assert_eq!(
+        s["spoiler_text"].as_str(),
+        Some(""),
+        "spoiler should be emptied after promotion"
+    );
+    assert!(
+        s["content"].as_str().unwrap_or_default().contains("just a warning"),
+        "CW text should become the body: {}",
+        s["content"]
+    );
+    assert_eq!(
+        s["sensitive"].as_bool(),
+        Some(true),
+        "status should remain sensitive"
+    );
+}
+
 /// A fully-qualified mention to a local account (`@bob@this.instance`) should
 /// resolve to the local user, since local accounts are stored with a NULL
 /// domain. Mirrors Mastodon's TagManager#local_domain? normalization.
