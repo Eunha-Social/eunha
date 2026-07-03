@@ -152,14 +152,58 @@ pub async fn add_reaction(
     Extension(auth): Extension<AuthenticatedUser>,
 ) -> AppResult<StatusCode> {
     auth.require_scope("write:favourites")?;
+
+    // Mastodon's set_announcement only finds published announcements (404 otherwise).
+    let published = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM announcements WHERE id = $1 AND published = true)",
+        id,
+    )
+    .fetch_one(&state.db)
+    .await?
+    .unwrap_or(false);
+    if !published {
+        return Err(crate::error::AppError::NotFound);
+    }
+
+    // AnnouncementReaction#set_custom_emoji resolves only local, enabled emoji
+    // (CustomEmoji.local.enabled): remote copies must not back a reaction.
     let custom_emoji_id = sqlx::query_scalar!(
         r#"SELECT id FROM custom_emojis
            WHERE shortcode = $1
+             AND domain IS NULL
              AND NOT disabled"#,
         name,
     )
     .fetch_optional(&state.db)
     .await?;
+
+    // ReactionValidator: a name that is neither a known custom emoji nor a
+    // supported unicode emoji is rejected (422).
+    if custom_emoji_id.is_none() && emojis::get(&name).is_none() {
+        return Err(crate::error::AppError::Unprocessable("Unrecognized emoji".into()));
+    }
+
+    // ReactionValidator LIMIT = 8 distinct reaction names per announcement,
+    // enforced only when introducing a brand-new reaction name.
+    let name_exists = sqlx::query_scalar!(
+        "SELECT EXISTS(SELECT 1 FROM announcement_reactions WHERE announcement_id = $1 AND name = $2)",
+        id, name,
+    )
+    .fetch_one(&state.db)
+    .await?
+    .unwrap_or(false);
+    if !name_exists {
+        let distinct = sqlx::query_scalar!(
+            "SELECT COUNT(DISTINCT name) FROM announcement_reactions WHERE announcement_id = $1 AND name <> $2",
+            id, name,
+        )
+        .fetch_one(&state.db)
+        .await?
+        .unwrap_or(0);
+        if distinct >= 8 {
+            return Err(crate::error::AppError::Unprocessable("Reaction limit reached".into()));
+        }
+    }
 
     sqlx::query!(
         r#"INSERT INTO announcement_reactions (announcement_id, account_id, name, custom_emoji_id, created_at, updated_at)

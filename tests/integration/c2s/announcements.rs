@@ -121,6 +121,60 @@ async fn test_announcement_reaction_add() {
     );
 }
 
+/// Reacting to a missing or unpublished announcement returns 404, matching
+/// Mastodon's `Announcement.published.find`.
+#[tokio::test]
+async fn test_announcement_reaction_unpublished_is_404() {
+    let ctx = TestContext::new("ann-react-unpub").await;
+    let ann_id = sqlx::query_scalar!(
+        r#"INSERT INTO announcements (text, published, created_at, updated_at)
+           VALUES ($1, false, now(), now()) RETURNING id"#,
+        "Draft announcement",
+    )
+    .fetch_one(&ctx.db)
+    .await
+    .unwrap();
+
+    let resp = ctx
+        .api
+        .put_json(
+            &format!("/api/v1/announcements/{}/reactions/👍", ann_id),
+            Some(&ctx.alice_token),
+            &serde_json::json!({}),
+        )
+        .await;
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+    // A completely missing announcement is likewise 404.
+    let resp = ctx
+        .api
+        .put_json(
+            "/api/v1/announcements/999999/reactions/👍",
+            Some(&ctx.alice_token),
+            &serde_json::json!({}),
+        )
+        .await;
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+/// Reacting with a name that is neither a unicode emoji nor a known custom
+/// emoji is rejected (422), matching Mastodon's ReactionValidator.
+#[tokio::test]
+async fn test_announcement_reaction_invalid_emoji_is_422() {
+    let ctx = TestContext::new("ann-react-bad").await;
+    let ann_id = seed_announcement(&ctx.db, "React validly").await;
+
+    let resp = ctx
+        .api
+        .put_json(
+            &format!("/api/v1/announcements/{}/reactions/notanemoji", ann_id),
+            Some(&ctx.alice_token),
+            &serde_json::json!({}),
+        )
+        .await;
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
 /// DELETE /api/v1/announcements/:id/reactions/:name removes the reaction.
 #[tokio::test]
 async fn test_announcement_reaction_remove() {

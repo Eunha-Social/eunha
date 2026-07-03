@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id FROM custom_emojis\n           WHERE shortcode = $1\n             AND NOT disabled",
+  "query": "SELECT id FROM custom_emojis\n           WHERE shortcode = $1\n             AND domain IS NULL\n             AND NOT disabled",
   "describe": {
     "columns": [
       {
@@ -18,5 +18,5 @@
       false
     ]
   },
-  "hash": "385cdcbff21280b677bf6b982cfc21b963e5d700a98bb76595024991b0d86430"
+  "hash": "a626e76e8f439357aa8e350891e69f68aea8061b379ad97834ef8b1a90e9abc8"
 }
