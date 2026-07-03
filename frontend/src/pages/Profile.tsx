@@ -499,7 +499,7 @@ export default function Profile() {
           )}
           {account.note && (
             <div
-              className="mt-3 text-sm [&_a]:text-accent [&_a]:underline"
+              className="mt-3 text-sm [&_a]:font-medium [&_a]:text-primary [&_a]:underline [&_a]:decoration-primary [&_a]:decoration-2 [&_a]:underline-offset-2"
               dangerouslySetInnerHTML={{ __html: account.note }}
             />
           )}
