@@ -1746,8 +1746,8 @@ pub async fn favourite_status(
         "favourite",
         Some(id),
         format!("{} favourited your post", from_account.display_name),
-        account_from_db(&account).acct.clone(),
-        super::convert::account_avatar_url_for(&account),
+        from_account.acct().clone(),
+        super::convert::account_avatar_url_for(&from_account),
     )
     .await;
 
