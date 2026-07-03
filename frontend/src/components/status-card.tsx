@@ -268,7 +268,7 @@ export function StatusCard({
             {expanded && (
               <>
                 <div
-                  className="text-sm [&_a]:font-medium [&_a]:text-primary [&_a]:underline [&_a]:decoration-primary [&_a]:decoration-2 [&_a]:underline-offset-2"
+                  className="text-sm [&_a]:font-medium [&_a]:text-primary [&_a]:underline"
                   dangerouslySetInnerHTML={{ __html: status.content }}
                 />
                 {status.mediaAttachments.length > 0 && (
