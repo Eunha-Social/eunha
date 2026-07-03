@@ -21,7 +21,7 @@ export default function About() {
           <h1 className="text-2xl font-bold">{instance.title}</h1>
           <p className="text-foreground/90">{instance.description}</p>
           <p className="text-muted-foreground text-sm">
-            {instance.domain} · running eunha {instance.version}
+            {instance.domain} · running eunha {__COMMIT_HASH__}
           </p>
         </section>
       ) : (
