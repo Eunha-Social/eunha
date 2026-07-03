@@ -6,17 +6,21 @@ use axum::{
 };
 use serde::Deserialize;
 
+use super::{
+    accounts::{
+        batch_account_emojis, batch_account_roles, batch_quote_data, batch_reblog_data,
+        batch_status_cards, batch_status_emojis, batch_status_media, batch_status_mentions,
+        batch_status_polls, batch_statuses_tags,
+    },
+    convert::status_from_db,
+    types::{PaginationParams, Status},
+};
 use crate::{
     db::models::{Account, Status as DbStatus},
     error::{AppError, AppResult},
     feed,
     middleware::AuthenticatedUser,
     state::AppState,
-};
-use super::{
-    accounts::{batch_account_emojis, batch_account_roles, batch_quote_data, batch_reblog_data, batch_status_cards, batch_status_emojis, batch_status_media, batch_status_mentions, batch_status_polls, batch_statuses_tags},
-    convert::status_from_db,
-    types::{PaginationParams, Status},
 };
 
 #[derive(Debug, Deserialize)]
@@ -38,9 +42,21 @@ pub async fn public_timeline(
     auth: Option<Extension<AuthenticatedUser>>,
 ) -> AppResult<impl IntoResponse> {
     let limit = q.pagination.limit_clamped(20, 40);
-    let max_id = q.pagination.max_id.as_deref().and_then(|s| s.parse::<i64>().ok());
-    let since_id = q.pagination.since_id.as_deref().and_then(|s| s.parse::<i64>().ok());
-    let min_id = q.pagination.min_id.as_deref().and_then(|s| s.parse::<i64>().ok());
+    let max_id = q
+        .pagination
+        .max_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
+    let since_id = q
+        .pagination
+        .since_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
+    let min_id = q
+        .pagination
+        .min_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
     let local_only = q.local.unwrap_or(false);
     let remote_only = q.remote.unwrap_or(false);
     let only_media = q.only_media.unwrap_or(false);
@@ -196,7 +212,8 @@ pub async fn home_timeline(
         home_timeline_from_db(&state, auth.account_id, max_id, since_id, min_id, limit).await?
     };
 
-    let result = build_status_list_with_context(&state, statuses, Some(auth.account_id), "home").await?;
+    let result =
+        build_status_list_with_context(&state, statuses, Some(auth.account_id), "home").await?;
     let resp = with_pagination_link(&req_headers, &uri, result);
     Ok(resp)
 }
@@ -554,7 +571,8 @@ pub async fn list_timeline(
     auth.require_scope("read:statuses")?;
     let list = sqlx::query!(
         "SELECT id, replies_policy FROM lists WHERE id = $1 AND account_id = $2",
-        list_id, auth.account_id,
+        list_id,
+        auth.account_id,
     )
     .fetch_optional(&state.db)
     .await?
@@ -595,10 +613,21 @@ pub async fn list_timeline(
                 });
             }
         }
-        list_timeline_from_db(&state, list_id, auth.account_id, replies_policy, max_id, since_id, min_id, limit).await?
+        list_timeline_from_db(
+            &state,
+            list_id,
+            auth.account_id,
+            replies_policy,
+            max_id,
+            since_id,
+            min_id,
+            limit,
+        )
+        .await?
     };
 
-    let result = build_status_list_with_context(&state, statuses, Some(auth.account_id), "home").await?;
+    let result =
+        build_status_list_with_context(&state, statuses, Some(auth.account_id), "home").await?;
     let resp = with_pagination_link(&req_headers, &uri, result);
     Ok(resp)
 }
@@ -686,15 +715,19 @@ async fn list_timeline_from_db(
     // replies_policy filter: $5 is owner_id in all query variants.
     // Replies to the list owner always appear regardless of policy (matching Mastodon).
     let reply_filter = match replies_policy {
-        "none" => "AND (s.in_reply_to_id IS NULL
+        "none" => {
+            "AND (s.in_reply_to_id IS NULL
                         OR s.in_reply_to_account_id = s.account_id
-                        OR s.in_reply_to_account_id = $5)",
-        "list" => "AND (s.in_reply_to_id IS NULL
+                        OR s.in_reply_to_account_id = $5)"
+        }
+        "list" => {
+            "AND (s.in_reply_to_id IS NULL
                         OR s.in_reply_to_account_id = s.account_id
                         OR s.in_reply_to_account_id = $5
                         OR EXISTS (
                             SELECT 1 FROM list_accounts la2
-                            WHERE la2.list_id = $1 AND la2.account_id = s.in_reply_to_account_id))",
+                            WHERE la2.list_id = $1 AND la2.account_id = s.in_reply_to_account_id))"
+        }
         _ => "",
     };
 
@@ -810,9 +843,21 @@ pub async fn tag_timeline(
     auth: Option<Extension<AuthenticatedUser>>,
 ) -> AppResult<impl IntoResponse> {
     let limit = q.pagination.limit_clamped(20, 40);
-    let max_id = q.pagination.max_id.as_deref().and_then(|s| s.parse::<i64>().ok());
-    let since_id = q.pagination.since_id.as_deref().and_then(|s| s.parse::<i64>().ok());
-    let min_id = q.pagination.min_id.as_deref().and_then(|s| s.parse::<i64>().ok());
+    let max_id = q
+        .pagination
+        .max_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
+    let since_id = q
+        .pagination
+        .since_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
+    let min_id = q
+        .pagination
+        .min_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
     let local_only = q.local.unwrap_or(false);
     let only_media = q.only_media.unwrap_or(false);
     let tag_name = hashtag.to_lowercase();
@@ -822,7 +867,11 @@ pub async fn tag_timeline(
             .filter(|(k, _)| k == key_plain || k == key_bracket)
             .map(|(_, v)| v.to_lowercase())
             .collect();
-        if v.is_empty() { None } else { Some(v) }
+        if v.is_empty() {
+            None
+        } else {
+            Some(v)
+        }
     };
     let any_tags = collect_tag_filter("any", "any[]");
     let all_tags = collect_tag_filter("all", "all[]");
@@ -976,9 +1025,13 @@ pub(super) async fn compute_filter_results(
     };
 
     // Group keywords by filter id
-    let mut kw_map: std::collections::HashMap<i64, Vec<(String, bool)>> = std::collections::HashMap::new();
+    let mut kw_map: std::collections::HashMap<i64, Vec<(String, bool)>> =
+        std::collections::HashMap::new();
     for kw in keywords {
-        kw_map.entry(kw.custom_filter_id).or_default().push((kw.keyword, kw.whole_word));
+        kw_map
+            .entry(kw.custom_filter_id)
+            .or_default()
+            .push((kw.keyword, kw.whole_word));
     }
 
     // Load status-id based filter entries
@@ -996,7 +1049,10 @@ pub(super) async fn compute_filter_results(
 
     let mut fs_map: std::collections::HashMap<i64, Vec<i64>> = std::collections::HashMap::new();
     for fs in filter_status_entries {
-        fs_map.entry(fs.custom_filter_id).or_default().push(fs.status_id);
+        fs_map
+            .entry(fs.custom_filter_id)
+            .or_default()
+            .push(fs.status_id);
     }
 
     for s in statuses {
@@ -1011,8 +1067,13 @@ pub(super) async fn compute_filter_results(
                 for (kw, whole_word) in kws {
                     let kw_lower = kw.to_lowercase();
                     let kw_match = if *whole_word {
-                        let pattern = format!(r"(?i)(^|[^a-zA-Z0-9_]){}($|[^a-zA-Z0-9_])", regex::escape(&kw_lower));
-                        regex::Regex::new(&pattern).map(|re| re.is_match(&text_lower)).unwrap_or(false)
+                        let pattern = format!(
+                            r"(?i)(^|[^a-zA-Z0-9_]){}($|[^a-zA-Z0-9_])",
+                            regex::escape(&kw_lower)
+                        );
+                        regex::Regex::new(&pattern)
+                            .map(|re| re.is_match(&text_lower))
+                            .unwrap_or(false)
                     } else {
                         text_lower.contains(&kw_lower)
                     };
@@ -1031,7 +1092,9 @@ pub(super) async fn compute_filter_results(
                 if f.filter_action == "hide" {
                     should_hide = true;
                 }
-                let expires_at = f.expires_at.map(|t| t.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string());
+                let expires_at = f
+                    .expires_at
+                    .map(|t| t.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string());
                 filter_results.push(serde_json::json!({
                     "filter": {
                         "id": f.id.to_string(),
@@ -1047,7 +1110,10 @@ pub(super) async fn compute_filter_results(
         }
 
         if !filter_results.is_empty() || should_hide {
-            result.insert(s.id, (should_hide, serde_json::Value::Array(filter_results)));
+            result.insert(
+                s.id,
+                (should_hide, serde_json::Value::Array(filter_results)),
+            );
         }
     }
 
@@ -1067,10 +1133,13 @@ pub async fn build_status_list_with_context(
     };
 
     // Exclude statuses matching hide filters
-    let statuses: Vec<DbStatus> = statuses.into_iter()
+    let statuses: Vec<DbStatus> = statuses
+        .into_iter()
         .filter(|s| {
             let effective_id = s.reblog_of_id.unwrap_or(s.id);
-            !filter_results.get(&effective_id).is_some_and(|(hide, _)| *hide)
+            !filter_results
+                .get(&effective_id)
+                .is_some_and(|(hide, _)| *hide)
         })
         .collect();
 
@@ -1097,7 +1166,8 @@ async fn build_status_list(
     viewer_id: Option<i64>,
 ) -> AppResult<Vec<Status>> {
     // For reblogs, check viewer context against the original status.
-    let effective_ids: Vec<i64> = statuses.iter()
+    let effective_ids: Vec<i64> = statuses
+        .iter()
         .map(|s| s.reblog_of_id.unwrap_or(s.id))
         .collect();
 
@@ -1111,7 +1181,8 @@ async fn build_status_list(
         return Ok(vec![]);
     }
 
-    let account_ids: Vec<i64> = statuses.iter()
+    let account_ids: Vec<i64> = statuses
+        .iter()
         .map(|s| s.account_id)
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
@@ -1123,10 +1194,8 @@ async fn build_status_list(
     )
     .fetch_all(&state.db)
     .await?;
-    let account_map: std::collections::HashMap<i64, Account> = accounts
-        .into_iter()
-        .map(|a| (a.id, a))
-        .collect();
+    let account_map: std::collections::HashMap<i64, Account> =
+        accounts.into_iter().map(|a| (a.id, a)).collect();
 
     let all_status_ids: Vec<i64> = statuses.iter().map(|s| s.id).collect();
     let media_map = batch_status_media(state, &all_status_ids).await?;
@@ -1137,7 +1206,9 @@ async fn build_status_list(
     enrich_ids.extend_from_slice(&reblog_ids);
     let tags_map = batch_statuses_tags(state, &enrich_ids).await?;
     let mentions_map = batch_status_mentions(state, &enrich_ids).await?;
-    let all_statuses_for_emoji: Vec<DbStatus> = statuses.iter().cloned()
+    let all_statuses_for_emoji: Vec<DbStatus> = statuses
+        .iter()
+        .cloned()
         .chain(reblog_map.values().map(|(rs, _, _)| rs.clone()))
         .collect();
     let emojis_map = batch_status_emojis(state, &all_statuses_for_emoji).await?;
@@ -1147,7 +1218,8 @@ async fn build_status_list(
     // Collect all unique accounts (main + reblog) for emoji and role batch-fetch
     let all_accounts_for_emoji: Vec<Account> = {
         let mut seen = std::collections::HashSet::new();
-        account_map.values()
+        account_map
+            .values()
             .chain(reblog_map.values().map(|(_, ra, _)| ra))
             .filter(|a| seen.insert(a.id))
             .cloned()
@@ -1164,13 +1236,20 @@ async fn build_status_list(
         let effective_id = s.reblog_of_id.unwrap_or(s.id);
         let ctx = ctxs.get(&effective_id).cloned();
         let mentions = mentions_map.get(&s.id).cloned().unwrap_or_default();
-        let rb_mentions = reblog.as_ref()
+        let rb_mentions = reblog
+            .as_ref()
             .and_then(|(rs, _, _)| mentions_map.get(&rs.id))
             .cloned()
             .unwrap_or_default();
         let mut api = status_from_db(s, account, media, reblog, ctx, &mentions, &rb_mentions);
-        api.account.emojis = account_emojis_map.get(&account.id).cloned().unwrap_or_default();
-        api.account.roles = account_roles_map.get(&account.id).cloned().unwrap_or_default();
+        api.account.emojis = account_emojis_map
+            .get(&account.id)
+            .cloned()
+            .unwrap_or_default();
+        api.account.roles = account_roles_map
+            .get(&account.id)
+            .cloned()
+            .unwrap_or_default();
         api.tags = tags_map.get(&s.id).cloned().unwrap_or_default();
         api.mentions = mentions;
         api.emojis = emojis_map.get(&s.id).cloned().unwrap_or_default();
@@ -1198,10 +1277,13 @@ fn with_pagination_link(
     uri: &Uri,
     statuses: Vec<Status>,
 ) -> impl IntoResponse {
-    let link = statuses.first().zip(statuses.last()).map(|(newest, oldest)| {
-        let extra = super::non_pagination_query(uri.query());
-        super::link_header(req_headers, uri.path(), &extra, &newest.id, &oldest.id)
-    });
+    let link = statuses
+        .first()
+        .zip(statuses.last())
+        .map(|(newest, oldest)| {
+            let extra = super::non_pagination_query(uri.query());
+            super::link_header(req_headers, uri.path(), &extra, &newest.id, &oldest.id)
+        });
     let mut headers = HeaderMap::new();
     if let Some(v) = link {
         if let Ok(val) = v.parse() {
@@ -1232,20 +1314,30 @@ pub async fn link_timeline(
         _ => return Err(AppError::Unprocessable("url parameter is required".into())),
     };
 
-    let card_id: Option<i64> = sqlx::query_scalar!(
-        "SELECT id FROM preview_cards WHERE url = $1",
-        url,
-    )
-    .fetch_optional(&state.db)
-    .await?;
+    let card_id: Option<i64> =
+        sqlx::query_scalar!("SELECT id FROM preview_cards WHERE url = $1", url,)
+            .fetch_optional(&state.db)
+            .await?;
 
     let card_id = card_id.ok_or(AppError::NotFound)?;
 
     let viewer_id = auth.map(|Extension(u)| u.account_id);
     let limit: i64 = 20;
-    let max_id: Option<i64> = params.pagination.max_id.as_deref().and_then(|s| s.parse().ok());
-    let since_id: Option<i64> = params.pagination.since_id.as_deref().and_then(|s| s.parse().ok());
-    let min_id: Option<i64> = params.pagination.min_id.as_deref().and_then(|s| s.parse().ok());
+    let max_id: Option<i64> = params
+        .pagination
+        .max_id
+        .as_deref()
+        .and_then(|s| s.parse().ok());
+    let since_id: Option<i64> = params
+        .pagination
+        .since_id
+        .as_deref()
+        .and_then(|s| s.parse().ok());
+    let min_id: Option<i64> = params
+        .pagination
+        .min_id
+        .as_deref()
+        .and_then(|s| s.parse().ok());
 
     let statuses = sqlx::query_as!(
         crate::db::models::Status,

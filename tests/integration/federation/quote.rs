@@ -76,10 +76,14 @@ async fn test_quote_consent_handshake_between_instances() {
     let s_in_a = seed_remote_status(&a.db, bob_in_a, &s_uri).await;
     // bob signs the Accept he later sends to A, so A must know bob's public key.
     let (bob_priv, bob_pub) = eunha::crypto::generate_rsa_keypair().unwrap();
-    sqlx::query!("UPDATE accounts SET public_key = $2 WHERE id = $1", bob_in_a, bob_pub)
-        .execute(&a.db)
-        .await
-        .unwrap();
+    sqlx::query!(
+        "UPDATE accounts SET public_key = $2 WHERE id = $1",
+        bob_in_a,
+        bob_pub
+    )
+    .execute(&a.db)
+    .await
+    .unwrap();
 
     let quote_post: Value = a
         .api
@@ -107,7 +111,8 @@ async fn test_quote_consent_handshake_between_instances() {
     .map(|r| (r.activity_uri, r.state))
     .unwrap();
     assert_eq!(state, 0, "quote of a remote post should start pending");
-    let activity_uri = activity_uri.expect("pending remote quote must carry a QuoteRequest activity_uri");
+    let activity_uri =
+        activity_uri.expect("pending remote quote must carry a QuoteRequest activity_uri");
 
     // ── Relay the QuoteRequest to B's inbox ────────────────────────────────────
     // Cross-seed alice + her quote post on B so it needs no outbound fetch.
@@ -117,11 +122,13 @@ async fn test_quote_consent_handshake_between_instances() {
     let (alice_priv, alice_pub) = eunha::crypto::generate_rsa_keypair().unwrap();
     sqlx::query!(
         "UPDATE accounts SET uri = $2, url = $2, public_key = $3 WHERE id = $1",
-        alice_in_b, alice_uri, alice_pub,
+        alice_in_b,
+        alice_uri,
+        alice_pub,
     )
-        .execute(&b.db)
-        .await
-        .unwrap();
+    .execute(&b.db)
+    .await
+    .unwrap();
     seed_remote_status(&b.db, alice_in_b, &quote_post_uri).await;
 
     // The quoted account needs a private key to get past the delivery guard in
@@ -143,9 +150,18 @@ async fn test_quote_consent_handshake_between_instances() {
     });
     let resp = b
         .api
-        .post_signed("/inbox", &quote_request, &format!("{alice_uri}#main-key"), &alice_priv)
+        .post_signed(
+            "/inbox",
+            &quote_request,
+            &format!("{alice_uri}#main-key"),
+            &alice_priv,
+        )
         .await;
-    assert_eq!(resp.status(), StatusCode::ACCEPTED, "B should accept the QuoteRequest");
+    assert_eq!(
+        resp.status(),
+        StatusCode::ACCEPTED,
+        "B should accept the QuoteRequest"
+    );
 
     // B recorded an accepted quote with an approval (authorization) URI.
     let approval_uri: String = sqlx::query_scalar!(
@@ -164,11 +180,16 @@ async fn test_quote_consent_handshake_between_instances() {
     );
 
     // The QuoteAuthorization stamp is fetchable on B and well-formed.
-    let auth_path = approval_uri.strip_prefix(&format!("https://{}", b.domain)).unwrap();
+    let auth_path = approval_uri
+        .strip_prefix(&format!("https://{}", b.domain))
+        .unwrap();
     let auth: Value = b.api.get(auth_path, None).await.json().await.unwrap();
     assert_eq!(auth["type"].as_str(), Some("QuoteAuthorization"));
     assert_eq!(auth["interactionTarget"].as_str(), Some(s_uri.as_str()));
-    assert_eq!(auth["interactingObject"].as_str(), Some(quote_post_uri.as_str()));
+    assert_eq!(
+        auth["interactingObject"].as_str(),
+        Some(quote_post_uri.as_str())
+    );
     assert_eq!(auth["attributedTo"].as_str(), Some(bob_uri.as_str()));
 
     // ── Relay B's Accept back to A's inbox ─────────────────────────────────────
@@ -185,7 +206,11 @@ async fn test_quote_consent_handshake_between_instances() {
         .api
         .post_signed("/inbox", &accept, &format!("{bob_uri}#main-key"), &bob_priv)
         .await;
-    assert_eq!(resp.status(), StatusCode::ACCEPTED, "A should accept the Accept");
+    assert_eq!(
+        resp.status(),
+        StatusCode::ACCEPTED,
+        "A should accept the Accept"
+    );
 
     // A's quote is now accepted and carries the approval URI from B.
     let (final_state, final_approval): (i32, Option<String>) = sqlx::query!(
@@ -198,6 +223,9 @@ async fn test_quote_consent_handshake_between_instances() {
     .await
     .map(|r| (r.state, r.approval_uri))
     .unwrap();
-    assert_eq!(final_state, 1, "A's quote should be accepted after B's Accept");
+    assert_eq!(
+        final_state, 1,
+        "A's quote should be accepted after B's Accept"
+    );
     assert_eq!(final_approval.as_deref(), Some(approval_uri.as_str()));
 }

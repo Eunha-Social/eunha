@@ -4,12 +4,12 @@ use axum::{
 };
 use serde::Deserialize;
 
+use super::types::{FeaturedTag, Tag};
 use crate::{
     error::{AppError, AppResult},
     middleware::{AuthenticatedUser, ResolvedInstance},
     state::AppState,
 };
-use super::types::{FeaturedTag, Tag};
 
 fn featured_tag_url(domain: &str, username: &str, name: &str) -> String {
     format!("https://{domain}/@{username}/tagged/{name}")
@@ -81,10 +81,14 @@ pub async fn feature_tag(
 
     // Mastodon validates presence + hashtag format (no whitespace/punctuation).
     if name.is_empty() {
-        return Err(AppError::Unprocessable("Validation failed: Name can't be blank".into()));
+        return Err(AppError::Unprocessable(
+            "Validation failed: Name can't be blank".into(),
+        ));
     }
     if name.chars().any(|c| !(c.is_alphanumeric() || c == '_')) {
-        return Err(AppError::Unprocessable("Validation failed: Name is not a valid hashtag".into()));
+        return Err(AppError::Unprocessable(
+            "Validation failed: Name is not a valid hashtag".into(),
+        ));
     }
 
     let username = sqlx::query_scalar!(
@@ -107,7 +111,8 @@ pub async fn feature_tag(
     // featuring a new tag — re-featuring an existing one is idempotent.
     let already_featured = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM featured_tags WHERE account_id = $1 AND tag_id = $2)",
-        auth.account_id, tag_id,
+        auth.account_id,
+        tag_id,
     )
     .fetch_one(&state.db)
     .await?
@@ -122,7 +127,8 @@ pub async fn feature_tag(
         .unwrap_or(0);
         if count >= 10 {
             return Err(AppError::Unprocessable(
-                "Validation failed: You have already reached the limit of 10 featured hashtags".into(),
+                "Validation failed: You have already reached the limit of 10 featured hashtags"
+                    .into(),
             ));
         }
     }
@@ -196,7 +202,8 @@ pub async fn feature_tag_by_name(
     // Cap at 10 featured tags (Mastodon FeaturedTag::LIMIT), unless already featured.
     let already_featured = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM featured_tags WHERE account_id = $1 AND tag_id = $2)",
-        auth.account_id, tag_id,
+        auth.account_id,
+        tag_id,
     )
     .fetch_one(&state.db)
     .await?
@@ -211,7 +218,8 @@ pub async fn feature_tag_by_name(
         .unwrap_or(0);
         if count >= 10 {
             return Err(AppError::Unprocessable(
-                "Validation failed: You have already reached the limit of 10 featured hashtags".into(),
+                "Validation failed: You have already reached the limit of 10 featured hashtags"
+                    .into(),
             ));
         }
     }
@@ -229,7 +237,8 @@ pub async fn feature_tag_by_name(
 
     let following = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM tag_follows WHERE account_id = $1 AND tag_id = $2)",
-        auth.account_id, tag_id,
+        auth.account_id,
+        tag_id,
     )
     .fetch_one(&state.db)
     .await?
@@ -259,12 +268,9 @@ pub async fn unfeature_tag_by_name(
     let domain = &instance.domain;
     let name = name.to_lowercase();
 
-    let tag = sqlx::query!(
-        "SELECT id FROM tags WHERE name = $1",
-        name,
-    )
-    .fetch_optional(&state.db)
-    .await?;
+    let tag = sqlx::query!("SELECT id FROM tags WHERE name = $1", name,)
+        .fetch_optional(&state.db)
+        .await?;
 
     let Some(tag) = tag else {
         return Ok(Json(Tag {
@@ -287,7 +293,8 @@ pub async fn unfeature_tag_by_name(
 
     let following = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM tag_follows WHERE account_id = $1 AND tag_id = $2)",
-        auth.account_id, tag.id,
+        auth.account_id,
+        tag.id,
     )
     .fetch_one(&state.db)
     .await?

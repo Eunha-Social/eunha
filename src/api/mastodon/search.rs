@@ -4,15 +4,20 @@ use axum::{
 };
 use serde::Deserialize;
 
+use super::{
+    accounts::{
+        batch_account_emojis, batch_account_roles, batch_accounts_to_api, batch_reblog_data,
+        batch_status_cards, batch_status_emojis, batch_status_media, batch_status_mentions,
+        batch_status_polls, batch_statuses_tags, build_status, fetch_reblog_data,
+        fetch_status_media,
+    },
+    convert::status_from_db,
+    types::{SearchResults, Status, Tag},
+};
 use crate::{
     error::AppResult,
     middleware::{AuthenticatedUser, ResolvedInstance},
     state::AppState,
-};
-use super::{
-    accounts::{batch_account_emojis, batch_account_roles, batch_accounts_to_api, batch_reblog_data, batch_status_cards, batch_status_emojis, batch_status_media, batch_status_mentions, batch_status_polls, batch_statuses_tags, build_status, fetch_reblog_data, fetch_status_media},
-    convert::status_from_db,
-    types::{SearchResults, Status, Tag},
 };
 
 // ── GET /api/v2/search ────────────────────────────────────────────────────
@@ -106,13 +111,19 @@ pub async fn search(
             let mut parts = trimmed.splitn(2, '@');
             let user = parts.next().unwrap_or("").to_lowercase();
             let dom = parts.next().map(|d| d.to_lowercase());
-            if !user.is_empty() { Some((user, dom)) } else { None }
+            if !user.is_empty() {
+                Some((user, dom))
+            } else {
+                None
+            }
         } else {
             None
         }
     };
 
-    let db_accounts: Vec<crate::db::models::Account> = if search_type.is_none() || search_type == Some("accounts") {
+    let db_accounts: Vec<crate::db::models::Account> = if search_type.is_none()
+        || search_type == Some("accounts")
+    {
         let following_filter = q.following.unwrap_or(false);
 
         // If query is a handle (user@domain), do an exact acct lookup first
@@ -124,7 +135,9 @@ pub async fn search(
                        WHERE suspended_at IS NULL
                          AND lower(username) = $1 AND lower(domain) = $2
                        LIMIT $3"#,
-                    uname, dom, limit
+                    uname,
+                    dom,
+                    limit
                 )
                 .fetch_all(&state.db)
                 .await?
@@ -135,7 +148,8 @@ pub async fn search(
                        WHERE suspended_at IS NULL
                          AND lower(username) = $1 AND domain IS NULL
                        LIMIT $2"#,
-                    uname, limit
+                    uname,
+                    limit
                 )
                 .fetch_all(&state.db)
                 .await?
@@ -146,14 +160,25 @@ pub async fn search(
                 // resolve=true with a full user@domain: fetch via WebFinger
                 if q.resolve.unwrap_or(false) {
                     if let Some(dom) = domain {
-                        if let Ok(actor_url) = crate::federation::webfinger::resolve(&state.fetch, uname, dom).await {
-                            if let Ok(account_id) = crate::api::ap::inbox::resolve_or_fetch_remote_account(&state, &actor_url).await {
+                        if let Ok(actor_url) =
+                            crate::federation::webfinger::resolve(&state.fetch, uname, dom).await
+                        {
+                            if let Ok(account_id) =
+                                crate::api::ap::inbox::resolve_or_fetch_remote_account(
+                                    &state, &actor_url,
+                                )
+                                .await
+                            {
                                 if let Ok(Some(account)) = sqlx::query_as!(
                                     crate::db::models::Account,
                                     "SELECT * FROM accounts WHERE id = $1",
                                     account_id,
-                                ).fetch_optional(&state.db).await {
-                                    let api_accounts = batch_accounts_to_api(&state, &[account]).await;
+                                )
+                                .fetch_optional(&state.db)
+                                .await
+                                {
+                                    let api_accounts =
+                                        batch_accounts_to_api(&state, &[account]).await;
                                     return Ok(Json(SearchResults {
                                         accounts: api_accounts,
                                         statuses: vec![],
@@ -177,7 +202,10 @@ pub async fn search(
                              AND f.account_id = $3
                              AND (lower(a.username) LIKE $1 OR lower(a.display_name) LIKE $1)
                            ORDER BY COALESCE(ast.followers_count, 0) DESC LIMIT $2 OFFSET $4"#,
-                        account_pattern, limit, vid, offset
+                        account_pattern,
+                        limit,
+                        vid,
+                        offset
                     )
                     .fetch_all(&state.db)
                     .await?
@@ -190,7 +218,9 @@ pub async fn search(
                              AND a.moved_to_account_id IS NULL
                              AND (lower(a.username) LIKE $1 OR lower(a.display_name) LIKE $1)
                            ORDER BY COALESCE(ast.followers_count, 0) DESC LIMIT $2 OFFSET $3"#,
-                        account_pattern, limit, offset
+                        account_pattern,
+                        limit,
+                        offset
                     )
                     .fetch_all(&state.db)
                     .await?
@@ -208,7 +238,10 @@ pub async fn search(
                      AND f.account_id = $3
                      AND (lower(a.username) LIKE $1 OR lower(a.display_name) LIKE $1)
                    ORDER BY COALESCE(ast.followers_count, 0) DESC LIMIT $2 OFFSET $4"#,
-                account_pattern, limit, vid, offset
+                account_pattern,
+                limit,
+                vid,
+                offset
             )
             .fetch_all(&state.db)
             .await?
@@ -221,7 +254,9 @@ pub async fn search(
                      AND a.moved_to_account_id IS NULL
                      AND (lower(a.username) LIKE $1 OR lower(a.display_name) LIKE $1)
                    ORDER BY COALESCE(ast.followers_count, 0) DESC LIMIT $2 OFFSET $3"#,
-                account_pattern, limit, offset
+                account_pattern,
+                limit,
+                offset
             )
             .fetch_all(&state.db)
             .await?
@@ -233,8 +268,7 @@ pub async fn search(
 
     let statuses = if (search_type.is_none() || search_type == Some("statuses")) && auth.is_some() {
         let fts_query = q.q.trim().to_string();
-        let filter_account_id: Option<i64> = q.account_id.as_deref()
-            .and_then(|s| s.parse().ok());
+        let filter_account_id: Option<i64> = q.account_id.as_deref().and_then(|s| s.parse().ok());
         let rows = sqlx::query_as!(
             crate::db::models::Status,
             r#"SELECT s.* FROM statuses s
@@ -259,7 +293,11 @@ pub async fn search(
                  AND to_tsvector('simple', coalesce(s.text, ''))
                      @@ websearch_to_tsquery('simple', $1)
                ORDER BY s.id DESC LIMIT $2 OFFSET $5"#,
-            fts_query, limit, filter_account_id, viewer_id, offset
+            fts_query,
+            limit,
+            filter_account_id,
+            viewer_id,
+            offset
         )
         .fetch_all(&state.db)
         .await?;
@@ -272,7 +310,9 @@ pub async fn search(
         enrich_ids.extend_from_slice(&reblog_ids);
         let tags_map = batch_statuses_tags(&state, &enrich_ids).await?;
         let mentions_map = batch_status_mentions(&state, &enrich_ids).await?;
-        let all_statuses_for_emoji: Vec<crate::db::models::Status> = rows.iter().cloned()
+        let all_statuses_for_emoji: Vec<crate::db::models::Status> = rows
+            .iter()
+            .cloned()
             .chain(reblog_map.values().map(|(rs, _, _)| rs.clone()))
             .collect();
         let emojis_map = batch_status_emojis(&state, &all_statuses_for_emoji).await?;
@@ -283,8 +323,12 @@ pub async fn search(
         } else {
             std::collections::HashMap::new()
         };
-        let account_ids: Vec<i64> = rows.iter().map(|s| s.account_id)
-            .collect::<std::collections::HashSet<_>>().into_iter().collect();
+        let account_ids: Vec<i64> = rows
+            .iter()
+            .map(|s| s.account_id)
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
         let accounts: Vec<crate::db::models::Account> = sqlx::query_as!(
             crate::db::models::Account,
             "SELECT * FROM accounts WHERE id = ANY($1::bigint[])",
@@ -296,7 +340,8 @@ pub async fn search(
             accounts.into_iter().map(|a| (a.id, a)).collect();
         let all_accounts_for_emoji: Vec<crate::db::models::Account> = {
             let mut seen = std::collections::HashSet::new();
-            account_map.values()
+            account_map
+                .values()
                 .chain(reblog_map.values().map(|(_, ra, _)| ra))
                 .filter(|a| seen.insert(a.id))
                 .cloned()
@@ -307,18 +352,27 @@ pub async fn search(
 
         let mut result: Vec<Status> = Vec::with_capacity(rows.len());
         for s in &rows {
-            let Some(account) = account_map.get(&s.account_id) else { continue };
+            let Some(account) = account_map.get(&s.account_id) else {
+                continue;
+            };
             let media = media_map.get(&s.id).cloned().unwrap_or_default();
             let reblog = reblog_map.get(&s.id).cloned();
             let mentions = mentions_map.get(&s.id).cloned().unwrap_or_default();
-            let rb_mentions = reblog.as_ref()
+            let rb_mentions = reblog
+                .as_ref()
                 .and_then(|(rs, _, _)| mentions_map.get(&rs.id))
                 .cloned()
                 .unwrap_or_default();
             let ctx = ctxs.get(&s.id).cloned();
             let mut api = status_from_db(s, account, media, reblog, ctx, &mentions, &rb_mentions);
-            api.account.emojis = account_emojis_map.get(&account.id).cloned().unwrap_or_default();
-            api.account.roles = account_roles_map.get(&account.id).cloned().unwrap_or_default();
+            api.account.emojis = account_emojis_map
+                .get(&account.id)
+                .cloned()
+                .unwrap_or_default();
+            api.account.roles = account_roles_map
+                .get(&account.id)
+                .cloned()
+                .unwrap_or_default();
             api.tags = tags_map.get(&s.id).cloned().unwrap_or_default();
             api.mentions = mentions;
             api.emojis = emojis_map.get(&s.id).cloned().unwrap_or_default();
@@ -354,7 +408,11 @@ pub async fn search(
                  AND (NOT $4::boolean OR reviewed_at IS NOT NULL OR lower(name) = $5)
                ORDER BY LENGTH(name) ASC, name ASC
                LIMIT $2 OFFSET $3"#,
-            tag_prefix, limit, offset, exclude_unreviewed, tag_term
+            tag_prefix,
+            limit,
+            offset,
+            exclude_unreviewed,
+            tag_term
         )
         .fetch_all(&state.db)
         .await?
@@ -372,5 +430,10 @@ pub async fn search(
         vec![]
     };
 
-    Ok(Json(SearchResults { accounts, statuses, hashtags, collections: vec![] }))
+    Ok(Json(SearchResults {
+        accounts,
+        statuses,
+        hashtags,
+        collections: vec![],
+    }))
 }

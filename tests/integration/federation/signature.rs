@@ -19,7 +19,11 @@ async fn test_unsigned_activity_rejected() {
     });
 
     let resp = ctx.api.post_json("/inbox", None, &follow).await;
-    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "unsigned activity must be rejected");
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "unsigned activity must be rejected"
+    );
 }
 
 /// A signature whose keyId host differs from the activity's actor host is
@@ -53,9 +57,18 @@ async fn test_signature_actor_host_mismatch_rejected() {
     });
     let resp = ctx
         .api
-        .post_signed("/inbox", &activity, &format!("{attacker_uri}#main-key"), &priv_pem)
+        .post_signed(
+            "/inbox",
+            &activity,
+            &format!("{attacker_uri}#main-key"),
+            &priv_pem,
+        )
         .await;
-    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "actor/key host mismatch must be rejected");
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "actor/key host mismatch must be rejected"
+    );
 }
 
 /// An unverifiable `Delete` is accepted-and-ignored (202) rather than rejected,
@@ -73,5 +86,9 @@ async fn test_unsigned_delete_accepted_without_processing() {
     });
 
     let resp = ctx.api.post_json("/inbox", None, &delete).await;
-    assert_eq!(resp.status(), StatusCode::ACCEPTED, "unverified Delete should be accepted without processing");
+    assert_eq!(
+        resp.status(),
+        StatusCode::ACCEPTED,
+        "unverified Delete should be accepted without processing"
+    );
 }

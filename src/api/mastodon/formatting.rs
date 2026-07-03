@@ -1,6 +1,6 @@
-use std::collections::HashMap;
 use once_cell::sync::Lazy;
 use regex::Regex;
+use std::collections::HashMap;
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::types::StatusMention;
@@ -67,17 +67,14 @@ fn countable_text(text: &str) -> String {
     result
 }
 
-pub static HASHTAG_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"(^|[\s,.:;!?\(\[\{/])#([a-zA-Z][a-zA-Z0-9_]*)").unwrap()
-});
+pub static HASHTAG_RE: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(^|[\s,.:;!?\(\[\{/])#([a-zA-Z][a-zA-Z0-9_]*)").unwrap());
 
 pub static MENTION_RE: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(^|[\s,.:;!?\(\[\{/])@([a-zA-Z0-9_]+)(?:@([a-zA-Z0-9._:\-]+))?").unwrap()
 });
 
-pub static URL_RE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new("https?://[^\\s<>&\"]+").unwrap()
-});
+pub static URL_RE: Lazy<Regex> = Lazy::new(|| Regex::new("https?://[^\\s<>&\"]+").unwrap());
 
 fn html_escape_attr(s: &str) -> String {
     s.replace('&', "&amp;")
@@ -127,7 +124,11 @@ fn linkify_entities(
         let prefix_len = cap.get(1).unwrap().as_str().len();
         let tag_text = &cap[2];
         let tag_lower = tag_text.to_lowercase();
-        let url = format!("https://{}/tags/{}", domain, urlencoding::encode(&tag_lower));
+        let url = format!(
+            "https://{}/tags/{}",
+            domain,
+            urlencoding::encode(&tag_lower)
+        );
         entities.push(Entity {
             start: full.start() + prefix_len,
             end: full.end(),
@@ -213,7 +214,11 @@ pub fn format_field_value(value: &str) -> String {
 }
 
 fn linkify_urls(text: &str) -> String {
-    struct Span { start: usize, end: usize, html: String }
+    struct Span {
+        start: usize,
+        end: usize,
+        html: String,
+    }
     let mut spans: Vec<Span> = Vec::new();
     for m in URL_RE.find_iter(text) {
         let url = m.as_str();

@@ -1,8 +1,8 @@
 pub mod nodeinfo;
 pub mod webfinger;
 
-use axum::{routing::get, Router};
 use crate::state::AppState;
+use axum::{routing::get, Router};
 
 pub fn router() -> Router<AppState> {
     Router::new()
@@ -24,7 +24,10 @@ async fn host_meta(
     );
     (
         axum::http::StatusCode::OK,
-        [(axum::http::header::CONTENT_TYPE, "application/xrd+xml; charset=utf-8")],
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "application/xrd+xml; charset=utf-8",
+        )],
         xml,
     )
         .into_response()

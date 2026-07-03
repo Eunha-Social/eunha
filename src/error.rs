@@ -35,18 +35,27 @@ impl IntoResponse for AppError {
             AppError::NotFound => (StatusCode::NOT_FOUND, "Record not found".to_string()),
             AppError::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized".to_string()),
             AppError::UnauthorizedMsg(msg) => (StatusCode::UNAUTHORIZED, msg.clone()),
-            AppError::Forbidden => (StatusCode::FORBIDDEN, "This action is not allowed".to_string()),
+            AppError::Forbidden => (
+                StatusCode::FORBIDDEN,
+                "This action is not allowed".to_string(),
+            ),
             AppError::Unprocessable(msg) => (StatusCode::UNPROCESSABLE_ENTITY, msg.clone()),
             AppError::Conflict => (StatusCode::CONFLICT, "Duplicate record".to_string()),
             AppError::Gone(msg) => (StatusCode::GONE, msg.clone()),
             AppError::ServiceUnavailable(msg) => (StatusCode::SERVICE_UNAVAILABLE, msg.clone()),
             AppError::Database(e) => {
                 tracing::error!("database error: {e}");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Database error".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Database error".to_string(),
+                )
             }
             AppError::Internal(e) => {
                 tracing::error!("internal error: {e}");
-                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Internal server error".to_string(),
+                )
             }
         };
 

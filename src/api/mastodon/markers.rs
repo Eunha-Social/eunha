@@ -6,12 +6,12 @@ use axum::{
 };
 use std::collections::HashMap;
 
+use super::types::MarkerInfo;
 use crate::{
     error::{AppError, AppResult},
     middleware::AuthenticatedUser,
     state::AppState,
 };
-use super::types::MarkerInfo;
 
 // ── GET /api/v1/markers ───────────────────────────────────────────────────
 
@@ -23,7 +23,8 @@ pub async fn get_markers(
     auth.require_scope("read:statuses")?;
     let user_id = auth.user_id.ok_or(AppError::Unauthorized)?;
     let query = uri.query().unwrap_or("");
-    let timelines: Vec<String> = query.split('&')
+    let timelines: Vec<String> = query
+        .split('&')
         .filter_map(|pair| {
             let (k, v) = pair.split_once('=')?;
             if k == "timeline%5B%5D" || k == "timeline[]" {
@@ -45,11 +46,14 @@ pub async fn get_markers(
         .await?;
 
         if let Some(r) = row {
-            result.insert(timeline.clone(), MarkerInfo {
-                last_read_id: r.last_read_id.to_string(),
-                version: r.lock_version,
-                updated_at: super::convert::mastodon_date(r.updated_at),
-            });
+            result.insert(
+                timeline.clone(),
+                MarkerInfo {
+                    last_read_id: r.last_read_id.to_string(),
+                    version: r.lock_version,
+                    updated_at: super::convert::mastodon_date(r.updated_at),
+                },
+            );
         }
     }
 
@@ -108,11 +112,14 @@ pub async fn set_markers(
         .fetch_one(&state.db)
         .await?;
 
-        result.insert(timeline.to_string(), MarkerInfo {
-            last_read_id: row.last_read_id.to_string(),
-            version: row.lock_version,
-            updated_at: super::convert::mastodon_date(row.updated_at),
-        });
+        result.insert(
+            timeline.to_string(),
+            MarkerInfo {
+                last_read_id: row.last_read_id.to_string(),
+                version: row.lock_version,
+                updated_at: super::convert::mastodon_date(row.updated_at),
+            },
+        );
     }
 
     Ok(Json(result))

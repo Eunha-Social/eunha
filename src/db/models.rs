@@ -313,12 +313,22 @@ pub mod vis {
     pub const LIMITED: i32 = 4;
 
     pub fn from_str(s: &str) -> i32 {
-        match s { "public" => PUBLIC, "unlisted" => UNLISTED, "private" => PRIVATE, _ => DIRECT }
+        match s {
+            "public" => PUBLIC,
+            "unlisted" => UNLISTED,
+            "private" => PRIVATE,
+            _ => DIRECT,
+        }
     }
 
     pub fn to_str(v: i32) -> &'static str {
         // Mastodon masks "limited" (4) as "private" so clients don't need to handle it.
-        match v { PUBLIC => "public", UNLISTED => "unlisted", PRIVATE | LIMITED => "private", _ => "direct" }
+        match v {
+            PUBLIC => "public",
+            UNLISTED => "unlisted",
+            PRIVATE | LIMITED => "private",
+            _ => "direct",
+        }
     }
 
     /// Derive visibility from an object's `to`/`cc` audience (portable logic in feder-core).
@@ -355,11 +365,19 @@ pub mod replies {
     pub const NONE: i32 = 2;
 
     pub fn from_str(s: &str) -> i32 {
-        match s { "followed" => FOLLOWED, "list" => LIST, _ => NONE }
+        match s {
+            "followed" => FOLLOWED,
+            "list" => LIST,
+            _ => NONE,
+        }
     }
 
     pub fn to_str(v: i32) -> &'static str {
-        match v { FOLLOWED => "followed", LIST => "list", _ => "none" }
+        match v {
+            FOLLOWED => "followed",
+            LIST => "list",
+            _ => "none",
+        }
     }
 }
 
@@ -371,7 +389,12 @@ pub mod quote_state {
     pub const REVOKED: i32 = 3;
 
     pub fn to_str(v: i32) -> &'static str {
-        match v { ACCEPTED => "accepted", REJECTED => "rejected", REVOKED => "revoked", _ => "pending" }
+        match v {
+            ACCEPTED => "accepted",
+            REJECTED => "rejected",
+            REVOKED => "revoked",
+            _ => "pending",
+        }
     }
 }
 
@@ -419,11 +442,19 @@ pub mod filter_action {
     pub const BLUR: i32 = 2;
 
     pub fn from_str(s: &str) -> i32 {
-        match s { "hide" => HIDE, "blur" => BLUR, _ => WARN }
+        match s {
+            "hide" => HIDE,
+            "blur" => BLUR,
+            _ => WARN,
+        }
     }
 
     pub fn to_str(v: i32) -> &'static str {
-        match v { HIDE => "hide", BLUR => "blur", _ => "warn" }
+        match v {
+            HIDE => "hide",
+            BLUR => "blur",
+            _ => "warn",
+        }
     }
 }
 
@@ -434,11 +465,21 @@ pub mod domain_severity {
     pub const SUSPEND: i32 = 2;
 
     pub fn from_str(s: &str) -> i32 {
-        match s { "noop" => NOOP, "silence" => SILENCE, "suspend" => SUSPEND, _ => NOOP }
+        match s {
+            "noop" => NOOP,
+            "silence" => SILENCE,
+            "suspend" => SUSPEND,
+            _ => NOOP,
+        }
     }
 
     pub fn to_str(v: i32) -> &'static str {
-        match v { NOOP => "noop", SILENCE => "silence", SUSPEND => "suspend", _ => "noop" }
+        match v {
+            NOOP => "noop",
+            SILENCE => "silence",
+            SUSPEND => "suspend",
+            _ => "noop",
+        }
     }
 }
 
@@ -477,10 +518,18 @@ pub mod report_category {
     pub const VIOLATION: i32 = 2;
 
     pub fn from_str(s: &str) -> i32 {
-        match s { "spam" => SPAM, "violation" => VIOLATION, _ => OTHER }
+        match s {
+            "spam" => SPAM,
+            "violation" => VIOLATION,
+            _ => OTHER,
+        }
     }
 
     pub fn to_str(v: i32) -> &'static str {
-        match v { SPAM => "spam", VIOLATION => "violation", _ => "other" }
+        match v {
+            SPAM => "spam",
+            VIOLATION => "violation",
+            _ => "other",
+        }
     }
 }

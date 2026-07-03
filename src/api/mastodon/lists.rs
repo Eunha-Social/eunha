@@ -5,17 +5,17 @@ use axum::{
 };
 use serde::Deserialize;
 
+use super::{
+    accounts::{batch_account_emojis, batch_account_roles},
+    convert::account_from_db,
+    types::{Account, List},
+};
 use crate::{
     db::models,
     error::{AppError, AppResult},
     feed,
     middleware::{AuthenticatedUser, ResolvedInstance},
     state::AppState,
-};
-use super::{
-    accounts::{batch_account_emojis, batch_account_roles},
-    convert::account_from_db,
-    types::{Account, List},
 };
 
 // ── GET /api/v1/lists ──────────────────────────────────────────────────────
@@ -165,7 +165,8 @@ pub async fn delete_list(
     fetch_list(&state, id, auth.account_id).await?;
     sqlx::query!(
         "DELETE FROM lists WHERE id = $1 AND account_id = $2",
-        id, auth.account_id
+        id,
+        auth.account_id
     )
     .execute(&state.db)
     .await?;
@@ -190,7 +191,11 @@ pub async fn get_list_accounts(
     fetch_list(&state, id, auth.account_id).await?;
 
     let unlimited = pagination.limit.as_deref() == Some("0");
-    let limit = if unlimited { i64::MAX } else { pagination.limit_clamped(40, 80) };
+    let limit = if unlimited {
+        i64::MAX
+    } else {
+        pagination.limit_clamped(40, 80)
+    };
     let max_id: Option<i64> = pagination.max_id.as_deref().and_then(|s| s.parse().ok());
     let since_id: Option<i64> = pagination.since_id.as_deref().and_then(|s| s.parse().ok());
     let min_id: Option<i64> = pagination.min_id.as_deref().and_then(|s| s.parse().ok());
@@ -216,13 +221,18 @@ pub async fn get_list_accounts(
 
     let account_emojis_map = batch_account_emojis(&state, &accounts).await;
     let account_roles_map = batch_account_roles(&state, &accounts).await;
-    let result: Vec<Account> = accounts.iter().map(|a| {
-        let mut api = account_from_db(a);
-        api.emojis = account_emojis_map.get(&a.id).cloned().unwrap_or_default();
-        api.roles = account_roles_map.get(&a.id).cloned().unwrap_or_default();
-        api
-    }).collect();
-    let link = if unlimited { None } else {
+    let result: Vec<Account> = accounts
+        .iter()
+        .map(|a| {
+            let mut api = account_from_db(a);
+            api.emojis = account_emojis_map.get(&a.id).cloned().unwrap_or_default();
+            api.roles = account_roles_map.get(&a.id).cloned().unwrap_or_default();
+            api
+        })
+        .collect();
+    let link = if unlimited {
+        None
+    } else {
         result.first().zip(result.last()).map(|(newest, oldest)| {
             let extra = super::non_pagination_query(uri.query());
             super::link_header(&req_headers, uri.path(), &extra, &newest.id, &oldest.id)
@@ -272,7 +282,9 @@ pub async fn add_list_accounts(
                 .await?
                 .unwrap_or(false);
             if !allowed {
-                return Err(AppError::Unprocessable("Account must be followed before adding to a list".into()));
+                return Err(AppError::Unprocessable(
+                    "Account must be followed before adding to a list".into(),
+                ));
             }
             sqlx::query!(
                 "INSERT INTO list_accounts (list_id, account_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
@@ -286,10 +298,14 @@ pub async fn add_list_accounts(
                 let owner_id = auth.account_id;
                 let policy = models::replies::to_str(list.replies_policy).to_owned();
                 if feed::sync_fanout() {
-                    feed::backfill_list_member(&mut redis, &db, id, account_id, owner_id, &policy).await;
+                    feed::backfill_list_member(&mut redis, &db, id, account_id, owner_id, &policy)
+                        .await;
                 } else {
                     tokio::spawn(async move {
-                        feed::backfill_list_member(&mut redis, &db, id, account_id, owner_id, &policy).await;
+                        feed::backfill_list_member(
+                            &mut redis, &db, id, account_id, owner_id, &policy,
+                        )
+                        .await;
                     });
                 }
             }
@@ -314,7 +330,8 @@ pub async fn remove_list_accounts(
         if let Ok(account_id) = id_str.parse::<i64>() {
             sqlx::query!(
                 "DELETE FROM list_accounts WHERE list_id = $1 AND account_id = $2",
-                id, account_id,
+                id,
+                account_id,
             )
             .execute(&state.db)
             .await?;
@@ -330,7 +347,8 @@ async fn fetch_list(state: &AppState, id: i64, account_id: i64) -> AppResult<mod
     sqlx::query_as!(
         models::List,
         "SELECT * FROM lists WHERE id = $1 AND account_id = $2",
-        id, account_id,
+        id,
+        account_id,
     )
     .fetch_optional(&state.db)
     .await?

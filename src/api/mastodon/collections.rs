@@ -143,7 +143,12 @@ async fn visible_items(
         .collect())
 }
 
-fn item_entity(id: i64, state: i32, created_at: chrono::NaiveDateTime, account_id: Option<i64>) -> Value {
+fn item_entity(
+    id: i64,
+    state: i32,
+    created_at: chrono::NaiveDateTime,
+    account_id: Option<i64>,
+) -> Value {
     let mut v = json!({
         "id": id.to_string(),
         "state": state_str(state),
@@ -295,7 +300,9 @@ pub async fn show_collection(
     }
     let viewer_id = auth.as_ref().map(|Extension(a)| a.account_id);
 
-    let c = load_collection(&state, id).await?.ok_or(AppError::NotFound)?;
+    let c = load_collection(&state, id)
+        .await?
+        .ok_or(AppError::NotFound)?;
     let collection = collection_entity(&state, &instance.domain, &c, viewer_id).await?;
 
     // accounts = [owner] + accounts of visible (pending/accepted) items.
@@ -327,7 +334,9 @@ pub async fn show_collection(
         .collect();
     let accounts = super::accounts::batch_accounts_to_api(&state, &ordered).await;
 
-    Ok(Json(json!({ "collection": collection, "accounts": accounts })))
+    Ok(Json(
+        json!({ "collection": collection, "accounts": accounts }),
+    ))
 }
 
 // ── POST /api/v1/collections ──────────────────────────────────────────────
@@ -428,7 +437,9 @@ pub async fn create_collection(
         }
     }
 
-    let c = load_collection(&state, new_id).await?.ok_or(AppError::NotFound)?;
+    let c = load_collection(&state, new_id)
+        .await?
+        .ok_or(AppError::NotFound)?;
     let entity = collection_entity(&state, &instance.domain, &c, Some(auth.account_id)).await?;
     distribute_collection(&state, &instance.domain, new_id, auth.account_id, true).await;
     Ok(Json(json!({ "collection": entity })))
@@ -454,7 +465,9 @@ pub async fn update_collection(
     Json(form): Json<UpdateCollectionForm>,
 ) -> AppResult<Json<Value>> {
     auth.require_scope("write:collections")?;
-    let c = load_collection(&state, id).await?.ok_or(AppError::NotFound)?;
+    let c = load_collection(&state, id)
+        .await?
+        .ok_or(AppError::NotFound)?;
     if c.account_id != auth.account_id {
         return Err(AppError::Forbidden);
     }
@@ -507,7 +520,9 @@ pub async fn update_collection(
     .execute(&state.db)
     .await?;
 
-    let c = load_collection(&state, id).await?.ok_or(AppError::NotFound)?;
+    let c = load_collection(&state, id)
+        .await?
+        .ok_or(AppError::NotFound)?;
     let entity = collection_entity(&state, &instance.domain, &c, Some(auth.account_id)).await?;
     distribute_collection(&state, &instance.domain, id, auth.account_id, false).await;
     Ok(Json(json!({ "collection": entity })))
@@ -522,7 +537,9 @@ pub async fn delete_collection(
     Path(id): Path<i64>,
 ) -> AppResult<impl IntoResponse> {
     auth.require_scope("write:collections")?;
-    let c = load_collection(&state, id).await?.ok_or(AppError::NotFound)?;
+    let c = load_collection(&state, id)
+        .await?
+        .ok_or(AppError::NotFound)?;
     if c.account_id != auth.account_id {
         return Err(AppError::Forbidden);
     }
@@ -656,7 +673,12 @@ async fn add_item(state: &AppState, collection_id: i64, account_id: i64) -> AppR
         }
     }
 
-    Ok(item_entity(row.id, row.state, row.created_at, Some(account_id)))
+    Ok(item_entity(
+        row.id,
+        row.state,
+        row.created_at,
+        Some(account_id),
+    ))
 }
 
 // ── ActivityPub distribution to followers (best-effort) ───────────────────────
@@ -683,13 +705,20 @@ async fn distribute_collection(
     owner_account_id: i64,
     is_create: bool,
 ) {
-    let Some(ap) = ap_coll::load_ap_collection(state, collection_id).await.ok().flatten() else {
+    let Some(ap) = ap_coll::load_ap_collection(state, collection_id)
+        .await
+        .ok()
+        .flatten()
+    else {
         return;
     };
     let Ok(body) = ap_coll::featured_collection_body(state, domain, &ap).await else {
         return;
     };
-    if owner_signing_username(state, owner_account_id).await.is_none() {
+    if owner_signing_username(state, owner_account_id)
+        .await
+        .is_none()
+    {
         return;
     }
     let key_id = format!("https://{domain}/users/{}#main-key", ap.owner_username);
@@ -705,7 +734,8 @@ async fn distribute_collection(
         )
     };
     if let Err(e) =
-        crate::federation::delivery::fanout_to_followers(state, activity, owner_account_id, key_id).await
+        crate::federation::delivery::fanout_to_followers(state, activity, owner_account_id, key_id)
+            .await
     {
         tracing::warn!(error = %e, "failed to enqueue collection fanout");
     }
@@ -724,7 +754,8 @@ async fn distribute_collection_removal(
     let key_id = format!("https://{domain}/users/{username}#main-key");
     let activity = ap_coll::remove_collection_activity(domain, &username, collection_id);
     if let Err(e) =
-        crate::federation::delivery::fanout_to_followers(state, activity, owner_account_id, key_id).await
+        crate::federation::delivery::fanout_to_followers(state, activity, owner_account_id, key_id)
+            .await
     {
         tracing::warn!(error = %e, "failed to enqueue collection removal fanout");
     }
@@ -756,7 +787,9 @@ pub async fn add_collection_item(
     Json(form): Json<AddItemForm>,
 ) -> AppResult<Json<Value>> {
     auth.require_scope("write:collections")?;
-    let c = load_collection(&state, collection_id).await?.ok_or(AppError::NotFound)?;
+    let c = load_collection(&state, collection_id)
+        .await?
+        .ok_or(AppError::NotFound)?;
     if c.account_id != auth.account_id {
         return Err(AppError::Forbidden);
     }
@@ -768,7 +801,14 @@ pub async fn add_collection_item(
         .ok_or_else(|| AppError::Unprocessable("`account_id` parameter is missing".into()))?;
 
     let item = add_item(&state, collection_id, account_id).await?;
-    distribute_collection(&state, &instance.domain, collection_id, auth.account_id, false).await;
+    distribute_collection(
+        &state,
+        &instance.domain,
+        collection_id,
+        auth.account_id,
+        false,
+    )
+    .await;
     Ok(Json(json!({ "collection_item": item })))
 }
 
@@ -780,7 +820,9 @@ pub async fn delete_collection_item(
     Path((collection_id, item_id)): Path<(i64, i64)>,
 ) -> AppResult<impl IntoResponse> {
     auth.require_scope("write:collections")?;
-    let c = load_collection(&state, collection_id).await?.ok_or(AppError::NotFound)?;
+    let c = load_collection(&state, collection_id)
+        .await?
+        .ok_or(AppError::NotFound)?;
     if c.account_id != auth.account_id {
         return Err(AppError::Forbidden);
     }
@@ -795,7 +837,14 @@ pub async fn delete_collection_item(
         return Err(AppError::NotFound);
     }
     refresh_item_count(&state, collection_id).await?;
-    distribute_collection(&state, &instance.domain, collection_id, auth.account_id, false).await;
+    distribute_collection(
+        &state,
+        &instance.domain,
+        collection_id,
+        auth.account_id,
+        false,
+    )
+    .await;
     Ok(Json(json!({})))
 }
 
@@ -807,7 +856,9 @@ pub async fn revoke_collection_item(
     Path((collection_id, item_id)): Path<(i64, i64)>,
 ) -> AppResult<impl IntoResponse> {
     auth.require_scope("write:collections")?;
-    let c = load_collection(&state, collection_id).await?.ok_or(AppError::NotFound)?;
+    let c = load_collection(&state, collection_id)
+        .await?
+        .ok_or(AppError::NotFound)?;
     if c.account_id != auth.account_id {
         return Err(AppError::Forbidden);
     }
@@ -822,6 +873,13 @@ pub async fn revoke_collection_item(
         return Err(AppError::NotFound);
     }
     refresh_item_count(&state, collection_id).await?;
-    distribute_collection(&state, &instance.domain, collection_id, auth.account_id, false).await;
+    distribute_collection(
+        &state,
+        &instance.domain,
+        collection_id,
+        auth.account_id,
+        false,
+    )
+    .await;
     Ok(Json(json!({})))
 }

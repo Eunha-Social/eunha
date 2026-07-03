@@ -1,6 +1,9 @@
 use uuid::Uuid;
 
-use crate::{config::MediaStorageConfig, error::{AppError, AppResult}};
+use crate::{
+    config::MediaStorageConfig,
+    error::{AppError, AppResult},
+};
 
 pub mod transcode;
 
@@ -122,10 +125,7 @@ pub struct MediaAttachmentKeys {
 
 pub fn media_attachment_keys(content_type: &str) -> MediaAttachmentKeys {
     let ext = ext_for(content_type);
-    let base = format!(
-        "media_attachments/files/{}",
-        uuid_to_path(Uuid::new_v4()),
-    );
+    let base = format!("media_attachments/files/{}", uuid_to_path(Uuid::new_v4()),);
     let name = random_hex();
     MediaAttachmentKeys {
         original: format!("{}/original/{}.{}", base, name, ext),

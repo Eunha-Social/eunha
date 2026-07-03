@@ -24,7 +24,10 @@ async fn test_register_app_returns_credentials() {
 
     let body: Value = resp.json().await.unwrap();
     assert!(body["client_id"].as_str().is_some(), "missing client_id");
-    assert!(body["client_secret"].as_str().is_some(), "missing client_secret");
+    assert!(
+        body["client_secret"].as_str().is_some(),
+        "missing client_secret"
+    );
     assert_eq!(body["name"].as_str(), Some("Test App"));
 }
 
@@ -45,13 +48,21 @@ async fn test_authorize_rejects_scope_escalation() {
         &format!("/oauth/authorize?client_id={client_id}&redirect_uri=urn:ietf:wg:oauth:2.0:oob&scope=read+write&response_type=code"),
         None,
     ).await;
-    assert_eq!(escalate.status(), StatusCode::BAD_REQUEST, "requesting an unregistered scope must be rejected");
+    assert_eq!(
+        escalate.status(),
+        StatusCode::BAD_REQUEST,
+        "requesting an unregistered scope must be rejected"
+    );
 
     let ok = ctx.api.get(
         &format!("/oauth/authorize?client_id={client_id}&redirect_uri=urn:ietf:wg:oauth:2.0:oob&scope=read&response_type=code"),
         None,
     ).await;
-    assert_eq!(ok.status(), StatusCode::OK, "a subset scope should be accepted");
+    assert_eq!(
+        ok.status(),
+        StatusCode::OK,
+        "a subset scope should be accepted"
+    );
 }
 
 /// POST /api/v1/apps with an unknown scope is rejected (Doorkeeper
@@ -60,19 +71,33 @@ async fn test_authorize_rejects_scope_escalation() {
 async fn test_register_app_rejects_unknown_scope() {
     let ctx = TestContext::new("apps-bad-scope").await;
 
-    let bad = ctx.api.post_json(
-        "/api/v1/apps",
-        None,
-        &json!({ "client_name": "Bad", "scopes": "read write:everything" }),
-    ).await;
-    assert_eq!(bad.status(), StatusCode::UNPROCESSABLE_ENTITY, "unknown scope must be rejected");
+    let bad = ctx
+        .api
+        .post_json(
+            "/api/v1/apps",
+            None,
+            &json!({ "client_name": "Bad", "scopes": "read write:everything" }),
+        )
+        .await;
+    assert_eq!(
+        bad.status(),
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "unknown scope must be rejected"
+    );
 
-    let ok = ctx.api.post_json(
-        "/api/v1/apps",
-        None,
-        &json!({ "client_name": "Good", "scopes": "read:statuses write:statuses push" }),
-    ).await;
-    assert_eq!(ok.status(), StatusCode::OK, "known granular scopes should be accepted");
+    let ok = ctx
+        .api
+        .post_json(
+            "/api/v1/apps",
+            None,
+            &json!({ "client_name": "Good", "scopes": "read:statuses write:statuses push" }),
+        )
+        .await;
+    assert_eq!(
+        ok.status(),
+        StatusCode::OK,
+        "known granular scopes should be accepted"
+    );
 }
 
 /// Registered app response includes the redirect_uri and redirect_uris fields.
@@ -95,10 +120,18 @@ async fn test_register_app_response_shape() {
     assert_eq!(resp.status(), StatusCode::OK);
 
     let body: Value = resp.json().await.unwrap();
-    assert_eq!(body["redirect_uri"].as_str(), Some("https://app.example/callback"));
-    assert_eq!(body["redirect_uris"][0].as_str(), Some("https://app.example/callback"));
+    assert_eq!(
+        body["redirect_uri"].as_str(),
+        Some("https://app.example/callback")
+    );
+    assert_eq!(
+        body["redirect_uris"][0].as_str(),
+        Some("https://app.example/callback")
+    );
     assert!(
-        body["scopes"].as_array().is_some_and(|a| a.iter().any(|s| s.as_str() == Some("read"))),
+        body["scopes"]
+            .as_array()
+            .is_some_and(|a| a.iter().any(|s| s.as_str() == Some("read"))),
         "scopes array should contain 'read'"
     );
 }
@@ -123,7 +156,10 @@ async fn test_register_app_default_scope() {
 
     let body: Value = resp.json().await.unwrap();
     assert_eq!(
-        body["scopes"].as_array().and_then(|a| a.first()).and_then(|s| s.as_str()),
+        body["scopes"]
+            .as_array()
+            .and_then(|a| a.first())
+            .and_then(|s| s.as_str()),
         Some("read"),
         "default scope should be read"
     );
@@ -189,35 +225,64 @@ async fn test_revoke_token() {
     let ctx = TestContext::new("apps-revoke").await;
 
     // Verify that the token is currently valid.
-    let before = ctx.api.get("/api/v1/accounts/verify_credentials", Some(&ctx.alice_token)).await;
-    assert_eq!(before.status(), StatusCode::OK, "token should be valid before revocation");
+    let before = ctx
+        .api
+        .get(
+            "/api/v1/accounts/verify_credentials",
+            Some(&ctx.alice_token),
+        )
+        .await;
+    assert_eq!(
+        before.status(),
+        StatusCode::OK,
+        "token should be valid before revocation"
+    );
 
     // Revoke it.
-    let revoke_resp = ctx.api.post_json(
-        "/oauth/revoke",
-        None,
-        &serde_json::json!({"token": ctx.alice_token}),
-    ).await;
+    let revoke_resp = ctx
+        .api
+        .post_json(
+            "/oauth/revoke",
+            None,
+            &serde_json::json!({"token": ctx.alice_token}),
+        )
+        .await;
     assert_eq!(revoke_resp.status(), StatusCode::OK);
 
     // After revocation the token should no longer work.
-    let after = ctx.api.get("/api/v1/accounts/verify_credentials", Some(&ctx.alice_token)).await;
-    assert_eq!(after.status(), StatusCode::UNAUTHORIZED, "revoked token should return 401");
+    let after = ctx
+        .api
+        .get(
+            "/api/v1/accounts/verify_credentials",
+            Some(&ctx.alice_token),
+        )
+        .await;
+    assert_eq!(
+        after.status(),
+        StatusCode::UNAUTHORIZED,
+        "revoked token should return 401"
+    );
 }
 
 // ── POST /oauth/token — grant type tests ──────────────────────────────────────
 
 /// Helper: register an app and return (client_id, client_secret).
 async fn register_test_app(ctx: &TestContext) -> (String, String) {
-    let body: Value = ctx.api.post_json(
-        "/api/v1/apps",
-        None,
-        &json!({
-            "client_name": "OAuth Test App",
-            "redirect_uris": "urn:ietf:wg:oauth:2.0:oob",
-            "scopes": "read write"
-        }),
-    ).await.json().await.unwrap();
+    let body: Value = ctx
+        .api
+        .post_json(
+            "/api/v1/apps",
+            None,
+            &json!({
+                "client_name": "OAuth Test App",
+                "redirect_uris": "urn:ietf:wg:oauth:2.0:oob",
+                "scopes": "read write"
+            }),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
     (
         body["client_id"].as_str().unwrap().to_string(),
         body["client_secret"].as_str().unwrap().to_string(),
@@ -230,18 +295,24 @@ async fn test_client_credentials_grant() {
     let ctx = TestContext::new("oauth-cc").await;
     let (client_id, client_secret) = register_test_app(&ctx).await;
 
-    let resp = ctx.api.post_json(
-        "/oauth/token",
-        None,
-        &json!({
-            "grant_type": "client_credentials",
-            "client_id": client_id,
-            "client_secret": client_secret,
-        }),
-    ).await;
+    let resp = ctx
+        .api
+        .post_json(
+            "/oauth/token",
+            None,
+            &json!({
+                "grant_type": "client_credentials",
+                "client_id": client_id,
+                "client_secret": client_secret,
+            }),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let body: Value = resp.json().await.unwrap();
-    assert!(body["access_token"].as_str().is_some(), "access_token missing");
+    assert!(
+        body["access_token"].as_str().is_some(),
+        "access_token missing"
+    );
     assert_eq!(body["token_type"].as_str(), Some("Bearer"));
 }
 
@@ -251,25 +322,39 @@ async fn test_password_grant_issues_token() {
     let ctx = TestContext::new("oauth-pw").await;
     let (client_id, client_secret) = register_test_app(&ctx).await;
 
-    let resp = ctx.api.post_json(
-        "/oauth/token",
-        None,
-        &json!({
-            "grant_type": "password",
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "username": "alice@test.invalid",
-            "password": "testpassword123",
-            "scope": "read write",
-        }),
-    ).await;
-    assert_eq!(resp.status(), StatusCode::OK, "password grant should succeed");
+    let resp = ctx
+        .api
+        .post_json(
+            "/oauth/token",
+            None,
+            &json!({
+                "grant_type": "password",
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "username": "alice@test.invalid",
+                "password": "testpassword123",
+                "scope": "read write",
+            }),
+        )
+        .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "password grant should succeed"
+    );
     let body: Value = resp.json().await.unwrap();
     let token = body["access_token"].as_str().expect("access_token missing");
 
     // The token should be usable for authenticated requests.
-    let me = ctx.api.get("/api/v1/accounts/verify_credentials", Some(token)).await;
-    assert_eq!(me.status(), StatusCode::OK, "token from password grant should authenticate");
+    let me = ctx
+        .api
+        .get("/api/v1/accounts/verify_credentials", Some(token))
+        .await;
+    assert_eq!(
+        me.status(),
+        StatusCode::OK,
+        "token from password grant should authenticate"
+    );
     let account: Value = me.json().await.unwrap();
     assert_eq!(account["username"].as_str(), Some("alice"));
 }
@@ -280,18 +365,25 @@ async fn test_password_grant_wrong_password_returns_401() {
     let ctx = TestContext::new("oauth-pw-bad").await;
     let (client_id, client_secret) = register_test_app(&ctx).await;
 
-    let resp = ctx.api.post_json(
-        "/oauth/token",
-        None,
-        &json!({
-            "grant_type": "password",
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "username": "alice@test.invalid",
-            "password": "wrongpassword",
-        }),
-    ).await;
-    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "wrong password should return 401");
+    let resp = ctx
+        .api
+        .post_json(
+            "/oauth/token",
+            None,
+            &json!({
+                "grant_type": "password",
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "username": "alice@test.invalid",
+                "password": "wrongpassword",
+            }),
+        )
+        .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "wrong password should return 401"
+    );
 }
 
 /// password grant with wrong client_secret returns 401.
@@ -300,18 +392,25 @@ async fn test_password_grant_wrong_client_secret_returns_401() {
     let ctx = TestContext::new("oauth-pw-badsecret").await;
     let (client_id, _) = register_test_app(&ctx).await;
 
-    let resp = ctx.api.post_json(
-        "/oauth/token",
-        None,
-        &json!({
-            "grant_type": "password",
-            "client_id": client_id,
-            "client_secret": "not-the-real-secret",
-            "username": "alice@test.invalid",
-            "password": "testpassword123",
-        }),
-    ).await;
-    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "bad client_secret should return 401");
+    let resp = ctx
+        .api
+        .post_json(
+            "/oauth/token",
+            None,
+            &json!({
+                "grant_type": "password",
+                "client_id": client_id,
+                "client_secret": "not-the-real-secret",
+                "username": "alice@test.invalid",
+                "password": "testpassword123",
+            }),
+        )
+        .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "bad client_secret should return 401"
+    );
 }
 
 /// authorization_code grant with a seeded code issues a token.
@@ -320,15 +419,21 @@ async fn test_authorization_code_grant() {
     let ctx = TestContext::new("oauth-ac").await;
 
     // Register an app to get a real application_id.
-    let app: Value = ctx.api.post_json(
-        "/api/v1/apps",
-        None,
-        &json!({
-            "client_name": "Auth Code App",
-            "redirect_uris": "https://app.example/callback",
-            "scopes": "read write"
-        }),
-    ).await.json().await.unwrap();
+    let app: Value = ctx
+        .api
+        .post_json(
+            "/api/v1/apps",
+            None,
+            &json!({
+                "client_name": "Auth Code App",
+                "redirect_uris": "https://app.example/callback",
+                "scopes": "read write"
+            }),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
     let client_id = app["client_id"].as_str().unwrap();
     let client_secret = app["client_secret"].as_str().unwrap();
 
@@ -359,23 +464,37 @@ async fn test_authorization_code_grant() {
     .await
     .unwrap();
 
-    let resp = ctx.api.post_json(
-        "/oauth/token",
-        None,
-        &json!({
-            "grant_type": "authorization_code",
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "code": code,
-            "redirect_uri": "https://app.example/callback",
-        }),
-    ).await;
-    assert_eq!(resp.status(), StatusCode::OK, "authorization_code grant should succeed");
+    let resp = ctx
+        .api
+        .post_json(
+            "/oauth/token",
+            None,
+            &json!({
+                "grant_type": "authorization_code",
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "code": code,
+                "redirect_uri": "https://app.example/callback",
+            }),
+        )
+        .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "authorization_code grant should succeed"
+    );
     let body: Value = resp.json().await.unwrap();
     let token = body["access_token"].as_str().expect("access_token missing");
 
-    let me = ctx.api.get("/api/v1/accounts/verify_credentials", Some(token)).await;
-    assert_eq!(me.status(), StatusCode::OK, "token from authorization_code grant should authenticate");
+    let me = ctx
+        .api
+        .get("/api/v1/accounts/verify_credentials", Some(token))
+        .await;
+    assert_eq!(
+        me.status(),
+        StatusCode::OK,
+        "token from authorization_code grant should authenticate"
+    );
 }
 
 /// Expired authorization code returns 401.
@@ -383,15 +502,21 @@ async fn test_authorization_code_grant() {
 async fn test_authorization_code_expired_returns_401() {
     let ctx = TestContext::new("oauth-ac-exp").await;
 
-    let app: Value = ctx.api.post_json(
-        "/api/v1/apps",
-        None,
-        &json!({
-            "client_name": "Expired Code App",
-            "redirect_uris": "https://app.example/callback",
-            "scopes": "read"
-        }),
-    ).await.json().await.unwrap();
+    let app: Value = ctx
+        .api
+        .post_json(
+            "/api/v1/apps",
+            None,
+            &json!({
+                "client_name": "Expired Code App",
+                "redirect_uris": "https://app.example/callback",
+                "scopes": "read"
+            }),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
     let client_id = app["client_id"].as_str().unwrap();
     let client_secret = app["client_secret"].as_str().unwrap();
 
@@ -404,8 +529,7 @@ async fn test_authorization_code_expired_returns_401() {
     .unwrap();
 
     let expired_code = format!("expired-code-{}", uuid::Uuid::new_v4());
-    let owner_id =
-        crate::helpers::user_id_for(&ctx.db, ctx.alice_id.parse::<i64>().unwrap()).await;
+    let owner_id = crate::helpers::user_id_for(&ctx.db, ctx.alice_id.parse::<i64>().unwrap()).await;
     sqlx::query!(
         r#"INSERT INTO oauth_access_grants
              (application_id, resource_owner_id, token, redirect_uri, scopes, expires_in, created_at)
@@ -420,18 +544,25 @@ async fn test_authorization_code_expired_returns_401() {
     .await
     .unwrap();
 
-    let resp = ctx.api.post_json(
-        "/oauth/token",
-        None,
-        &json!({
-            "grant_type": "authorization_code",
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "code": expired_code,
-            "redirect_uri": "https://app.example/callback",
-        }),
-    ).await;
-    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "expired code should return 401");
+    let resp = ctx
+        .api
+        .post_json(
+            "/oauth/token",
+            None,
+            &json!({
+                "grant_type": "authorization_code",
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "code": expired_code,
+                "redirect_uri": "https://app.example/callback",
+            }),
+        )
+        .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "expired code should return 401"
+    );
 }
 
 /// Unsupported grant_type returns 422.
@@ -440,14 +571,21 @@ async fn test_unsupported_grant_type_returns_422() {
     let ctx = TestContext::new("oauth-bad-grant").await;
     let (client_id, client_secret) = register_test_app(&ctx).await;
 
-    let resp = ctx.api.post_json(
-        "/oauth/token",
-        None,
-        &json!({
-            "grant_type": "magic_token",
-            "client_id": client_id,
-            "client_secret": client_secret,
-        }),
-    ).await;
-    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY, "unsupported grant_type should return 422");
+    let resp = ctx
+        .api
+        .post_json(
+            "/oauth/token",
+            None,
+            &json!({
+                "grant_type": "magic_token",
+                "client_id": client_id,
+                "client_secret": client_secret,
+            }),
+        )
+        .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "unsupported grant_type should return 422"
+    );
 }

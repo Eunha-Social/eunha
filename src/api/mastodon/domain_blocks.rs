@@ -6,12 +6,8 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::{
-    error::AppResult,
-    middleware::AuthenticatedUser,
-    state::AppState,
-};
 use super::types::PaginationParams;
+use crate::{error::AppResult, middleware::AuthenticatedUser, state::AppState};
 
 // ── GET /api/v1/domain_blocks ─────────────────────────────────────────────
 
@@ -49,7 +45,13 @@ pub async fn get_domain_blocks(
     let mut resp_headers = HeaderMap::new();
     if let (Some(first), Some(last)) = (rows.first(), rows.last()) {
         let extra = super::non_pagination_query(uri.query());
-        let link = super::link_header(&req_headers, uri.path(), &extra, &first.id.to_string(), &last.id.to_string());
+        let link = super::link_header(
+            &req_headers,
+            uri.path(),
+            &extra,
+            &first.id.to_string(),
+            &last.id.to_string(),
+        );
         if let Ok(val) = link.parse() {
             resp_headers.insert(header::LINK, val);
         }
@@ -126,7 +128,8 @@ pub async fn block_domain(
         r#"DELETE FROM notifications
            WHERE account_id = $1
              AND from_account_id IN (SELECT id FROM accounts WHERE domain = $2)"#,
-        auth.account_id, domain,
+        auth.account_id,
+        domain,
     )
     .execute(&state.db)
     .await;
@@ -168,7 +171,8 @@ pub async fn preview_domain_block(
         r#"SELECT COUNT(*) FROM follows f
            JOIN accounts a ON a.id = f.target_account_id
            WHERE f.account_id = $1 AND a.domain = $2"#,
-        auth.account_id, domain,
+        auth.account_id,
+        domain,
     )
     .fetch_one(&state.db)
     .await?
@@ -178,7 +182,8 @@ pub async fn preview_domain_block(
         r#"SELECT COUNT(*) FROM follows f
            JOIN accounts a ON a.id = f.account_id
            WHERE f.target_account_id = $1 AND a.domain = $2"#,
-        auth.account_id, domain,
+        auth.account_id,
+        domain,
     )
     .fetch_one(&state.db)
     .await?

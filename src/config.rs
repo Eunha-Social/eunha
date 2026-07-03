@@ -34,7 +34,9 @@ pub struct InstanceConfig {
     pub terms_of_service: String,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ResendConfig {

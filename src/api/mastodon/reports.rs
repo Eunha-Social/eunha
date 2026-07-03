@@ -4,23 +4,26 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::{
-    error::{AppError, AppResult},
-    middleware::AuthenticatedUser,
-    state::AppState,
-    push::notify_admins,
-};
 use super::{
     accounts::{batch_account_roles, fetch_account_emojis},
     convert::account_from_db,
     types::Report,
 };
 use crate::middleware::ResolvedInstance;
+use crate::{
+    error::{AppError, AppResult},
+    middleware::AuthenticatedUser,
+    push::notify_admins,
+    state::AppState,
+};
 
 fn de_i64_from_str_or_num<'de, D: serde::Deserializer<'de>>(d: D) -> Result<i64, D::Error> {
     #[derive(Deserialize)]
     #[serde(untagged)]
-    enum StrOrNum { S(String), N(i64) }
+    enum StrOrNum {
+        S(String),
+        N(i64),
+    }
     match StrOrNum::deserialize(d)? {
         StrOrNum::S(s) => s.parse().map_err(serde::de::Error::custom),
         StrOrNum::N(n) => Ok(n),
@@ -56,7 +59,8 @@ pub async fn file_report(
     .await?
     .ok_or(AppError::NotFound)?;
 
-    let status_ids: Vec<i64> = form.status_ids
+    let status_ids: Vec<i64> = form
+        .status_ids
         .unwrap_or_default()
         .iter()
         .filter_map(|s| s.parse::<i64>().ok())
@@ -66,7 +70,8 @@ pub async fn file_report(
     for &sid in &status_ids {
         let belongs = sqlx::query_scalar!(
             "SELECT 1 as e FROM statuses WHERE id = $1 AND account_id = $2 AND deleted_at IS NULL",
-            sid, form.account_id,
+            sid,
+            form.account_id,
         )
         .fetch_optional(&state.db)
         .await?;
@@ -83,7 +88,8 @@ pub async fn file_report(
         ));
     }
     let forwarded = form.forward.unwrap_or(false);
-    let rule_ids: Vec<i64> = form.rule_ids
+    let rule_ids: Vec<i64> = form
+        .rule_ids
         .unwrap_or_default()
         .iter()
         .filter_map(|s| s.parse::<i64>().ok())

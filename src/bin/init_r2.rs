@@ -41,19 +41,27 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
     let args = Args::parse();
 
-    let cfg = args.config.as_deref().map(eunha::config::Config::from_file).transpose()?;
+    let cfg = args
+        .config
+        .as_deref()
+        .map(eunha::config::Config::from_file)
+        .transpose()?;
     let ms = cfg.as_ref().map(|c| &c.media_storage);
 
-    let bucket = args.bucket
+    let bucket = args
+        .bucket
         .or_else(|| ms.map(|m| m.bucket.clone()))
         .context("--bucket (or --config with media_storage.bucket)")?;
-    let endpoint = args.endpoint
+    let endpoint = args
+        .endpoint
         .or_else(|| ms.and_then(|m| m.endpoint.clone()))
         .context("--endpoint (or --config with media_storage.endpoint)")?;
-    let access_key_id = args.access_key_id
+    let access_key_id = args
+        .access_key_id
         .or_else(|| ms.map(|m| m.access_key_id.clone()))
         .context("--access-key-id (or --config with media_storage.access_key_id)")?;
-    let secret_access_key = args.secret_access_key
+    let secret_access_key = args
+        .secret_access_key
         .or_else(|| ms.map(|m| m.secret_access_key.clone()))
         .context("--secret-access-key (or --config with media_storage.secret_access_key)")?;
 

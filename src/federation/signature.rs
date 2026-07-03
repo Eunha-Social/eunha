@@ -3,7 +3,9 @@
 //! Re-exports the framework-agnostic implementation and adds an axum adapter to
 //! convert a `HeaderMap` into the flat slice form [`verify_request`] expects.
 
-pub use feder_runtime::signature::{key_id_from_header, sign_request, verify_request, SignedHeaders};
+pub use feder_runtime::signature::{
+    key_id_from_header, sign_request, verify_request, SignedHeaders,
+};
 
 /// Convert an axum `HeaderMap` to a `Vec<(String, String)>` for use with
 /// [`verify_request`].

@@ -59,7 +59,13 @@ pub async fn get_status(
     Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
     Path((username, id)): Path<(String, i64)>,
 ) -> AppResult<Response> {
-    let bundle = status_bundle(&state, &instance.domain, AccountRef::Username(&username), id).await?;
+    let bundle = status_bundle(
+        &state,
+        &instance.domain,
+        AccountRef::Username(&username),
+        id,
+    )
+    .await?;
     Ok(note_response(bundle.into_note()))
 }
 
@@ -79,7 +85,13 @@ pub async fn get_status_activity(
     Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
     Path((username, id)): Path<(String, i64)>,
 ) -> AppResult<Response> {
-    let bundle = status_bundle(&state, &instance.domain, AccountRef::Username(&username), id).await?;
+    let bundle = status_bundle(
+        &state,
+        &instance.domain,
+        AccountRef::Username(&username),
+        id,
+    )
+    .await?;
     Ok(note_response(bundle.into_create()))
 }
 
@@ -116,20 +128,24 @@ pub async fn load_local_account(
     who: AccountRef<'_>,
 ) -> AppResult<crate::db::models::Account> {
     let account = match who {
-        AccountRef::Username(username) => sqlx::query_as!(
-            crate::db::models::Account,
-            "SELECT * FROM accounts WHERE username = $1 AND domain IS NULL",
-            username,
-        )
-        .fetch_optional(&state.db)
-        .await?,
-        AccountRef::Id(id) => sqlx::query_as!(
-            crate::db::models::Account,
-            "SELECT * FROM accounts WHERE id = $1 AND domain IS NULL",
-            id,
-        )
-        .fetch_optional(&state.db)
-        .await?,
+        AccountRef::Username(username) => {
+            sqlx::query_as!(
+                crate::db::models::Account,
+                "SELECT * FROM accounts WHERE username = $1 AND domain IS NULL",
+                username,
+            )
+            .fetch_optional(&state.db)
+            .await?
+        }
+        AccountRef::Id(id) => {
+            sqlx::query_as!(
+                crate::db::models::Account,
+                "SELECT * FROM accounts WHERE id = $1 AND domain IS NULL",
+                id,
+            )
+            .fetch_optional(&state.db)
+            .await?
+        }
     };
     account.ok_or(AppError::NotFound)
 }

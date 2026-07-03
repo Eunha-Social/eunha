@@ -18,9 +18,7 @@ pub fn generate_vapid_keypair() -> anyhow::Result<(String, String)> {
         .to_pkcs8_pem(LineEnding::LF)
         .map_err(|e| anyhow::anyhow!("pkcs8 encode: {e}"))?;
 
-    let pub_point = signing_key
-        .verifying_key()
-        .to_encoded_point(false); // uncompressed 65-byte point
+    let pub_point = signing_key.verifying_key().to_encoded_point(false); // uncompressed 65-byte point
     let pub_b64 = URL_SAFE_NO_PAD.encode(pub_point.as_bytes());
 
     Ok((pem.to_string(), pub_b64))
@@ -91,13 +89,13 @@ async fn try_deliver(
     // Look up subscriptions for the recipient that have this alert type enabled.
     let (alert_key, alert_default) = match notification_type {
         "follow" | "follow_request" => ("follow", "true"),
-        "favourite"     => ("favourite",     "true"),
-        "reblog"        => ("reblog",        "true"),
-        "mention"       => ("mention",       "true"),
-        "poll"          => ("poll",          "false"),
-        "status"        => ("status",        "false"),
-        "update"        => ("update",        "false"),
-        "quote"         => ("quote",         "false"),
+        "favourite" => ("favourite", "true"),
+        "reblog" => ("reblog", "true"),
+        "mention" => ("mention", "true"),
+        "poll" => ("poll", "false"),
+        "status" => ("status", "false"),
+        "update" => ("update", "false"),
+        "quote" => ("quote", "false"),
         "quoted_update" => ("quoted_update", "false"),
         _ => return Ok(()),
     };
@@ -122,17 +120,14 @@ async fn try_deliver(
                OR (COALESCE(wps.data->>'policy','all') = 'follower'
                    AND EXISTS (SELECT 1 FROM follows WHERE account_id = $2 AND target_account_id = $1))
              )"#,
-        alert_key,
-        alert_default,
+        alert_key, alert_default,
     );
 
-    let rows = sqlx::query_as::<_, (i64, String, String, String)>(
-        &subs_query,
-    )
-    .bind(recipient_id)
-    .bind(from_account_id)
-    .fetch_all(&state.db)
-    .await?;
+    let rows = sqlx::query_as::<_, (i64, String, String, String)>(&subs_query)
+        .bind(recipient_id)
+        .bind(from_account_id)
+        .fetch_all(&state.db)
+        .await?;
 
     if rows.is_empty() {
         return Ok(());
@@ -150,16 +145,7 @@ async fn try_deliver(
     })?;
 
     for (_, endpoint, p256dh, auth) in &rows {
-        if let Err(e) = send_one(
-            state,
-            endpoint,
-            p256dh,
-            auth,
-            &vapid_priv,
-            &payload,
-        )
-        .await
-        {
+        if let Err(e) = send_one(state, endpoint, p256dh, auth, &vapid_priv, &payload).await {
             tracing::warn!(
                 endpoint = %endpoint,
                 error = %e,
@@ -196,10 +182,7 @@ async fn send_one(
     builder.set_payload(ContentEncoding::AesGcm, payload.as_bytes());
     builder.set_ttl(86400);
 
-    let sig_builder = VapidSignatureBuilder::from_pem(
-        vapid_private_pem.as_bytes(),
-        &sub_info,
-    )?;
+    let sig_builder = VapidSignatureBuilder::from_pem(vapid_private_pem.as_bytes(), &sub_info)?;
     builder.set_vapid_signature(sig_builder.build()?);
 
     let message = builder.build()?;
@@ -213,9 +196,7 @@ async fn send_with_reqwest(
 ) -> anyhow::Result<()> {
     let endpoint = message.endpoint.to_string();
     let ttl = message.ttl;
-    let mut req = http
-        .post(endpoint.as_str())
-        .header("TTL", ttl.to_string());
+    let mut req = http.post(endpoint.as_str()).header("TTL", ttl.to_string());
 
     if let Some(payload) = message.payload {
         req = req
@@ -301,8 +282,12 @@ pub async fn create_and_push(
     // Don't notify yourself — except for types Mastodon exempts from its
     // self-notification block (NotifyService#blocked?), notably `poll`, so the
     // poll owner is still told when their own poll ends.
-    const SELF_NOTIFIABLE_TYPES: &[&str] =
-        &["poll", "severed_relationships", "moderation_warning", "annual_report"];
+    const SELF_NOTIFIABLE_TYPES: &[&str] = &[
+        "poll",
+        "severed_relationships",
+        "moderation_warning",
+        "annual_report",
+    ];
     if recipient_id == from_account_id && !SELF_NOTIFIABLE_TYPES.contains(&notification_type) {
         return;
     }
@@ -328,7 +313,8 @@ pub async fn create_and_push(
         r#"SELECT 1 FROM blocks
            WHERE (account_id = $1 AND target_account_id = $2)
               OR (account_id = $2 AND target_account_id = $1)"#,
-        recipient_id, from_account_id,
+        recipient_id,
+        from_account_id,
     )
     .fetch_optional(&db)
     .await
@@ -344,7 +330,8 @@ pub async fn create_and_push(
         r#"SELECT 1 FROM mutes
            WHERE account_id = $1 AND target_account_id = $2 AND hide_notifications = true
              AND (expires_at IS NULL OR expires_at > now())"#,
-        recipient_id, from_account_id,
+        recipient_id,
+        from_account_id,
     )
     .fetch_optional(&db)
     .await
@@ -372,7 +359,15 @@ pub async fn create_and_push(
     }
 
     // Check notification policy: route to notification_requests if filtered
-    if should_filter_notification(&db, recipient_id, from_account_id, notification_type, status_id).await {
+    if should_filter_notification(
+        &db,
+        recipient_id,
+        from_account_id,
+        notification_type,
+        status_id,
+    )
+    .await
+    {
         route_to_request(&db, recipient_id, from_account_id, status_id).await;
         return;
     }
@@ -380,10 +375,19 @@ pub async fn create_and_push(
     // Resolve the polymorphic activity (activity_type/activity_id are NOT NULL).
     // Status-bearing notifications point at the Status; follow(_request)s point
     // at the Follow/FollowRequest row.
-    let Some((activity_type_val, activity_id_val)) =
-        notification_activity(&db, notification_type, recipient_id, from_account_id, status_id).await
+    let Some((activity_type_val, activity_id_val)) = notification_activity(
+        &db,
+        notification_type,
+        recipient_id,
+        from_account_id,
+        status_id,
+    )
+    .await
     else {
-        tracing::warn!(notification_type, "no activity found for notification; skipping");
+        tracing::warn!(
+            notification_type,
+            "no activity found for notification; skipping"
+        );
         return;
     };
 
@@ -427,11 +431,21 @@ pub async fn create_and_push(
     };
 
     // Publish to the streaming API synchronously — it's just an in-process broadcast.
-    if let Some(payload) = build_notification_payload(state, notification_id, notification_type, from_account_id, status_id).await {
-        state.streaming.publish(crate::streaming::Event::Notification {
-            for_account_id: recipient_id,
-            payload: std::sync::Arc::new(payload),
-        });
+    if let Some(payload) = build_notification_payload(
+        state,
+        notification_id,
+        notification_type,
+        from_account_id,
+        status_id,
+    )
+    .await
+    {
+        state
+            .streaming
+            .publish(crate::streaming::Event::Notification {
+                for_account_id: recipient_id,
+                payload: std::sync::Arc::new(payload),
+            });
     }
 
     let state_clone = state.clone();
@@ -514,12 +528,20 @@ pub async fn notify_admins(
         };
 
         if let Some(payload) = build_admin_notification_payload(
-            state, notification_id, notification_type, from_account_id, report_id,
-        ).await {
-            state.streaming.publish(crate::streaming::Event::Notification {
-                for_account_id: admin_id,
-                payload: std::sync::Arc::new(payload),
-            });
+            state,
+            notification_id,
+            notification_type,
+            from_account_id,
+            report_id,
+        )
+        .await
+        {
+            state
+                .streaming
+                .publish(crate::streaming::Event::Notification {
+                    for_account_id: admin_id,
+                    payload: std::sync::Arc::new(payload),
+                });
         }
     }
 }
@@ -531,8 +553,8 @@ async fn build_admin_notification_payload(
     from_account_id: i64,
     report_id: Option<i64>,
 ) -> Option<String> {
-    use crate::api::mastodon::convert::account_from_db;
     use crate::api::mastodon::accounts::fetch_account_emojis;
+    use crate::api::mastodon::convert::account_from_db;
 
     let created_at = sqlx::query_scalar!(
         "SELECT created_at FROM notifications WHERE id = $1",
@@ -613,7 +635,10 @@ async fn should_filter_notification(
     status_id: Option<i64>,
 ) -> bool {
     // Only filter certain notification types (not polls or admin actions)
-    if !matches!(notification_type, "follow" | "follow_request" | "mention" | "favourite" | "reblog") {
+    if !matches!(
+        notification_type,
+        "follow" | "follow_request" | "mention" | "favourite" | "reblog"
+    ) {
         return false;
     }
 
@@ -645,7 +670,8 @@ async fn should_filter_notification(
     if policy.for_not_following != 0 {
         let follows = sqlx::query_scalar!(
             "SELECT 1 FROM follows WHERE account_id = $1 AND target_account_id = $2",
-            recipient_id, from_account_id,
+            recipient_id,
+            from_account_id,
         )
         .fetch_optional(db)
         .await
@@ -661,7 +687,8 @@ async fn should_filter_notification(
     if policy.for_not_followers != 0 {
         let is_follower = sqlx::query_scalar!(
             "SELECT 1 FROM follows WHERE account_id = $1 AND target_account_id = $2",
-            from_account_id, recipient_id,
+            from_account_id,
+            recipient_id,
         )
         .fetch_optional(db)
         .await
@@ -701,7 +728,8 @@ async fn should_filter_notification(
                        WHERE parent.id = s.in_reply_to_id
                          AND parent.account_id = $2
                      ))"#,
-                sid, recipient_id,
+                sid,
+                recipient_id,
             )
             .fetch_optional(db)
             .await
@@ -763,8 +791,10 @@ async fn build_notification_payload(
     from_account_id: i64,
     status_id: Option<i64>,
 ) -> Option<String> {
+    use crate::api::mastodon::accounts::{
+        build_status, fetch_account_emojis, fetch_reblog_data, fetch_status_media,
+    };
     use crate::api::mastodon::convert::account_from_db;
-    use crate::api::mastodon::accounts::{build_status, fetch_account_emojis, fetch_reblog_data, fetch_status_media};
 
     let created_at = sqlx::query_scalar!(
         "SELECT created_at FROM notifications WHERE id = $1",

@@ -37,14 +37,14 @@ pub struct PushAlerts {
 fn alerts_from_data(data: &serde_json::Value) -> PushAlerts {
     let a = &data["alerts"];
     PushAlerts {
-        follow:         a["follow"]        .as_bool().unwrap_or(true),
+        follow: a["follow"].as_bool().unwrap_or(true),
         follow_request: a["follow_request"].as_bool().unwrap_or(false),
-        favourite:      a["favourite"]     .as_bool().unwrap_or(true),
-        reblog:         a["reblog"]        .as_bool().unwrap_or(true),
-        mention:        a["mention"]       .as_bool().unwrap_or(true),
-        poll:           a["poll"]          .as_bool().unwrap_or(false),
-        status:         a["status"]        .as_bool().unwrap_or(false),
-        update:         a["update"]        .as_bool().unwrap_or(false),
+        favourite: a["favourite"].as_bool().unwrap_or(true),
+        reblog: a["reblog"].as_bool().unwrap_or(true),
+        mention: a["mention"].as_bool().unwrap_or(true),
+        poll: a["poll"].as_bool().unwrap_or(false),
+        status: a["status"].as_bool().unwrap_or(false),
+        update: a["update"].as_bool().unwrap_or(false),
     }
 }
 

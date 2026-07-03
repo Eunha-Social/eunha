@@ -6,7 +6,9 @@ use crate::state::AppState;
 pub fn spawn(state: AppState) {
     tokio::spawn(run_scheduled_statuses(state.clone()));
     tokio::spawn(run_poll_expiry(state.clone()));
-    tokio::spawn(crate::federation::delivery::run_delivery_cleanup(state.clone()));
+    tokio::spawn(crate::federation::delivery::run_delivery_cleanup(
+        state.clone(),
+    ));
     tokio::spawn(crate::api::mastodon::media::run_media_queue(state.clone()));
     tokio::spawn(crate::federation::delivery::run_delivery_queue(state));
 }
@@ -59,7 +61,9 @@ async fn publish_one(
     account_id: i64,
     params: &Option<serde_json::Value>,
 ) -> anyhow::Result<()> {
-    let params = params.as_ref().ok_or_else(|| anyhow::anyhow!("no params"))?;
+    let params = params
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("no params"))?;
 
     let account = sqlx::query_as!(
         crate::db::models::Account,
@@ -70,7 +74,10 @@ async fn publish_one(
     .await?;
 
     let text = params["text"].as_str().unwrap_or("").to_string();
-    let visibility = params["visibility"].as_str().unwrap_or("public").to_string();
+    let visibility = params["visibility"]
+        .as_str()
+        .unwrap_or("public")
+        .to_string();
     let spoiler_text = params["spoiler_text"].as_str().unwrap_or("").to_string();
     let sensitive = params["sensitive"].as_bool().unwrap_or(false);
     let language = params["language"].as_str().map(str::to_string);
@@ -93,11 +100,11 @@ async fn publish_one(
     };
     let is_reply = in_reply_to_id.is_some();
 
-    use crate::api::mastodon::statuses::{
-        extract_hashtags, extract_mention_handles, resolve_mention_accounts,
-        build_mention_map, store_statuses_tags, store_status_mentions,
-    };
     use crate::api::mastodon::formatting::render_content;
+    use crate::api::mastodon::statuses::{
+        build_mention_map, extract_hashtags, extract_mention_handles, resolve_mention_accounts,
+        store_status_mentions, store_statuses_tags,
+    };
 
     let domain = &state.instance.domain;
 
@@ -108,7 +115,10 @@ async fn publish_one(
     let content = render_content(&text, domain, &mention_map);
 
     let status_id = crate::snowflake::next_id();
-    let uri = format!("https://{}/users/{}/statuses/{}", domain, account.username, status_id);
+    let uri = format!(
+        "https://{}/users/{}/statuses/{}",
+        domain, account.username, status_id
+    );
 
     let visibility_int = crate::db::models::vis::from_str(&visibility);
     let status = sqlx::query_as!(
@@ -176,10 +186,18 @@ async fn publish_one(
         if let Some(options) = poll.get("options").and_then(|o| o.as_array()) {
             if options.len() >= 2 {
                 let expires_in = poll.get("expires_in").and_then(|v| v.as_i64());
-                let multiple = poll.get("multiple").and_then(|v| v.as_bool()).unwrap_or(false);
-                let hide_totals = poll.get("hide_totals").and_then(|v| v.as_bool()).unwrap_or(false);
-                let expires_at = expires_in.map(|s| chrono::Utc::now().naive_utc() + chrono::Duration::seconds(s));
-                let opts: Vec<String> = options.iter()
+                let multiple = poll
+                    .get("multiple")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let hide_totals = poll
+                    .get("hide_totals")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let expires_at = expires_in
+                    .map(|s| chrono::Utc::now().naive_utc() + chrono::Duration::seconds(s));
+                let opts: Vec<String> = options
+                    .iter()
                     .filter_map(|o| o.as_str())
                     .map(|o| o.to_string())
                     .collect();
@@ -201,10 +219,13 @@ async fn publish_one(
     status_with_uri.uri = Some(uri);
     spawn_card_fetch(state, status_with_uri.id, content);
     if let Ok(media) = fetch_status_media(state, status_with_uri.id).await {
-        if let Ok(api_status) = build_status(state, &status_with_uri, &account, media, None, None).await {
+        if let Ok(api_status) =
+            build_status(state, &status_with_uri, &account, media, None, None).await
+        {
             if matches!(visibility.as_str(), "public" | "unlisted" | "private") {
                 if let Ok(payload) = serde_json::to_string(&api_status) {
-                    let hashtags: Vec<String> = api_status.tags.iter().map(|t| t.name.clone()).collect();
+                    let hashtags: Vec<String> =
+                        api_status.tags.iter().map(|t| t.name.clone()).collect();
                     state.streaming.publish(crate::streaming::Event::NewStatus {
                         author_id: account.id,
                         is_public: visibility == "public",
@@ -234,7 +255,15 @@ async fn publish_one(
     let sid = status.id;
     let vis = visibility.clone();
     crate::feed::fanout_new_status(&mut redis, &db, author_id, sid, &tag_ids).await;
-    crate::feed::fanout_to_lists(&mut redis, &db, author_id, sid, in_reply_to_account_id, &vis).await;
+    crate::feed::fanout_to_lists(
+        &mut redis,
+        &db,
+        author_id,
+        sid,
+        in_reply_to_account_id,
+        &vis,
+    )
+    .await;
 
     // Send mention notifications (mirrors post_status)
     let mut notified = std::collections::HashSet::new();
@@ -248,7 +277,8 @@ async fn publish_one(
             format!("{} mentioned you", account.display_name),
             account.acct().clone(),
             crate::api::mastodon::convert::account_avatar_url_for(&account),
-        ).await;
+        )
+        .await;
         notified.insert(parent_account_id);
     }
     for (_, mentioned) in &resolved {
@@ -264,7 +294,8 @@ async fn publish_one(
             format!("{} mentioned you", account.display_name),
             account.acct().clone(),
             crate::api::mastodon::convert::account_avatar_url_for(&account),
-        ).await;
+        )
+        .await;
         notified.insert(mentioned.id);
     }
 
@@ -299,7 +330,9 @@ pub async fn notify_expired_polls(state: &AppState) -> anyhow::Result<()> {
     .await?;
 
     for poll in expired {
-        if let Err(e) = crate::api::mastodon::polls::federate_poll_update(state, poll.status_id).await {
+        if let Err(e) =
+            crate::api::mastodon::polls::federate_poll_update(state, poll.status_id).await
+        {
             tracing::warn!(poll_id = poll.id, error = %e, "failed to enqueue expired poll ActivityPub update");
         }
 

@@ -17,12 +17,24 @@ async fn test_instance_actor_served_with_public_key() {
     let actor_url = format!("https://{}/actor", ctx.domain);
     assert_eq!(actor["type"].as_str(), Some("Application"));
     assert_eq!(actor["id"].as_str(), Some(actor_url.as_str()));
-    assert_eq!(actor["preferredUsername"].as_str(), Some(ctx.domain.as_str()));
-    assert_eq!(actor["publicKey"]["id"].as_str(), Some(format!("{actor_url}#main-key").as_str()));
-    assert_eq!(actor["publicKey"]["owner"].as_str(), Some(actor_url.as_str()));
+    assert_eq!(
+        actor["preferredUsername"].as_str(),
+        Some(ctx.domain.as_str())
+    );
+    assert_eq!(
+        actor["publicKey"]["id"].as_str(),
+        Some(format!("{actor_url}#main-key").as_str())
+    );
+    assert_eq!(
+        actor["publicKey"]["owner"].as_str(),
+        Some(actor_url.as_str())
+    );
 
     let pem = actor["publicKey"]["publicKeyPem"].as_str().unwrap_or("");
-    assert!(pem.contains("BEGIN PUBLIC KEY"), "expected a PEM public key, got: {pem:?}");
+    assert!(
+        pem.contains("BEGIN PUBLIC KEY"),
+        "expected a PEM public key, got: {pem:?}"
+    );
 
     // The key is persisted, so a second fetch returns the same one.
     let actor2: Value = ctx.api.get("/actor", None).await.json().await.unwrap();

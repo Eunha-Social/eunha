@@ -9,7 +9,7 @@
 use anyhow::Context as _;
 use feder_vocab as vocab;
 use serde_json::Value;
-use vocab::{Reference, Iri};
+use vocab::{Iri, Reference};
 
 /// The special collection addressing every actor (public posts).
 pub const AS_PUBLIC: &str = vocab::ACTIVITYSTREAMS_PUBLIC;
@@ -35,7 +35,11 @@ fn to_value<T: serde::Serialize>(value: &T) -> anyhow::Result<Value> {
 
 /// Build a `Follow` activity.
 pub fn follow(id: &str, actor: &str, object: &str) -> anyhow::Result<Value> {
-    to_value(&vocab::Follow::new(iri(id)?, actor_ref(actor)?, actor_ref(object)?))
+    to_value(&vocab::Follow::new(
+        iri(id)?,
+        actor_ref(actor)?,
+        actor_ref(object)?,
+    ))
 }
 
 /// Build the embedded `Follow` object referenced by Accept/Reject/Undo
@@ -196,12 +200,21 @@ pub fn announce(
 
 /// Build a `Block` activity.
 pub fn block(id: &str, actor: &str, object: &str) -> anyhow::Result<Value> {
-    to_value(&vocab::Block::new(iri(id)?, actor_ref(actor)?, iri(object)?))
+    to_value(&vocab::Block::new(
+        iri(id)?,
+        actor_ref(actor)?,
+        iri(object)?,
+    ))
 }
 
 /// `Add` a status to the actor's featured (pinned) collection
 /// (Mastodon `ActivityPub::AddNoteSerializer`).
-pub fn add_to_collection(id: &str, actor: &str, object: &str, target: &str) -> anyhow::Result<Value> {
+pub fn add_to_collection(
+    id: &str,
+    actor: &str,
+    object: &str,
+    target: &str,
+) -> anyhow::Result<Value> {
     Ok(serde_json::json!({
         "@context": "https://www.w3.org/ns/activitystreams",
         "id": id,
@@ -214,7 +227,12 @@ pub fn add_to_collection(id: &str, actor: &str, object: &str, target: &str) -> a
 
 /// `Remove` a status from the actor's featured (pinned) collection
 /// (Mastodon `ActivityPub::RemoveNoteSerializer`).
-pub fn remove_from_collection(id: &str, actor: &str, object: &str, target: &str) -> anyhow::Result<Value> {
+pub fn remove_from_collection(
+    id: &str,
+    actor: &str,
+    object: &str,
+    target: &str,
+) -> anyhow::Result<Value> {
     Ok(serde_json::json!({
         "@context": "https://www.w3.org/ns/activitystreams",
         "id": id,
@@ -233,7 +251,12 @@ mod tests {
     #[test]
     fn follow_shape() {
         assert_eq!(
-            follow("https://a.test/f/1", "https://a.test/u/alice", "https://b.test/u/bob").unwrap(),
+            follow(
+                "https://a.test/f/1",
+                "https://a.test/u/alice",
+                "https://b.test/u/bob"
+            )
+            .unwrap(),
             json!({
                 "@context": "https://www.w3.org/ns/activitystreams",
                 "id": "https://a.test/f/1",
@@ -248,7 +271,13 @@ mod tests {
     fn add_and_remove_collection_shape() {
         let target = "https://a.test/u/alice/collections/featured";
         assert_eq!(
-            add_to_collection("https://a.test/act/1", "https://a.test/u/alice", "https://a.test/s/5", target).unwrap(),
+            add_to_collection(
+                "https://a.test/act/1",
+                "https://a.test/u/alice",
+                "https://a.test/s/5",
+                target
+            )
+            .unwrap(),
             json!({
                 "@context": "https://www.w3.org/ns/activitystreams",
                 "id": "https://a.test/act/1",
@@ -258,7 +287,13 @@ mod tests {
                 "target": target,
             })
         );
-        let remove = remove_from_collection("https://a.test/act/2", "https://a.test/u/alice", "https://a.test/s/5", target).unwrap();
+        let remove = remove_from_collection(
+            "https://a.test/act/2",
+            "https://a.test/u/alice",
+            "https://a.test/s/5",
+            target,
+        )
+        .unwrap();
         assert_eq!(remove["type"], "Remove");
         assert_eq!(remove["target"], target);
         assert_eq!(remove["object"], "https://a.test/s/5");
@@ -347,5 +382,4 @@ mod tests {
         assert_eq!(v["published"], "2026-06-21T00:00:00+00:00");
         assert_eq!(v["object"], "https://b.test/notes/9");
     }
-
 }

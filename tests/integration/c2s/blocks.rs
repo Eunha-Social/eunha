@@ -21,7 +21,10 @@ async fn test_blocks_returns_blocked_accounts() {
 
     let body: Vec<Value> = resp.json().await.unwrap();
     let ids: Vec<&str> = body.iter().filter_map(|a| a["id"].as_str()).collect();
-    assert!(ids.contains(&ctx.alice_id.as_str()), "alice not in blocks list");
+    assert!(
+        ids.contains(&ctx.alice_id.as_str()),
+        "alice not in blocks list"
+    );
 }
 
 /// Block list is empty when nothing has been blocked.
@@ -51,13 +54,18 @@ async fn test_blocks_limit_param() {
     let ctx = TestContext::new("blocks-limit").await;
 
     // Alice blocks bob (so alice has at least 1 block).
-    ctx.api.post_json(
-        &format!("/api/v1/accounts/{}/block", ctx.bob_id),
-        Some(&ctx.alice_token),
-        &serde_json::json!({}),
-    ).await;
+    ctx.api
+        .post_json(
+            &format!("/api/v1/accounts/{}/block", ctx.bob_id),
+            Some(&ctx.alice_token),
+            &serde_json::json!({}),
+        )
+        .await;
 
-    let resp = ctx.api.get("/api/v1/blocks?limit=1", Some(&ctx.alice_token)).await;
+    let resp = ctx
+        .api
+        .get("/api/v1/blocks?limit=1", Some(&ctx.alice_token))
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let body: Vec<Value> = resp.json().await.unwrap();
     assert!(body.len() <= 1, "limit=1 should return at most 1 block");
@@ -89,5 +97,8 @@ async fn test_blocks_unblock_removes_from_list() {
 
     let body: Vec<Value> = resp.json().await.unwrap();
     let ids: Vec<&str> = body.iter().filter_map(|a| a["id"].as_str()).collect();
-    assert!(!ids.contains(&ctx.alice_id.as_str()), "alice still in blocks list after unblock");
+    assert!(
+        !ids.contains(&ctx.alice_id.as_str()),
+        "alice still in blocks list after unblock"
+    );
 }

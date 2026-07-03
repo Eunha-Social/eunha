@@ -49,7 +49,10 @@ async fn test_create_show_and_list_collections() {
     // Show returns {collection, accounts:[owner, ...]}.
     let show: Value = ctx
         .api
-        .get(&format!("/api/v1/collections/{cid}"), Some(&ctx.alice_token))
+        .get(
+            &format!("/api/v1/collections/{cid}"),
+            Some(&ctx.alice_token),
+        )
         .await
         .json()
         .await
@@ -57,7 +60,9 @@ async fn test_create_show_and_list_collections() {
     assert_eq!(show["collection"]["id"].as_str(), Some(cid.as_str()));
     let accounts = show["accounts"].as_array().unwrap();
     assert!(
-        accounts.iter().any(|a| a["id"].as_str() == Some(ctx.alice_id.as_str())),
+        accounts
+            .iter()
+            .any(|a| a["id"].as_str() == Some(ctx.alice_id.as_str())),
         "owner account missing from show accounts",
     );
 }
@@ -79,7 +84,11 @@ async fn test_create_collection_blank_name() {
     let ctx = TestContext::new("coll-blank").await;
     let resp = ctx
         .api
-        .post_json("/api/v1/collections", Some(&ctx.alice_token), &json!({"name": "   "}))
+        .post_json(
+            "/api/v1/collections",
+            Some(&ctx.alice_token),
+            &json!({"name": "   "}),
+        )
         .await;
     assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
 }
@@ -92,7 +101,11 @@ async fn test_add_revoke_delete_item() {
 
     let c: Value = ctx
         .api
-        .post_json("/api/v1/collections", Some(&ctx.alice_token), &json!({"name": "Featured"}))
+        .post_json(
+            "/api/v1/collections",
+            Some(&ctx.alice_token),
+            &json!({"name": "Featured"}),
+        )
         .await
         .json()
         .await
@@ -119,7 +132,10 @@ async fn test_add_revoke_delete_item() {
     // bob shows up in alice's collection items + item_count is 1.
     let show: Value = ctx
         .api
-        .get(&format!("/api/v1/collections/{cid}"), Some(&ctx.alice_token))
+        .get(
+            &format!("/api/v1/collections/{cid}"),
+            Some(&ctx.alice_token),
+        )
         .await
         .json()
         .await
@@ -160,7 +176,10 @@ async fn test_add_revoke_delete_item() {
     // Revoked item no longer counts.
     let show2: Value = ctx
         .api
-        .get(&format!("/api/v1/collections/{cid}"), Some(&ctx.alice_token))
+        .get(
+            &format!("/api/v1/collections/{cid}"),
+            Some(&ctx.alice_token),
+        )
         .await
         .json()
         .await
@@ -185,7 +204,11 @@ async fn test_update_and_ownership() {
 
     let c: Value = ctx
         .api
-        .post_json("/api/v1/collections", Some(&ctx.alice_token), &json!({"name": "Mine"}))
+        .post_json(
+            "/api/v1/collections",
+            Some(&ctx.alice_token),
+            &json!({"name": "Mine"}),
+        )
         .await
         .json()
         .await
@@ -216,7 +239,10 @@ async fn test_update_and_ownership() {
         .await
         .unwrap();
     assert_eq!(alice_update["collection"]["name"].as_str(), Some("Renamed"));
-    assert_eq!(alice_update["collection"]["discoverable"].as_bool(), Some(true));
+    assert_eq!(
+        alice_update["collection"]["discoverable"].as_bool(),
+        Some(true)
+    );
 
     // Bob cannot delete it.
     let bob_delete = ctx
@@ -235,7 +261,10 @@ async fn test_update_and_ownership() {
     // Gone now.
     let show = ctx
         .api
-        .get(&format!("/api/v1/collections/{cid}"), Some(&ctx.alice_token))
+        .get(
+            &format!("/api/v1/collections/{cid}"),
+            Some(&ctx.alice_token),
+        )
         .await;
     assert_eq!(show.status(), StatusCode::NOT_FOUND);
 }
@@ -276,8 +305,13 @@ async fn test_collection_activitypub_representation() {
         .json()
         .await
         .unwrap();
-    let featured = actor["featuredCollections"].as_str().expect("featuredCollections link");
-    assert!(featured.ends_with("/users/alice/collections"), "got {featured}");
+    let featured = actor["featuredCollections"]
+        .as_str()
+        .expect("featuredCollections link");
+    assert!(
+        featured.ends_with("/users/alice/collections"),
+        "got {featured}"
+    );
 
     // The account collections OrderedCollection lists the collection URI.
     let oc: Value = ctx
@@ -290,7 +324,9 @@ async fn test_collection_activitypub_representation() {
     assert_eq!(oc["type"].as_str(), Some("OrderedCollection"));
     let uris = oc["orderedItems"].as_array().unwrap();
     assert!(
-        uris.iter().any(|u| u.as_str().is_some_and(|s| s.ends_with(&format!("/collections/{cid}")))),
+        uris.iter().any(|u| u
+            .as_str()
+            .is_some_and(|s| s.ends_with(&format!("/collections/{cid}")))),
         "collection URI missing from account collections: {oc:?}",
     );
 
@@ -309,7 +345,9 @@ async fn test_collection_activitypub_representation() {
     assert_eq!(items.len(), 1);
     assert_eq!(items[0]["type"].as_str(), Some("FeaturedItem"));
     assert!(
-        items[0]["featuredObject"].as_str().is_some_and(|s| s.ends_with("/users/bob")),
+        items[0]["featuredObject"]
+            .as_str()
+            .is_some_and(|s| s.ends_with("/users/bob")),
         "featuredObject should point at bob's actor: {:?}",
         items[0],
     );

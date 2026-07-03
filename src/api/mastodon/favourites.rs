@@ -5,16 +5,16 @@ use axum::{
     Json,
 };
 
-use crate::{
-    error::AppResult,
-    middleware::AuthenticatedUser,
-    state::AppState,
-};
 use super::{
-    accounts::{batch_account_emojis, batch_account_roles, batch_reblog_data, batch_status_cards, batch_status_emojis, batch_status_media, batch_status_mentions, batch_status_polls, batch_statuses_tags},
+    accounts::{
+        batch_account_emojis, batch_account_roles, batch_reblog_data, batch_status_cards,
+        batch_status_emojis, batch_status_media, batch_status_mentions, batch_status_polls,
+        batch_statuses_tags,
+    },
     convert::status_from_db,
     types::PaginationParams,
 };
+use crate::{error::AppResult, middleware::AuthenticatedUser, state::AppState};
 
 // ── GET /api/v1/favourites ────────────────────────────────────────────────
 
@@ -33,7 +33,10 @@ pub async fn get_favourites(
 
     // Fetch (sort_id, status_id) pairs ordered by favourite sort_id so that
     // pagination reflects the time the favourite was created, not the status age.
-    struct FRow { sort_id: i64, status_id: i64 }
+    struct FRow {
+        sort_id: i64,
+        status_id: i64,
+    }
     let frows: Vec<FRow> = if min_id.is_some() {
         sqlx::query_as!(
             FRow,
@@ -43,7 +46,9 @@ pub async fn get_favourites(
                  AND s.deleted_at IS NULL
                  AND ($2::bigint IS NULL OR f.id > $2)
                ORDER BY f.id ASC LIMIT $3"#,
-            auth.account_id, min_id, limit
+            auth.account_id,
+            min_id,
+            limit
         )
         .fetch_all(&state.db)
         .await?
@@ -57,7 +62,10 @@ pub async fn get_favourites(
                  AND ($2::bigint IS NULL OR f.id < $2)
                  AND ($3::bigint IS NULL OR f.id > $3)
                ORDER BY f.id DESC LIMIT $4"#,
-            auth.account_id, max_id, since_id, limit
+            auth.account_id,
+            max_id,
+            since_id,
+            limit
         )
         .fetch_all(&state.db)
         .await?
@@ -102,7 +110,9 @@ pub async fn get_favourites(
     enrich_ids.extend_from_slice(&reblog_ids);
     let tags_map = batch_statuses_tags(&state, &enrich_ids).await?;
     let mentions_map = batch_status_mentions(&state, &enrich_ids).await?;
-    let all_statuses_for_emoji: Vec<crate::db::models::Status> = statuses.iter().cloned()
+    let all_statuses_for_emoji: Vec<crate::db::models::Status> = statuses
+        .iter()
+        .cloned()
         .chain(reblog_map.values().map(|(rs, _, _)| rs.clone()))
         .collect();
     let emojis_map = batch_status_emojis(&state, &all_statuses_for_emoji).await?;
@@ -111,8 +121,12 @@ pub async fn get_favourites(
     let ctxs = super::statuses::batch_viewer_contexts(&state, auth.account_id, &all_ids).await?;
 
     let accounts: Vec<crate::db::models::Account> = {
-        let account_ids: Vec<i64> = statuses.iter().map(|s| s.account_id)
-            .collect::<std::collections::HashSet<_>>().into_iter().collect();
+        let account_ids: Vec<i64> = statuses
+            .iter()
+            .map(|s| s.account_id)
+            .collect::<std::collections::HashSet<_>>()
+            .into_iter()
+            .collect();
         sqlx::query_as!(
             crate::db::models::Account,
             "SELECT * FROM accounts WHERE id = ANY($1::bigint[])",
@@ -125,7 +139,8 @@ pub async fn get_favourites(
         accounts.into_iter().map(|a| (a.id, a)).collect();
     let all_accounts_for_emoji: Vec<crate::db::models::Account> = {
         let mut seen = std::collections::HashSet::new();
-        account_map.values()
+        account_map
+            .values()
             .chain(reblog_map.values().map(|(_, ra, _)| ra))
             .filter(|a| seen.insert(a.id))
             .cloned()
@@ -136,28 +151,48 @@ pub async fn get_favourites(
 
     let mut result = Vec::with_capacity(statuses.len());
     for s in &statuses {
-        let Some(account) = account_map.get(&s.account_id) else { continue };
+        let Some(account) = account_map.get(&s.account_id) else {
+            continue;
+        };
         let media = media_map.get(&s.id).cloned().unwrap_or_default();
         let reblog = reblog_map.get(&s.id).cloned();
         let mentions = mentions_map.get(&s.id).cloned().unwrap_or_default();
-        let rb_mentions = reblog.as_ref()
+        let rb_mentions = reblog
+            .as_ref()
             .and_then(|(rs, _, _)| mentions_map.get(&rs.id))
             .cloned()
             .unwrap_or_default();
-        let mut ctx = ctxs.get(&s.id).cloned().unwrap_or(super::convert::StatusViewerContext {
-            account_id: auth.account_id,
-            follows_author: false,
-            author_follows: false,
-            favourited: true,
-            reblogged: false,
-            muted: false,
-            bookmarked: false,
-            pinned: false,
-        });
+        let mut ctx = ctxs
+            .get(&s.id)
+            .cloned()
+            .unwrap_or(super::convert::StatusViewerContext {
+                account_id: auth.account_id,
+                follows_author: false,
+                author_follows: false,
+                favourited: true,
+                reblogged: false,
+                muted: false,
+                bookmarked: false,
+                pinned: false,
+            });
         ctx.favourited = true;
-        let mut api = status_from_db(s, account, media, reblog, Some(ctx), &mentions, &rb_mentions);
-        api.account.emojis = account_emojis_map.get(&account.id).cloned().unwrap_or_default();
-        api.account.roles = account_roles_map.get(&account.id).cloned().unwrap_or_default();
+        let mut api = status_from_db(
+            s,
+            account,
+            media,
+            reblog,
+            Some(ctx),
+            &mentions,
+            &rb_mentions,
+        );
+        api.account.emojis = account_emojis_map
+            .get(&account.id)
+            .cloned()
+            .unwrap_or_default();
+        api.account.roles = account_roles_map
+            .get(&account.id)
+            .cloned()
+            .unwrap_or_default();
         api.tags = tags_map.get(&s.id).cloned().unwrap_or_default();
         api.mentions = mentions;
         api.emojis = emojis_map.get(&s.id).cloned().unwrap_or_default();
@@ -178,13 +213,19 @@ pub async fn get_favourites(
     }
 
     // Link header cursors use sort_ids (favourite creation order), not status IDs.
-    let link = sort_ids.first().zip(sort_ids.last()).map(|(newest_sort, oldest_sort)| {
-        let extra = super::non_pagination_query(uri.query());
-        super::link_header(
-            &req_headers, uri.path(), &extra,
-            &newest_sort.to_string(), &oldest_sort.to_string(),
-        )
-    });
+    let link = sort_ids
+        .first()
+        .zip(sort_ids.last())
+        .map(|(newest_sort, oldest_sort)| {
+            let extra = super::non_pagination_query(uri.query());
+            super::link_header(
+                &req_headers,
+                uri.path(),
+                &extra,
+                &newest_sort.to_string(),
+                &oldest_sort.to_string(),
+            )
+        });
     let mut resp_headers = HeaderMap::new();
     if let Some(v) = link {
         if let Ok(val) = v.parse() {

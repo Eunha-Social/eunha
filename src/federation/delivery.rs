@@ -59,7 +59,9 @@ fn is_gone(err: &anyhow::Error) -> bool {
 
 /// Record a domain as unavailable so future fan-outs skip it.
 async fn mark_domain_unavailable(state: &AppState, inbox_url: &str) {
-    let Some(domain) = url::Url::parse(inbox_url).ok().and_then(|u| u.host_str().map(str::to_owned))
+    let Some(domain) = url::Url::parse(inbox_url)
+        .ok()
+        .and_then(|u| u.host_str().map(str::to_owned))
     else {
         return;
     };
@@ -267,12 +269,14 @@ async fn signing_account_id(state: &AppState, key_id: &str) -> anyhow::Result<i6
             .fetch_optional(&state.db)
             .await?
         }
-        ["users", username] => sqlx::query_scalar!(
-            "SELECT id FROM accounts WHERE domain IS NULL AND username = $1 LIMIT 1",
-            username,
-        )
-        .fetch_optional(&state.db)
-        .await?,
+        ["users", username] => {
+            sqlx::query_scalar!(
+                "SELECT id FROM accounts WHERE domain IS NULL AND username = $1 LIMIT 1",
+                username,
+            )
+            .fetch_optional(&state.db)
+            .await?
+        }
         _ => None,
     };
     id.ok_or_else(|| anyhow::anyhow!("no local signing account for key_id {key_id:?}"))
@@ -326,7 +330,11 @@ async fn enqueue_to_inboxes(
 
 /// Run the durable ActivityPub delivery queue.
 pub async fn run_delivery_queue(state: AppState) {
-    let worker_id = format!("{}:{}", std::env::var("HOSTNAME").unwrap_or_else(|_| "eunha".into()), std::process::id());
+    let worker_id = format!(
+        "{}:{}",
+        std::env::var("HOSTNAME").unwrap_or_else(|_| "eunha".into()),
+        std::process::id()
+    );
 
     loop {
         match run_delivery_queue_batch(&state, &worker_id).await {

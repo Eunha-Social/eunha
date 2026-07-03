@@ -6,6 +6,10 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
+use super::{
+    convert::{account_from_db, status_from_db},
+    types::{Account as ApiAccount, PaginationParams, Preferences, Relationship, SuggestionV2},
+};
 use crate::{
     db::models::Account,
     error::{AppError, AppResult},
@@ -13,10 +17,6 @@ use crate::{
     middleware::{AuthenticatedUser, ResolvedInstance},
     push,
     state::AppState,
-};
-use super::{
-    convert::{account_from_db, status_from_db},
-    types::{Account as ApiAccount, PaginationParams, Preferences, Relationship, SuggestionV2},
 };
 
 // ── GET /api/v1/accounts/verify_credentials ────────────────────────────────
@@ -49,7 +49,9 @@ pub async fn verify_credentials(
         sensitive: default_sensitive,
         language: default_language,
         note: account.note.clone(),
-        fields: super::convert::fields_from_db(account.fields.as_ref().unwrap_or(&serde_json::json!([]))),
+        fields: super::convert::fields_from_db(
+            account.fields.as_ref().unwrap_or(&serde_json::json!([])),
+        ),
         follow_requests_count: follow_requests,
         discoverable: account.discoverable,
         indexable: account.indexable,
@@ -131,22 +133,26 @@ pub async fn lookup_account(
     };
 
     let found = match domain {
-        None => sqlx::query_as!(
-            Account,
-            "SELECT * FROM accounts WHERE lower(username) = $1 AND domain IS NULL",
-            username,
-        )
-        .fetch_optional(&state.db)
-        .await?,
+        None => {
+            sqlx::query_as!(
+                Account,
+                "SELECT * FROM accounts WHERE lower(username) = $1 AND domain IS NULL",
+                username,
+            )
+            .fetch_optional(&state.db)
+            .await?
+        }
 
-        Some(ref d) => sqlx::query_as!(
-            Account,
-            "SELECT * FROM accounts WHERE lower(username) = $1 AND lower(domain) = $2",
-            username,
-            d,
-        )
-        .fetch_optional(&state.db)
-        .await?,
+        Some(ref d) => {
+            sqlx::query_as!(
+                Account,
+                "SELECT * FROM accounts WHERE lower(username) = $1 AND lower(domain) = $2",
+                username,
+                d,
+            )
+            .fetch_optional(&state.db)
+            .await?
+        }
     };
 
     if let Some(account) = found {
@@ -162,7 +168,9 @@ pub async fn lookup_account(
         if let Some(ref d) = domain {
             let acct_uri = format!("acct:{}@{}", username, d);
             let wf_url = format!("https://{}/.well-known/webfinger?resource={}", d, acct_uri);
-            if let Ok(resp) = state.fetch.get(&wf_url)
+            if let Ok(resp) = state
+                .fetch
+                .get(&wf_url)
                 .header("Accept", "application/jrd+json, application/json")
                 .send()
                 .await
@@ -174,8 +182,11 @@ pub async fn lookup_account(
                         .and_then(|links| {
                             links.iter().find(|l| {
                                 l.get("rel").and_then(|r| r.as_str()) == Some("self")
-                                    && l.get("type").and_then(|t| t.as_str())
-                                        .map(|t| t.contains("activity+json") || t.contains("ld+json"))
+                                    && l.get("type")
+                                        .and_then(|t| t.as_str())
+                                        .map(|t| {
+                                            t.contains("activity+json") || t.contains("ld+json")
+                                        })
                                         .unwrap_or(false)
                             })
                         })
@@ -184,9 +195,9 @@ pub async fn lookup_account(
                         .map(str::to_owned);
 
                     if let Some(uri) = actor_uri {
-                        let account_id = crate::api::ap::inbox::resolve_or_fetch_remote_account(
-                            &state, &uri,
-                        ).await?;
+                        let account_id =
+                            crate::api::ap::inbox::resolve_or_fetch_remote_account(&state, &uri)
+                                .await?;
                         let account = sqlx::query_as!(
                             Account,
                             "SELECT * FROM accounts WHERE id = $1",
@@ -243,7 +254,8 @@ pub async fn get_account(
             moved_account_id,
         )
         .fetch_optional(&state.db)
-        .await {
+        .await
+        {
             let mut moved_api = account_from_db(&moved);
             moved_api.emojis = fetch_account_emojis(&state, &moved).await;
             moved_api.roles = fetch_account_roles(&state, moved.id).await;
@@ -287,7 +299,8 @@ pub async fn get_account_statuses(
         if vid != account.id {
             let blocked = sqlx::query_scalar!(
                 "SELECT 1 FROM blocks WHERE account_id = $1 AND target_account_id = $2",
-                account.id, vid,
+                account.id,
+                vid,
             )
             .fetch_optional(&state.db)
             .await?
@@ -333,7 +346,8 @@ pub async fn get_account_statuses(
         )
         .fetch_all(&state.db)
         .await?;
-        let pin_ids: Vec<i64> = pinned_statuses.iter()
+        let pin_ids: Vec<i64> = pinned_statuses
+            .iter()
             .map(|s| s.reblog_of_id.unwrap_or(s.id))
             .collect();
         let pin_ctxs = if let Some(vid) = viewer_id {
@@ -350,7 +364,9 @@ pub async fn get_account_statuses(
         pin_enrich_ids.extend_from_slice(&pin_reblog_ids);
         let pin_tags_map = batch_statuses_tags(&state, &pin_enrich_ids).await?;
         let pin_mentions_map = batch_status_mentions(&state, &pin_enrich_ids).await?;
-        let all_pin_statuses: Vec<crate::db::models::Status> = pinned_statuses.iter().cloned()
+        let all_pin_statuses: Vec<crate::db::models::Status> = pinned_statuses
+            .iter()
+            .cloned()
             .chain(pin_reblog_map.values().map(|(rs, _, _)| rs.clone()))
             .collect();
         let pin_emojis_map = batch_status_emojis(&state, &all_pin_statuses).await?;
@@ -364,7 +380,8 @@ pub async fn get_account_statuses(
                 .cloned()
                 .collect()
         };
-        let pin_account_emojis_map = batch_account_emojis(&state, &pin_all_accounts_for_emoji).await;
+        let pin_account_emojis_map =
+            batch_account_emojis(&state, &pin_all_accounts_for_emoji).await;
         let pin_account_roles_map = batch_account_roles(&state, &pin_all_accounts_for_emoji).await;
         let mut result = Vec::with_capacity(pinned_statuses.len());
         for s in &pinned_statuses {
@@ -373,13 +390,21 @@ pub async fn get_account_statuses(
             let effective_id = s.reblog_of_id.unwrap_or(s.id);
             let ctx = pin_ctxs.get(&effective_id).cloned();
             let mentions = pin_mentions_map.get(&s.id).cloned().unwrap_or_default();
-            let rb_mentions = reblog.as_ref()
+            let rb_mentions = reblog
+                .as_ref()
                 .and_then(|(rs, _, _)| pin_mentions_map.get(&rs.id))
                 .cloned()
                 .unwrap_or_default();
-            let mut api_status = status_from_db(s, &account, media, reblog, ctx, &mentions, &rb_mentions);
-            api_status.account.emojis = pin_account_emojis_map.get(&account.id).cloned().unwrap_or_default();
-            api_status.account.roles = pin_account_roles_map.get(&account.id).cloned().unwrap_or_default();
+            let mut api_status =
+                status_from_db(s, &account, media, reblog, ctx, &mentions, &rb_mentions);
+            api_status.account.emojis = pin_account_emojis_map
+                .get(&account.id)
+                .cloned()
+                .unwrap_or_default();
+            api_status.account.roles = pin_account_roles_map
+                .get(&account.id)
+                .cloned()
+                .unwrap_or_default();
             api_status.tags = pin_tags_map.get(&s.id).cloned().unwrap_or_default();
             api_status.mentions = mentions;
             api_status.emojis = pin_emojis_map.get(&s.id).cloned().unwrap_or_default();
@@ -389,8 +414,14 @@ pub async fn get_account_statuses(
             if let Some(ref mut rb) = api_status.reblog {
                 let rid: i64 = rb.id.parse().unwrap_or(0);
                 let rb_id: i64 = rb.account.id.parse().unwrap_or(0);
-                rb.account.emojis = pin_account_emojis_map.get(&rb_id).cloned().unwrap_or_default();
-                rb.account.roles = pin_account_roles_map.get(&rb_id).cloned().unwrap_or_default();
+                rb.account.emojis = pin_account_emojis_map
+                    .get(&rb_id)
+                    .cloned()
+                    .unwrap_or_default();
+                rb.account.roles = pin_account_roles_map
+                    .get(&rb_id)
+                    .cloned()
+                    .unwrap_or_default();
                 rb.tags = pin_tags_map.get(&rid).cloned().unwrap_or_default();
                 rb.mentions = rb_mentions;
                 rb.emojis = pin_emojis_map.get(&rid).cloned().unwrap_or_default();
@@ -404,9 +435,21 @@ pub async fn get_account_statuses(
     }
 
     let limit = q.pagination.limit_clamped(20, 40);
-    let max_id = q.pagination.max_id.as_deref().and_then(|s| s.parse::<i64>().ok());
-    let since_id = q.pagination.since_id.as_deref().and_then(|s| s.parse::<i64>().ok());
-    let min_id = q.pagination.min_id.as_deref().and_then(|s| s.parse::<i64>().ok());
+    let max_id = q
+        .pagination
+        .max_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
+    let since_id = q
+        .pagination
+        .since_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
+    let min_id = q
+        .pagination
+        .min_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
 
     let tagged_lower = q.tagged.as_deref().map(|t| t.to_lowercase());
     let exclude_direct = q.exclude_direct.unwrap_or(false);
@@ -541,11 +584,13 @@ pub async fn get_account_statuses(
     } else {
         std::collections::HashMap::new()
     };
-    let statuses: Vec<crate::db::models::Status> = statuses.into_iter()
+    let statuses: Vec<crate::db::models::Status> = statuses
+        .into_iter()
         .filter(|s| !filter_map.get(&s.id).is_some_and(|(hide, _)| *hide))
         .collect();
 
-    let effective_ids: Vec<i64> = statuses.iter()
+    let effective_ids: Vec<i64> = statuses
+        .iter()
         .map(|s| s.reblog_of_id.unwrap_or(s.id))
         .collect();
     let ctxs = if let Some(vid) = viewer_id {
@@ -563,7 +608,9 @@ pub async fn get_account_statuses(
     enrich_ids.extend_from_slice(&reblog_ids);
     let tags_map = batch_statuses_tags(&state, &enrich_ids).await?;
     let mentions_map = batch_status_mentions(&state, &enrich_ids).await?;
-    let all_statuses_for_emoji: Vec<crate::db::models::Status> = statuses.iter().cloned()
+    let all_statuses_for_emoji: Vec<crate::db::models::Status> = statuses
+        .iter()
+        .cloned()
         .chain(reblog_map.values().map(|(rs, _, _)| rs.clone()))
         .collect();
     let emojis_map = batch_status_emojis(&state, &all_statuses_for_emoji).await?;
@@ -588,13 +635,20 @@ pub async fn get_account_statuses(
         let effective_id = s.reblog_of_id.unwrap_or(s.id);
         let ctx = ctxs.get(&effective_id).cloned();
         let mentions = mentions_map.get(&s.id).cloned().unwrap_or_default();
-        let rb_mentions = reblog.as_ref()
+        let rb_mentions = reblog
+            .as_ref()
             .and_then(|(rs, _, _)| mentions_map.get(&rs.id))
             .cloned()
             .unwrap_or_default();
         let mut api = status_from_db(s, &account, media, reblog, ctx, &mentions, &rb_mentions);
-        api.account.emojis = account_emojis_map.get(&account.id).cloned().unwrap_or_default();
-        api.account.roles = statuses_roles_map.get(&account.id).cloned().unwrap_or_default();
+        api.account.emojis = account_emojis_map
+            .get(&account.id)
+            .cloned()
+            .unwrap_or_default();
+        api.account.roles = statuses_roles_map
+            .get(&account.id)
+            .cloned()
+            .unwrap_or_default();
         api.tags = tags_map.get(&s.id).cloned().unwrap_or_default();
         api.mentions = mentions;
         api.emojis = emojis_map.get(&s.id).cloned().unwrap_or_default();
@@ -645,15 +699,17 @@ pub async fn get_relationships(
     auth.require_scope("read:follows")?;
     // serde_urlencoded treats id[]=v1&id[]=v2 as a duplicate field → 400.
     // Parse with form_urlencoded which correctly returns each pair separately.
-    let pairs: Vec<(String, String)> = url::form_urlencoded::parse(
-            qs.as_deref().unwrap_or("").as_bytes()
-        )
-        .map(|(k, v)| (k.into_owned(), v.into_owned()))
-        .collect();
+    let pairs: Vec<(String, String)> =
+        url::form_urlencoded::parse(qs.as_deref().unwrap_or("").as_bytes())
+            .map(|(k, v)| (k.into_owned(), v.into_owned()))
+            .collect();
 
-    let with_suspended = pairs.iter().any(|(k, v)| k == "with_suspended" && (v == "true" || v == "1"));
+    let with_suspended = pairs
+        .iter()
+        .any(|(k, v)| k == "with_suspended" && (v == "true" || v == "1"));
 
-    let mut ids: Vec<i64> = pairs.iter()
+    let mut ids: Vec<i64> = pairs
+        .iter()
         .filter(|(k, _)| k == "id[]" || k == "id")
         .filter_map(|(_, v)| v.parse::<i64>().ok())
         .collect();
@@ -721,7 +777,8 @@ pub async fn follow_account(
            WHERE (account_id = $1 AND target_account_id = $2)
               OR (account_id = $2 AND target_account_id = $1)
            LIMIT 1"#,
-        auth.account_id, target_id,
+        auth.account_id,
+        target_id,
     )
     .fetch_optional(&state.db)
     .await?
@@ -750,7 +807,8 @@ pub async fn follow_account(
     // Check if accepted follow already exists — update settings only
     let existing = sqlx::query!(
         "SELECT 1 as exists FROM follows WHERE account_id = $1 AND target_account_id = $2",
-        auth.account_id, target_id,
+        auth.account_id,
+        target_id,
     )
     .fetch_optional(&state.db)
     .await?;
@@ -759,23 +817,32 @@ pub async fn follow_account(
         sqlx::query!(
             "UPDATE follows SET show_reblogs = $3, notify = $4, languages = $5
              WHERE account_id = $1 AND target_account_id = $2",
-            auth.account_id, target_id, show_reblogs, notify, &languages,
+            auth.account_id,
+            target_id,
+            show_reblogs,
+            notify,
+            &languages,
         )
         .execute(&state.db)
         .await?;
-        return build_relationship(&state, auth.account_id, target_id).await.map(Json);
+        return build_relationship(&state, auth.account_id, target_id)
+            .await
+            .map(Json);
     }
 
     // Check if a pending follow request already exists
     let pending = sqlx::query!(
         "SELECT 1 as exists FROM follow_requests WHERE account_id = $1 AND target_account_id = $2",
-        auth.account_id, target_id,
+        auth.account_id,
+        target_id,
     )
     .fetch_optional(&state.db)
     .await?;
 
     if pending.is_some() {
-        return build_relationship(&state, auth.account_id, target_id).await.map(Json);
+        return build_relationship(&state, auth.account_id, target_id)
+            .await
+            .map(Json);
     }
 
     let requester = fetch_account(&state, auth.account_id).await?;
@@ -827,12 +894,16 @@ pub async fn follow_account(
         .execute(&state.db)
         .await?;
 
-        let has_signing_key = requester.private_key.as_deref().is_some_and(|s| !s.is_empty());
+        let has_signing_key = requester
+            .private_key
+            .as_deref()
+            .is_some_and(|s| !s.is_empty());
         if !has_signing_key {
             tracing::warn!(username = %requester.username, "local account has no private key; cannot deliver Follow");
         }
         if has_signing_key {
-            let actor_url = crate::federation::tag::account_uri_of(&state.instance.domain, &requester);
+            let actor_url =
+                crate::federation::tag::account_uri_of(&state.instance.domain, &requester);
             let key_id = format!("{}#main-key", actor_url);
             let follow_activity =
                 crate::federation::activity::follow(&follow_uri, &actor_url, &target.uri)?;
@@ -878,11 +949,16 @@ pub async fn follow_account(
                     tracing::warn!(error = %e, "failed to enqueue Follow");
                 }
             } else {
-                tracing::warn!(target_uri, "still no inbox URL after re-fetch; dropping Follow");
+                tracing::warn!(
+                    target_uri,
+                    "still no inbox URL after re-fetch; dropping Follow"
+                );
             }
         }
 
-        return build_relationship(&state, auth.account_id, target_id).await.map(Json);
+        return build_relationship(&state, auth.account_id, target_id)
+            .await
+            .map(Json);
     }
 
     // Locked target, or a silenced requester, goes through a follow request
@@ -896,11 +972,19 @@ pub async fn follow_account(
         .execute(&state.db)
         .await?;
         push::create_and_push(
-            &state, target_id, auth.account_id, "follow_request", None,
+            &state,
+            target_id,
+            auth.account_id,
+            "follow_request",
+            None,
             format!("{} wants to follow you", requester.display_name),
-            requester.acct().clone(), super::convert::account_avatar_url_for(&requester),
-        ).await;
-        return build_relationship(&state, auth.account_id, target_id).await.map(Json);
+            requester.acct().clone(),
+            super::convert::account_avatar_url_for(&requester),
+        )
+        .await;
+        return build_relationship(&state, auth.account_id, target_id)
+            .await
+            .map(Json);
     }
 
     sqlx::query!(
@@ -933,7 +1017,8 @@ pub async fn follow_account(
         format!("{} followed you", requester.display_name),
         requester.acct().clone(),
         super::convert::account_avatar_url_for(&requester),
-    ).await;
+    )
+    .await;
 
     let mut redis = state.redis.clone();
     let db = state.db.clone();
@@ -946,7 +1031,9 @@ pub async fn follow_account(
         });
     }
 
-    build_relationship(&state, auth.account_id, target_id).await.map(Json)
+    build_relationship(&state, auth.account_id, target_id)
+        .await
+        .map(Json)
 }
 
 // ── POST /api/v1/accounts/:id/unfollow ────────────────────────────────────
@@ -1013,19 +1100,26 @@ pub async fn unfollow_account(
     let target = fetch_account(&state, target_id).await?;
     if target.domain.is_some() {
         let requester = fetch_account(&state, auth.account_id).await?;
-        if requester.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
-            let actor_url = crate::federation::tag::account_uri_of(&state.instance.domain, &requester);
+        if requester
+            .private_key
+            .as_deref()
+            .is_some_and(|s| !s.is_empty())
+        {
+            let actor_url =
+                crate::federation::tag::account_uri_of(&state.instance.domain, &requester);
             let key_id = format!("{}#main-key", actor_url);
-            let follow_uri = follow_uri_opt
-                .clone()
-                .unwrap_or_else(|| actor_url.clone());
+            let follow_uri = follow_uri_opt.clone().unwrap_or_else(|| actor_url.clone());
             let undo_id = format!(
                 "https://{}/activities/{}",
                 state.instance.domain,
                 crate::snowflake::next_id()
             );
             let undo = crate::federation::activity::undo_follow(
-                &undo_id, &actor_url, &follow_uri, &actor_url, &target.uri,
+                &undo_id,
+                &actor_url,
+                &follow_uri,
+                &actor_url,
+                &target.uri,
             )?;
             let inbox = if !target.shared_inbox_url.is_empty() {
                 target.shared_inbox_url.clone()
@@ -1047,7 +1141,9 @@ pub async fn unfollow_account(
         }
     }
 
-    build_relationship(&state, auth.account_id, target_id).await.map(Json)
+    build_relationship(&state, auth.account_id, target_id)
+        .await
+        .map(Json)
 }
 
 // ── GET /api/v1/accounts/:id/followers ────────────────────────────────────
@@ -1076,8 +1172,12 @@ pub async fn get_account_pins(
         if vid != account.id {
             let blocked = sqlx::query_scalar!(
                 "SELECT 1 FROM blocks WHERE account_id = $1 AND target_account_id = $2",
-                account.id, vid,
-            ).fetch_optional(&state.db).await?.is_some();
+                account.id,
+                vid,
+            )
+            .fetch_optional(&state.db)
+            .await?
+            .is_some();
             if blocked {
                 return Err(AppError::Forbidden);
             }
@@ -1091,8 +1191,12 @@ pub async fn get_account_pins(
                 "SELECT EXISTS(SELECT 1 FROM follows WHERE account_id = $1 AND target_account_id = $2)",
                 vid, account.id,
             ).fetch_one(&state.db).await?.unwrap_or(false)
-        } else { false }
-    } else { false };
+        } else {
+            false
+        }
+    } else {
+        false
+    };
 
     let pinned_statuses = sqlx::query_as!(
         crate::db::models::Status,
@@ -1105,20 +1209,26 @@ pub async fn get_account_pins(
                OR ($3::boolean = true AND s.visibility = 2)
              )
            ORDER BY sp.id DESC"#,
-        account.id, is_self, is_follower,
-    ).fetch_all(&state.db).await?;
+        account.id,
+        is_self,
+        is_follower,
+    )
+    .fetch_all(&state.db)
+    .await?;
 
     let pin_filter_map = if let Some(vid) = viewer_id {
         super::timelines::compute_filter_results(&state, vid, &pinned_statuses, "account").await
     } else {
         std::collections::HashMap::new()
     };
-    let pinned_statuses: Vec<crate::db::models::Status> = pinned_statuses.into_iter()
+    let pinned_statuses: Vec<crate::db::models::Status> = pinned_statuses
+        .into_iter()
         .filter(|s| !pin_filter_map.get(&s.id).is_some_and(|(hide, _)| *hide))
         .collect();
 
     let pin_status_ids: Vec<i64> = pinned_statuses.iter().map(|s| s.id).collect();
-    let pin_ids: Vec<i64> = pinned_statuses.iter()
+    let pin_ids: Vec<i64> = pinned_statuses
+        .iter()
         .map(|s| s.reblog_of_id.unwrap_or(s.id))
         .collect();
     let pin_ctxs = if let Some(vid) = viewer_id {
@@ -1134,7 +1244,9 @@ pub async fn get_account_pins(
     pin_enrich_ids.extend_from_slice(&pin_reblog_ids);
     let pin_tags_map = batch_statuses_tags(&state, &pin_enrich_ids).await?;
     let pin_mentions_map = batch_status_mentions(&state, &pin_enrich_ids).await?;
-    let all_pin_statuses: Vec<crate::db::models::Status> = pinned_statuses.iter().cloned()
+    let all_pin_statuses: Vec<crate::db::models::Status> = pinned_statuses
+        .iter()
+        .cloned()
         .chain(pin_reblog_map.values().map(|(rs, _, _)| rs.clone()))
         .collect();
     let pin_emojis_map = batch_status_emojis(&state, &all_pin_statuses).await?;
@@ -1158,13 +1270,21 @@ pub async fn get_account_pins(
         let effective_id = s.reblog_of_id.unwrap_or(s.id);
         let ctx = pin_ctxs.get(&effective_id).cloned();
         let mentions = pin_mentions_map.get(&s.id).cloned().unwrap_or_default();
-        let rb_mentions = reblog.as_ref()
+        let rb_mentions = reblog
+            .as_ref()
             .and_then(|(rs, _, _)| pin_mentions_map.get(&rs.id))
             .cloned()
             .unwrap_or_default();
-        let mut api_status = status_from_db(s, &account, media, reblog, ctx, &mentions, &rb_mentions);
-        api_status.account.emojis = pin_account_emojis_map.get(&account.id).cloned().unwrap_or_default();
-        api_status.account.roles = pin_account_roles_map.get(&account.id).cloned().unwrap_or_default();
+        let mut api_status =
+            status_from_db(s, &account, media, reblog, ctx, &mentions, &rb_mentions);
+        api_status.account.emojis = pin_account_emojis_map
+            .get(&account.id)
+            .cloned()
+            .unwrap_or_default();
+        api_status.account.roles = pin_account_roles_map
+            .get(&account.id)
+            .cloned()
+            .unwrap_or_default();
         api_status.tags = pin_tags_map.get(&s.id).cloned().unwrap_or_default();
         api_status.mentions = mentions;
         api_status.emojis = pin_emojis_map.get(&s.id).cloned().unwrap_or_default();
@@ -1174,8 +1294,14 @@ pub async fn get_account_pins(
         if let Some(ref mut rb) = api_status.reblog {
             let rid: i64 = rb.id.parse().unwrap_or(0);
             let rb_id: i64 = rb.account.id.parse().unwrap_or(0);
-            rb.account.emojis = pin_account_emojis_map.get(&rb_id).cloned().unwrap_or_default();
-            rb.account.roles = pin_account_roles_map.get(&rb_id).cloned().unwrap_or_default();
+            rb.account.emojis = pin_account_emojis_map
+                .get(&rb_id)
+                .cloned()
+                .unwrap_or_default();
+            rb.account.roles = pin_account_roles_map
+                .get(&rb_id)
+                .cloned()
+                .unwrap_or_default();
             rb.tags = pin_tags_map.get(&rid).cloned().unwrap_or_default();
             rb.mentions = rb_mentions;
             rb.emojis = pin_emojis_map.get(&rid).cloned().unwrap_or_default();
@@ -1217,7 +1343,8 @@ pub async fn get_account_followers(
         if vid != id {
             let blocked = sqlx::query_scalar!(
                 "SELECT 1 FROM blocks WHERE account_id = $1 AND target_account_id = $2",
-                id, vid,
+                id,
+                vid,
             )
             .fetch_optional(&state.db)
             .await?
@@ -1229,9 +1356,21 @@ pub async fn get_account_followers(
     }
 
     let limit = q.pagination.limit_clamped(40, 80);
-    let max_id = q.pagination.max_id.as_deref().and_then(|s| s.parse::<i64>().ok());
-    let since_id = q.pagination.since_id.as_deref().and_then(|s| s.parse::<i64>().ok());
-    let min_id = q.pagination.min_id.as_deref().and_then(|s| s.parse::<i64>().ok());
+    let max_id = q
+        .pagination
+        .max_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
+    let since_id = q
+        .pagination
+        .since_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
+    let min_id = q
+        .pagination
+        .min_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
 
     // Paginate by follow.id (matching Mastodon's Follow.paginate_by_max_id)
     let follow_rows = sqlx::query!(
@@ -1251,7 +1390,12 @@ pub async fn get_account_followers(
                  SELECT 1 FROM mutes WHERE account_id = $4 AND target_account_id = a.id
              ))
            ORDER BY f.id DESC LIMIT $5"#,
-        id, max_id, since_id, viewer_id, limit, min_id
+        id,
+        max_id,
+        since_id,
+        viewer_id,
+        limit,
+        min_id
     )
     .fetch_all(&state.db)
     .await?;
@@ -1262,12 +1406,20 @@ pub async fn get_account_followers(
     let account_map: std::collections::HashMap<i64, Account> = if account_ids.is_empty() {
         std::collections::HashMap::new()
     } else {
-        sqlx::query_as!(Account, "SELECT * FROM accounts WHERE id = ANY($1::bigint[])", &account_ids)
-            .fetch_all(&state.db).await?
-            .into_iter().map(|a| (a.id, a)).collect()
+        sqlx::query_as!(
+            Account,
+            "SELECT * FROM accounts WHERE id = ANY($1::bigint[])",
+            &account_ids
+        )
+        .fetch_all(&state.db)
+        .await?
+        .into_iter()
+        .map(|a| (a.id, a))
+        .collect()
     };
     // Preserve follow-id ordering
-    let accounts: Vec<Account> = follow_rows.iter()
+    let accounts: Vec<Account> = follow_rows
+        .iter()
         .filter_map(|r| account_map.get(&r.account_id).cloned())
         .collect();
 
@@ -1309,7 +1461,8 @@ pub async fn get_account_following(
         if vid != id {
             let blocked = sqlx::query_scalar!(
                 "SELECT 1 FROM blocks WHERE account_id = $1 AND target_account_id = $2",
-                id, vid,
+                id,
+                vid,
             )
             .fetch_optional(&state.db)
             .await?
@@ -1321,9 +1474,21 @@ pub async fn get_account_following(
     }
 
     let limit = q.pagination.limit_clamped(40, 80);
-    let max_id = q.pagination.max_id.as_deref().and_then(|s| s.parse::<i64>().ok());
-    let since_id = q.pagination.since_id.as_deref().and_then(|s| s.parse::<i64>().ok());
-    let min_id = q.pagination.min_id.as_deref().and_then(|s| s.parse::<i64>().ok());
+    let max_id = q
+        .pagination
+        .max_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
+    let since_id = q
+        .pagination
+        .since_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
+    let min_id = q
+        .pagination
+        .min_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
 
     // Paginate by follow.id (matching Mastodon's Follow.paginate_by_max_id)
     let follow_rows = sqlx::query!(
@@ -1343,7 +1508,12 @@ pub async fn get_account_following(
                  SELECT 1 FROM mutes WHERE account_id = $4 AND target_account_id = a.id
              ))
            ORDER BY f.id DESC LIMIT $5"#,
-        id, max_id, since_id, viewer_id, limit, min_id
+        id,
+        max_id,
+        since_id,
+        viewer_id,
+        limit,
+        min_id
     )
     .fetch_all(&state.db)
     .await?;
@@ -1354,12 +1524,20 @@ pub async fn get_account_following(
     let account_map: std::collections::HashMap<i64, Account> = if account_ids.is_empty() {
         std::collections::HashMap::new()
     } else {
-        sqlx::query_as!(Account, "SELECT * FROM accounts WHERE id = ANY($1::bigint[])", &account_ids)
-            .fetch_all(&state.db).await?
-            .into_iter().map(|a| (a.id, a)).collect()
+        sqlx::query_as!(
+            Account,
+            "SELECT * FROM accounts WHERE id = ANY($1::bigint[])",
+            &account_ids
+        )
+        .fetch_all(&state.db)
+        .await?
+        .into_iter()
+        .map(|a| (a.id, a))
+        .collect()
     };
     // Preserve follow-id ordering
-    let accounts: Vec<Account> = follow_rows.iter()
+    let accounts: Vec<Account> = follow_rows
+        .iter()
         .filter_map(|r| account_map.get(&r.target_account_id).cloned())
         .collect();
 
@@ -1409,7 +1587,10 @@ pub async fn search_accounts(
                      AND a.suspended_at IS NULL
                      AND (lower(a.username) LIKE $2 OR lower(a.display_name) LIKE $2)
                    ORDER BY a.username LIMIT $3 OFFSET $4"#,
-                auth.account_id, pattern, limit, offset
+                auth.account_id,
+                pattern,
+                limit,
+                offset
             )
             .fetch_all(&state.db)
             .await?
@@ -1423,7 +1604,9 @@ pub async fn search_accounts(
                WHERE suspended_at IS NULL
                  AND (lower(username) LIKE $1 OR lower(display_name) LIKE $1)
                ORDER BY username LIMIT $2 OFFSET $3"#,
-            pattern, limit, offset
+            pattern,
+            limit,
+            offset
         )
         .fetch_all(&state.db)
         .await?
@@ -1438,7 +1621,8 @@ pub async fn search_accounts(
             // Only attempt fetch if not already present locally
             let already_known = sqlx::query_scalar!(
                 "SELECT id FROM accounts WHERE lower(username) = $1 AND lower(domain) = $2",
-                username, domain,
+                username,
+                domain,
             )
             .fetch_optional(&state.db)
             .await?
@@ -1446,28 +1630,40 @@ pub async fn search_accounts(
 
             if !already_known {
                 let acct_uri = format!("acct:{}@{}", username, domain);
-                let wf_url = format!("https://{}/.well-known/webfinger?resource={}", domain, acct_uri);
-                if let Ok(resp) = state.fetch.get(&wf_url)
+                let wf_url = format!(
+                    "https://{}/.well-known/webfinger?resource={}",
+                    domain, acct_uri
+                );
+                if let Ok(resp) = state
+                    .fetch
+                    .get(&wf_url)
                     .header("Accept", "application/jrd+json, application/json")
                     .send()
                     .await
                 {
                     if let Ok(jrd) = resp.json::<serde_json::Value>().await {
                         let actor_uri = jrd
-                            .get("links").and_then(|l| l.as_array())
-                            .and_then(|links| links.iter().find(|l| {
-                                l.get("rel").and_then(|r| r.as_str()) == Some("self")
-                                    && l.get("type").and_then(|t| t.as_str())
-                                        .map(|t| t.contains("activity+json") || t.contains("ld+json"))
-                                        .unwrap_or(false)
-                            }))
+                            .get("links")
+                            .and_then(|l| l.as_array())
+                            .and_then(|links| {
+                                links.iter().find(|l| {
+                                    l.get("rel").and_then(|r| r.as_str()) == Some("self")
+                                        && l.get("type")
+                                            .and_then(|t| t.as_str())
+                                            .map(|t| {
+                                                t.contains("activity+json") || t.contains("ld+json")
+                                            })
+                                            .unwrap_or(false)
+                                })
+                            })
                             .and_then(|l| l.get("href"))
                             .and_then(|h| h.as_str())
                             .map(str::to_owned);
 
                         if let Some(uri) = actor_uri {
                             if let Ok(account_id) =
-                                crate::api::ap::inbox::resolve_or_fetch_remote_account(&state, &uri).await
+                                crate::api::ap::inbox::resolve_or_fetch_remote_account(&state, &uri)
+                                    .await
                             {
                                 if let Ok(account) = sqlx::query_as!(
                                     Account,
@@ -1514,15 +1710,23 @@ async fn do_update_credentials(
     let mut source_quote_policy: Option<String> = None;
     let mut indexable: Option<bool> = None;
     // fields_attributes[N][name] / fields_attributes[N][value]
-    let mut fields_map: std::collections::BTreeMap<u32, (String, String)> = std::collections::BTreeMap::new();
+    let mut fields_map: std::collections::BTreeMap<u32, (String, String)> =
+        std::collections::BTreeMap::new();
     let mut fields_submitted = false;
     let mut attribution_domains: Option<Vec<String>> = None;
 
-    while let Some(field) = multipart.next_field().await.map_err(|e| AppError::Unprocessable(e.to_string()))? {
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::Unprocessable(e.to_string()))?
+    {
         let name = field.name().unwrap_or("").to_string();
         // Parse attribution_domains[] array fields
         if name == "attribution_domains[]" {
-            let v = field.text().await.map_err(|e| AppError::Unprocessable(e.to_string()))?;
+            let v = field
+                .text()
+                .await
+                .map_err(|e| AppError::Unprocessable(e.to_string()))?;
             attribution_domains.get_or_insert_with(Vec::new).push(v);
             continue;
         }
@@ -1530,7 +1734,10 @@ async fn do_update_credentials(
         if let Some(rest) = name.strip_prefix("fields_attributes[") {
             if let Some((idx_str, key)) = rest.split_once(']') {
                 if let Ok(idx) = idx_str.parse::<u32>() {
-                    let text = field.text().await.map_err(|e| AppError::Unprocessable(e.to_string()))?;
+                    let text = field
+                        .text()
+                        .await
+                        .map_err(|e| AppError::Unprocessable(e.to_string()))?;
                     fields_submitted = true;
                     let entry = fields_map.entry(idx).or_default();
                     match key {
@@ -1544,54 +1751,97 @@ async fn do_update_credentials(
         }
         match name.as_str() {
             "display_name" => {
-                display_name = Some(field.text().await.map_err(|e| AppError::Unprocessable(e.to_string()))?);
+                display_name = Some(
+                    field
+                        .text()
+                        .await
+                        .map_err(|e| AppError::Unprocessable(e.to_string()))?,
+                );
             }
             "note" => {
-                note = Some(field.text().await.map_err(|e| AppError::Unprocessable(e.to_string()))?);
+                note = Some(
+                    field
+                        .text()
+                        .await
+                        .map_err(|e| AppError::Unprocessable(e.to_string()))?,
+                );
             }
             "locked" => {
-                let v = field.text().await.map_err(|e| AppError::Unprocessable(e.to_string()))?;
+                let v = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::Unprocessable(e.to_string()))?;
                 locked = Some(v == "true" || v == "1");
             }
             "bot" => {
-                let v = field.text().await.map_err(|e| AppError::Unprocessable(e.to_string()))?;
+                let v = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::Unprocessable(e.to_string()))?;
                 bot = Some(v == "true" || v == "1");
             }
             "discoverable" => {
-                let v = field.text().await.map_err(|e| AppError::Unprocessable(e.to_string()))?;
+                let v = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::Unprocessable(e.to_string()))?;
                 discoverable = Some(v == "true" || v == "1");
             }
             "source[privacy]" => {
-                let v = field.text().await.map_err(|e| AppError::Unprocessable(e.to_string()))?;
+                let v = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::Unprocessable(e.to_string()))?;
                 if matches!(v.as_str(), "public" | "unlisted" | "private" | "direct") {
                     source_privacy = Some(v);
                 }
             }
             "source[sensitive]" => {
-                let v = field.text().await.map_err(|e| AppError::Unprocessable(e.to_string()))?;
+                let v = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::Unprocessable(e.to_string()))?;
                 source_sensitive = Some(v == "true" || v == "1");
             }
             "source[language]" => {
-                let v = field.text().await.map_err(|e| AppError::Unprocessable(e.to_string()))?;
+                let v = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::Unprocessable(e.to_string()))?;
                 source_language = Some(if v.is_empty() { None } else { Some(v) });
             }
             "hide_collections" | "source[hide_collections]" => {
-                let v = field.text().await.map_err(|e| AppError::Unprocessable(e.to_string()))?;
+                let v = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::Unprocessable(e.to_string()))?;
                 source_hide_collections = Some(v == "true" || v == "1");
             }
             "source[quote_policy]" => {
-                let v = field.text().await.map_err(|e| AppError::Unprocessable(e.to_string()))?;
+                let v = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::Unprocessable(e.to_string()))?;
                 if matches!(v.as_str(), "public" | "followers" | "nobody") {
                     source_quote_policy = Some(v);
                 }
             }
             "indexable" | "source[indexable]" => {
-                let v = field.text().await.map_err(|e| AppError::Unprocessable(e.to_string()))?;
+                let v = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::Unprocessable(e.to_string()))?;
                 indexable = Some(v == "true" || v == "1");
             }
             "avatar" => {
-                let ct = field.content_type().unwrap_or("application/octet-stream").to_string();
-                let data = field.bytes().await.map_err(|e| AppError::Unprocessable(e.to_string()))?;
+                let ct = field
+                    .content_type()
+                    .unwrap_or("application/octet-stream")
+                    .to_string();
+                let data = field
+                    .bytes()
+                    .await
+                    .map_err(|e| AppError::Unprocessable(e.to_string()))?;
                 if !data.is_empty() {
                     let key = crate::media::account_avatar_key(auth.account_id, &ct);
                     state.storage.store(&data, &key, &ct).await?;
@@ -1600,8 +1850,14 @@ async fn do_update_credentials(
                 }
             }
             "header" => {
-                let ct = field.content_type().unwrap_or("application/octet-stream").to_string();
-                let data = field.bytes().await.map_err(|e| AppError::Unprocessable(e.to_string()))?;
+                let ct = field
+                    .content_type()
+                    .unwrap_or("application/octet-stream")
+                    .to_string();
+                let data = field
+                    .bytes()
+                    .await
+                    .map_err(|e| AppError::Unprocessable(e.to_string()))?;
                 if !data.is_empty() {
                     let key = crate::media::account_header_key(auth.account_id, &ct);
                     state.storage.store(&data, &key, &ct).await?;
@@ -1628,7 +1884,10 @@ async fn do_update_credentials(
             obj.insert("web.default_sensitive".into(), serde_json::json!(s));
         }
         if let Some(l) = &source_language {
-            obj.insert("default_language".into(), serde_json::to_value(l).unwrap_or(serde_json::Value::Null));
+            obj.insert(
+                "default_language".into(),
+                serde_json::to_value(l).unwrap_or(serde_json::Value::Null),
+            );
         }
         if let Some(q) = &source_quote_policy {
             obj.insert("default_quote_policy".into(), serde_json::json!(q));
@@ -1644,19 +1903,39 @@ async fn do_update_credentials(
     }
 
     if let Some(ref dn) = display_name {
-        sqlx::query!("UPDATE accounts SET display_name = $1 WHERE id = $2", dn, auth.account_id)
-            .execute(&state.db).await?;
+        sqlx::query!(
+            "UPDATE accounts SET display_name = $1 WHERE id = $2",
+            dn,
+            auth.account_id
+        )
+        .execute(&state.db)
+        .await?;
     }
     if let Some(ref n) = note {
         let domain = instance_domain;
-        let note_html = super::formatting::render_content(n, domain, &std::collections::HashMap::new());
-        let note_html = if note_html.is_empty() { String::new() } else { note_html };
-        sqlx::query!("UPDATE accounts SET note = $1 WHERE id = $2", note_html, auth.account_id)
-            .execute(&state.db).await?;
+        let note_html =
+            super::formatting::render_content(n, domain, &std::collections::HashMap::new());
+        let note_html = if note_html.is_empty() {
+            String::new()
+        } else {
+            note_html
+        };
+        sqlx::query!(
+            "UPDATE accounts SET note = $1 WHERE id = $2",
+            note_html,
+            auth.account_id
+        )
+        .execute(&state.db)
+        .await?;
     }
     if let Some(l) = locked {
-        sqlx::query!("UPDATE accounts SET locked = $1 WHERE id = $2", l, auth.account_id)
-            .execute(&state.db).await?;
+        sqlx::query!(
+            "UPDATE accounts SET locked = $1 WHERE id = $2",
+            l,
+            auth.account_id
+        )
+        .execute(&state.db)
+        .await?;
         // Auto-approve pending follow requests when account becomes unlocked
         if !l {
             // Promote all pending follow requests to accepted follows
@@ -1670,7 +1949,8 @@ async fn do_update_credentials(
                 let _ = sqlx::query!(
                     r#"INSERT INTO follows (account_id, target_account_id, created_at, updated_at)
                        VALUES ($1, $2, now(), now()) ON CONFLICT DO NOTHING"#,
-                    row.account_id, auth.account_id
+                    row.account_id,
+                    auth.account_id
                 )
                 .execute(&state.db)
                 .await;
@@ -1702,16 +1982,31 @@ async fn do_update_credentials(
     }
     if let Some(b) = bot {
         let actor_type = if b { "Service" } else { "Person" };
-        sqlx::query!("UPDATE accounts SET actor_type = $1 WHERE id = $2", actor_type, auth.account_id)
-            .execute(&state.db).await?;
+        sqlx::query!(
+            "UPDATE accounts SET actor_type = $1 WHERE id = $2",
+            actor_type,
+            auth.account_id
+        )
+        .execute(&state.db)
+        .await?;
     }
     if let Some(d) = discoverable {
-        sqlx::query!("UPDATE accounts SET discoverable = $1 WHERE id = $2", d, auth.account_id)
-            .execute(&state.db).await?;
+        sqlx::query!(
+            "UPDATE accounts SET discoverable = $1 WHERE id = $2",
+            d,
+            auth.account_id
+        )
+        .execute(&state.db)
+        .await?;
     }
     if let Some(ix) = indexable {
-        sqlx::query!("UPDATE accounts SET indexable = $1 WHERE id = $2", ix, auth.account_id)
-            .execute(&state.db).await?;
+        sqlx::query!(
+            "UPDATE accounts SET indexable = $1 WHERE id = $2",
+            ix,
+            auth.account_id
+        )
+        .execute(&state.db)
+        .await?;
     }
     if let Some(ref filename) = avatar_url {
         sqlx::query!(
@@ -1745,7 +2040,8 @@ async fn do_update_credentials(
         for (n, v) in &fields {
             if n.chars().count() > 255 || v.chars().count() > 255 {
                 return Err(AppError::Unprocessable(
-                    "Validation failed: Field name and value can't be longer than 255 characters".into(),
+                    "Validation failed: Field name and value can't be longer than 255 characters"
+                        .into(),
                 ));
             }
         }
@@ -1756,9 +2052,11 @@ async fn do_update_credentials(
             .collect();
         sqlx::query!(
             "UPDATE accounts SET fields = $1 WHERE id = $2",
-            fields_json, auth.account_id
+            fields_json,
+            auth.account_id
         )
-        .execute(&state.db).await?;
+        .execute(&state.db)
+        .await?;
     }
 
     // default_privacy, default_sensitive, default_language are stored in users.settings (YAML)
@@ -1767,23 +2065,30 @@ async fn do_update_credentials(
     if let Some(hc) = source_hide_collections {
         sqlx::query!(
             "UPDATE accounts SET hide_collections = $1 WHERE id = $2",
-            hc, auth.account_id
+            hc,
+            auth.account_id
         )
-        .execute(&state.db).await?;
+        .execute(&state.db)
+        .await?;
     }
     if let Some(ref domains) = attribution_domains {
         sqlx::query!(
             "UPDATE accounts SET attribution_domains = $1 WHERE id = $2",
-            domains, auth.account_id
+            domains,
+            auth.account_id
         )
-        .execute(&state.db).await?;
+        .execute(&state.db)
+        .await?;
     }
     // default_quote_policy is in users.settings (YAML) in Mastodon's schema; not persisted here.
     let _ = &source_quote_policy;
 
-    sqlx::query!("UPDATE accounts SET updated_at = now() WHERE id = $1", auth.account_id)
-        .execute(&state.db)
-        .await?;
+    sqlx::query!(
+        "UPDATE accounts SET updated_at = now() WHERE id = $1",
+        auth.account_id
+    )
+    .execute(&state.db)
+    .await?;
 
     fetch_account(state, auth.account_id).await
 }
@@ -1799,8 +2104,13 @@ async fn distribute_account_update(state: &AppState, domain: &str, account: &Acc
     let Ok(actor) = crate::api::ap::objects::actor_json(state, domain, account).await else {
         return;
     };
-    let update_id = format!("{}#updates/{}", actor_url, account.updated_at.and_utc().timestamp());
-    let Ok(activity) = crate::federation::activity::update_actor(&update_id, &actor_url, actor) else {
+    let update_id = format!(
+        "{}#updates/{}",
+        actor_url,
+        account.updated_at.and_utc().timestamp()
+    );
+    let Ok(activity) = crate::federation::activity::update_actor(&update_id, &actor_url, actor)
+    else {
         return;
     };
     let key_id = format!("{}#main-key", actor_url);
@@ -1814,7 +2124,9 @@ async fn distribute_account_update(state: &AppState, domain: &str, account: &Acc
 pub async fn update_credentials(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedUser>,
-    Extension(crate::middleware::ResolvedInstance(instance)): Extension<crate::middleware::ResolvedInstance>,
+    Extension(crate::middleware::ResolvedInstance(instance)): Extension<
+        crate::middleware::ResolvedInstance,
+    >,
     multipart: Multipart,
 ) -> AppResult<Json<ApiAccount>> {
     auth.require_scope("write:accounts")?;
@@ -1828,7 +2140,9 @@ pub async fn update_credentials(
 pub async fn patch_profile(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedUser>,
-    Extension(crate::middleware::ResolvedInstance(instance)): Extension<crate::middleware::ResolvedInstance>,
+    Extension(crate::middleware::ResolvedInstance(instance)): Extension<
+        crate::middleware::ResolvedInstance,
+    >,
     multipart: Multipart,
 ) -> AppResult<Json<super::types::Profile>> {
     auth.require_scope("write:accounts")?;
@@ -1859,12 +2173,16 @@ pub async fn patch_profile(
         .collect();
 
     let a = &account;
-    let fields = super::convert::fields_from_db(a.fields.as_ref().unwrap_or(&serde_json::json!([])));
-    let formatted_fields = fields.iter().map(|f| super::types::Field {
-        name: f.name.clone(),
-        value: super::formatting::format_field_value(&f.value),
-        verified_at: f.verified_at.clone(),
-    }).collect();
+    let fields =
+        super::convert::fields_from_db(a.fields.as_ref().unwrap_or(&serde_json::json!([])));
+    let formatted_fields = fields
+        .iter()
+        .map(|f| super::types::Field {
+            name: f.name.clone(),
+            value: super::formatting::format_field_value(&f.value),
+            verified_at: f.verified_at.clone(),
+        })
+        .collect();
     Ok(Json(super::types::Profile {
         id: a.id.to_string(),
         username: a.username.clone(),
@@ -1892,7 +2210,8 @@ async fn build_credential_account_response(
     auth: &AuthenticatedUser,
     account: Account,
 ) -> AppResult<Json<ApiAccount>> {
-    let fields = super::convert::fields_from_db(account.fields.as_ref().unwrap_or(&serde_json::json!([])));
+    let fields =
+        super::convert::fields_from_db(account.fields.as_ref().unwrap_or(&serde_json::json!([])));
     let mut api_account = account_from_db(&account);
     api_account.emojis = fetch_account_emojis(state, &account).await;
     apply_account_stats(state, &mut api_account, account.id).await;
@@ -1946,11 +2265,14 @@ pub async fn mute_account(
     auth.require_scope("write:mutes")?;
     // Mastodon MuteService: muting yourself is a no-op.
     if auth.account_id == target_id {
-        return build_relationship(&state, auth.account_id, target_id).await.map(Json);
+        return build_relationship(&state, auth.account_id, target_id)
+            .await
+            .map(Json);
     }
     let params = body.map(|Json(p)| p).unwrap_or_default();
     let hide_notifications = params.notifications.unwrap_or(true);
-    let expires_at: Option<chrono::NaiveDateTime> = params.duration
+    let expires_at: Option<chrono::NaiveDateTime> = params
+        .duration
         .filter(|&d| d > 0)
         .map(|d| chrono::Utc::now().naive_utc() + chrono::Duration::seconds(d));
 
@@ -1965,7 +2287,9 @@ pub async fn mute_account(
     .execute(&state.db)
     .await?;
 
-    build_relationship(&state, auth.account_id, target_id).await.map(Json)
+    build_relationship(&state, auth.account_id, target_id)
+        .await
+        .map(Json)
 }
 
 // ── POST /api/v1/accounts/:id/unmute ──────────────────────────────────────
@@ -1978,12 +2302,15 @@ pub async fn unmute_account(
     auth.require_scope("write:mutes")?;
     sqlx::query!(
         "DELETE FROM mutes WHERE account_id = $1 AND target_account_id = $2",
-        auth.account_id, target_id
+        auth.account_id,
+        target_id
     )
     .execute(&state.db)
     .await?;
 
-    build_relationship(&state, auth.account_id, target_id).await.map(Json)
+    build_relationship(&state, auth.account_id, target_id)
+        .await
+        .map(Json)
 }
 
 // ── POST /api/v1/accounts/:id/block ───────────────────────────────────────
@@ -1996,7 +2323,9 @@ pub async fn block_account(
     auth.require_scope("write:blocks")?;
     // Mastodon BlockService: blocking yourself is a no-op.
     if auth.account_id == target_id {
-        return build_relationship(&state, auth.account_id, target_id).await.map(Json);
+        return build_relationship(&state, auth.account_id, target_id)
+            .await
+            .map(Json);
     }
     sqlx::query!(
         r#"INSERT INTO blocks (account_id, target_account_id, created_at, updated_at) VALUES ($1, $2, now(), now())
@@ -2053,7 +2382,10 @@ pub async fn block_account(
     if let Some(target) = sqlx::query!(
         "SELECT uri, inbox_url, shared_inbox_url, domain FROM accounts WHERE id = $1",
         target_id,
-    ).fetch_optional(&state.db).await? {
+    )
+    .fetch_optional(&state.db)
+    .await?
+    {
         if target.domain.is_some() {
             if let Some(actor_row) = sqlx::query!(
                 "SELECT username, private_key, id_scheme FROM accounts WHERE id = $1 AND domain IS NULL",
@@ -2119,7 +2451,9 @@ pub async fn block_account(
         }
     }
 
-    build_relationship(&state, auth.account_id, target_id).await.map(Json)
+    build_relationship(&state, auth.account_id, target_id)
+        .await
+        .map(Json)
 }
 
 // ── POST /api/v1/accounts/:id/unblock ─────────────────────────────────────
@@ -2133,20 +2467,26 @@ pub async fn unblock_account(
     // Mastodon UnblockService: a no-op (and no Undo) when not actually blocking.
     let was_blocking = sqlx::query!(
         "DELETE FROM blocks WHERE account_id = $1 AND target_account_id = $2 RETURNING account_id",
-        auth.account_id, target_id
+        auth.account_id,
+        target_id
     )
     .fetch_optional(&state.db)
     .await?
     .is_some();
     if !was_blocking {
-        return build_relationship(&state, auth.account_id, target_id).await.map(Json);
+        return build_relationship(&state, auth.account_id, target_id)
+            .await
+            .map(Json);
     }
 
     // Send Undo(Block) activity to remote target
     if let Some(target) = sqlx::query!(
         "SELECT uri, inbox_url, shared_inbox_url, domain FROM accounts WHERE id = $1",
         target_id,
-    ).fetch_optional(&state.db).await? {
+    )
+    .fetch_optional(&state.db)
+    .await?
+    {
         if target.domain.is_some() {
             if let Some(actor_row) = sqlx::query!(
                 "SELECT username, private_key, id_scheme FROM accounts WHERE id = $1 AND domain IS NULL",
@@ -2180,7 +2520,9 @@ pub async fn unblock_account(
         }
     }
 
-    build_relationship(&state, auth.account_id, target_id).await.map(Json)
+    build_relationship(&state, auth.account_id, target_id)
+        .await
+        .map(Json)
 }
 
 // ── GET /api/v1/blocks ────────────────────────────────────────────────────
@@ -2206,7 +2548,11 @@ pub async fn get_blocks(
              AND ($3::bigint IS NULL OR b.id > $3)
              AND ($5::bigint IS NULL OR b.id > $5)
            ORDER BY b.id DESC LIMIT $4"#,
-        auth.account_id, max_id, since_id, limit, min_id,
+        auth.account_id,
+        max_id,
+        since_id,
+        limit,
+        min_id,
     )
     .fetch_all(&state.db)
     .await?;
@@ -2224,7 +2570,8 @@ pub async fn get_blocks(
     .await?;
     let account_map: std::collections::HashMap<i64, Account> =
         accounts.into_iter().map(|a| (a.id, a)).collect();
-    let accounts_ordered: Vec<Account> = target_ids.iter()
+    let accounts_ordered: Vec<Account> = target_ids
+        .iter()
         .filter_map(|id| account_map.get(id).cloned())
         .collect();
 
@@ -2266,7 +2613,11 @@ pub async fn get_mutes(
              AND ($3::bigint IS NULL OR m.id > $3)
              AND ($5::bigint IS NULL OR m.id > $5)
            ORDER BY m.id DESC LIMIT $4"#,
-        auth.account_id, max_id, since_id, limit, min_id,
+        auth.account_id,
+        max_id,
+        since_id,
+        limit,
+        min_id,
     )
     .fetch_all(&state.db)
     .await?;
@@ -2274,8 +2625,10 @@ pub async fn get_mutes(
     let first_mute_id = rows.first().map(|r| r.mute_id.to_string());
     let last_mute_id = rows.last().map(|r| r.mute_id.to_string());
 
-    let mute_expiries: std::collections::HashMap<i64, Option<chrono::NaiveDateTime>> =
-        rows.iter().map(|r| (r.target_account_id, r.expires_at)).collect();
+    let mute_expiries: std::collections::HashMap<i64, Option<chrono::NaiveDateTime>> = rows
+        .iter()
+        .map(|r| (r.target_account_id, r.expires_at))
+        .collect();
     let target_ids: Vec<i64> = rows.iter().map(|r| r.target_account_id).collect();
 
     let accounts = sqlx::query_as!(
@@ -2288,21 +2641,25 @@ pub async fn get_mutes(
     // Restore mute-ordered sequence
     let account_map: std::collections::HashMap<i64, Account> =
         accounts.into_iter().map(|a| (a.id, a)).collect();
-    let accounts_ordered: Vec<Account> = target_ids.iter()
+    let accounts_ordered: Vec<Account> = target_ids
+        .iter()
         .filter_map(|id| account_map.get(id).cloned())
         .collect();
 
     let mute_emojis_map = batch_account_emojis(&state, &accounts_ordered).await;
     let mute_roles_map = batch_account_roles(&state, &accounts_ordered).await;
-    let api_accounts: Vec<ApiAccount> = accounts_ordered.iter().map(|a| {
-        let mut api = account_from_db(a);
-        api.emojis = mute_emojis_map.get(&a.id).cloned().unwrap_or_default();
-        api.roles = mute_roles_map.get(&a.id).cloned().unwrap_or_default();
-        if let Some(expires_at) = mute_expiries.get(&a.id).and_then(|e| *e) {
-            api.mute_expires_at = Some(super::convert::mastodon_date(expires_at));
-        }
-        api
-    }).collect();
+    let api_accounts: Vec<ApiAccount> = accounts_ordered
+        .iter()
+        .map(|a| {
+            let mut api = account_from_db(a);
+            api.emojis = mute_emojis_map.get(&a.id).cloned().unwrap_or_default();
+            api.roles = mute_roles_map.get(&a.id).cloned().unwrap_or_default();
+            if let Some(expires_at) = mute_expiries.get(&a.id).and_then(|e| *e) {
+                api.mute_expires_at = Some(super::convert::mastodon_date(expires_at));
+            }
+            api
+        })
+        .collect();
     let link = first_mute_id.zip(last_mute_id).map(|(newest, oldest)| {
         let extra = super::non_pagination_query(uri.query());
         super::link_header(&req_headers, uri.path(), &extra, &newest, &oldest)
@@ -2360,7 +2717,11 @@ pub async fn get_follow_requests(
              AND ($3::bigint IS NULL OR f.id > $3)
              AND ($5::bigint IS NULL OR f.id > $5)
            ORDER BY f.id DESC LIMIT $4"#,
-        auth.account_id, max_id, since_id, limit, min_id
+        auth.account_id,
+        max_id,
+        since_id,
+        limit,
+        min_id
     )
     .fetch_all(&state.db)
     .await?;
@@ -2378,7 +2739,8 @@ pub async fn get_follow_requests(
     .await?;
     let account_map: std::collections::HashMap<i64, Account> =
         accounts.into_iter().map(|a| (a.id, a)).collect();
-    let accounts_ordered: Vec<Account> = account_ids.iter()
+    let accounts_ordered: Vec<Account> = account_ids
+        .iter()
         .filter_map(|id| account_map.get(id).cloned())
         .collect();
 
@@ -2416,7 +2778,8 @@ pub async fn authorize_follow_request(
         sqlx::query!(
             r#"INSERT INTO follows (account_id, target_account_id, created_at, updated_at)
                VALUES ($1, $2, now(), now()) ON CONFLICT DO NOTHING"#,
-            requester_id, auth.account_id
+            requester_id,
+            auth.account_id
         )
         .execute(&state.db)
         .await?;
@@ -2444,43 +2807,49 @@ pub async fn authorize_follow_request(
             format!("{} accepted your follow request", accepter.display_name),
             accepter.acct().clone(),
             super::convert::account_avatar_url_for(&accepter),
-        ).await;
+        )
+        .await;
 
         if let Some(follow_uri) = deleted_row.uri {
             let requester = fetch_account(&state, requester_id).await?;
             if requester.domain.is_some()
-                && accepter.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
-                    let accepter_actor_url = crate::federation::tag::account_uri_of(&state.instance.domain, &accepter);
-                    let key_id = format!("{}#main-key", accepter_actor_url);
-                    let accept_id = format!(
-                        "https://{}/activities/{}",
-                        state.instance.domain,
-                        crate::snowflake::next_id()
-                    );
-                    let activity = crate::federation::activity::accept_follow(
-                        &accept_id,
-                        &accepter_actor_url,
-                        &follow_uri,
-                        &requester.uri,
-                        &accepter_actor_url,
-                    )?;
-                    let inbox = requester.inbox_url.clone();
-                    if inbox.is_empty() {
-                        tracing::warn!(requester_uri = %requester.uri, "cannot deliver Accept: remote actor has no inbox URL");
-                    } else {
-                        tracing::debug!(inbox, requester_uri = %requester.uri, "enqueueing Accept");
-                        if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
-                            &state,
-                            activity,
-                            vec![inbox],
-                            key_id,
-                        )
-                        .await
-                        {
-                            tracing::warn!(error = %e, "failed to enqueue Accept");
-                        }
+                && accepter
+                    .private_key
+                    .as_deref()
+                    .is_some_and(|s| !s.is_empty())
+            {
+                let accepter_actor_url =
+                    crate::federation::tag::account_uri_of(&state.instance.domain, &accepter);
+                let key_id = format!("{}#main-key", accepter_actor_url);
+                let accept_id = format!(
+                    "https://{}/activities/{}",
+                    state.instance.domain,
+                    crate::snowflake::next_id()
+                );
+                let activity = crate::federation::activity::accept_follow(
+                    &accept_id,
+                    &accepter_actor_url,
+                    &follow_uri,
+                    &requester.uri,
+                    &accepter_actor_url,
+                )?;
+                let inbox = requester.inbox_url.clone();
+                if inbox.is_empty() {
+                    tracing::warn!(requester_uri = %requester.uri, "cannot deliver Accept: remote actor has no inbox URL");
+                } else {
+                    tracing::debug!(inbox, requester_uri = %requester.uri, "enqueueing Accept");
+                    if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+                        &state,
+                        activity,
+                        vec![inbox],
+                        key_id,
+                    )
+                    .await
+                    {
+                        tracing::warn!(error = %e, "failed to enqueue Accept");
                     }
                 }
+            }
         }
 
         let mut redis = state.redis.clone();
@@ -2495,7 +2864,9 @@ pub async fn authorize_follow_request(
         }
     }
 
-    build_relationship(&state, auth.account_id, requester_id).await.map(Json)
+    build_relationship(&state, auth.account_id, requester_id)
+        .await
+        .map(Json)
 }
 
 // ── POST /api/v1/follow_requests/:id/reject ───────────────────────────────
@@ -2518,8 +2889,13 @@ pub async fn reject_follow_request(
             let requester = fetch_account(&state, requester_id).await?;
             if requester.domain.is_some() {
                 let rejecter = fetch_account(&state, auth.account_id).await?;
-                if rejecter.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
-                    let rejecter_actor_url = crate::federation::tag::account_uri_of(&state.instance.domain, &rejecter);
+                if rejecter
+                    .private_key
+                    .as_deref()
+                    .is_some_and(|s| !s.is_empty())
+                {
+                    let rejecter_actor_url =
+                        crate::federation::tag::account_uri_of(&state.instance.domain, &rejecter);
                     let key_id = format!("{}#main-key", rejecter_actor_url);
                     let reject_id = format!(
                         "https://{}/activities/{}",
@@ -2551,7 +2927,9 @@ pub async fn reject_follow_request(
         }
     }
 
-    build_relationship(&state, auth.account_id, requester_id).await.map(Json)
+    build_relationship(&state, auth.account_id, requester_id)
+        .await
+        .map(Json)
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -2589,10 +2967,20 @@ pub async fn batch_status_media(
 pub async fn batch_reblog_data(
     state: &AppState,
     statuses: &[crate::db::models::Status],
-) -> AppResult<std::collections::HashMap<i64, (crate::db::models::Status, crate::db::models::Account, Vec<crate::db::models::MediaAttachment>)>> {
+) -> AppResult<
+    std::collections::HashMap<
+        i64,
+        (
+            crate::db::models::Status,
+            crate::db::models::Account,
+            Vec<crate::db::models::MediaAttachment>,
+        ),
+    >,
+> {
     use std::collections::{HashMap, HashSet};
 
-    let reblog_ids: Vec<i64> = statuses.iter()
+    let reblog_ids: Vec<i64> = statuses
+        .iter()
         .filter_map(|s| s.reblog_of_id)
         .collect::<HashSet<_>>()
         .into_iter()
@@ -2610,7 +2998,8 @@ pub async fn batch_reblog_data(
     .fetch_all(&state.db)
     .await?;
 
-    let reblog_account_ids: Vec<i64> = reblog_statuses.iter()
+    let reblog_account_ids: Vec<i64> = reblog_statuses
+        .iter()
         .map(|s| s.account_id)
         .collect::<HashSet<_>>()
         .into_iter()
@@ -2624,18 +3013,14 @@ pub async fn batch_reblog_data(
     .fetch_all(&state.db)
     .await?;
 
-    let reblog_account_map: HashMap<i64, Account> = reblog_accounts
-        .into_iter()
-        .map(|a| (a.id, a))
-        .collect();
+    let reblog_account_map: HashMap<i64, Account> =
+        reblog_accounts.into_iter().map(|a| (a.id, a)).collect();
 
     let reblog_status_ids: Vec<i64> = reblog_statuses.iter().map(|s| s.id).collect();
     let reblog_media = batch_status_media(state, &reblog_status_ids).await?;
 
-    let reblog_status_map: HashMap<i64, crate::db::models::Status> = reblog_statuses
-        .into_iter()
-        .map(|s| (s.id, s))
-        .collect();
+    let reblog_status_map: HashMap<i64, crate::db::models::Status> =
+        reblog_statuses.into_iter().map(|s| (s.id, s)).collect();
 
     let mut result = HashMap::new();
     for s in statuses {
@@ -2672,11 +3057,17 @@ pub async fn batch_quote_data(
     .unwrap_or_default();
 
     // Map from quoting status ID → quoted status ID
-    let quote_of: HashMap<i64, i64> = quote_rows.iter()
+    let quote_of: HashMap<i64, i64> = quote_rows
+        .iter()
         .filter_map(|r| r.quoted_status_id.map(|qid| (r.status_id, qid)))
         .collect();
 
-    let quote_ids: Vec<i64> = quote_of.values().cloned().collect::<HashSet<_>>().into_iter().collect();
+    let quote_ids: Vec<i64> = quote_of
+        .values()
+        .cloned()
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
 
     if quote_ids.is_empty() {
         return Ok(HashMap::new());
@@ -2692,9 +3083,14 @@ pub async fn batch_quote_data(
 
     // Also look up any soft-deleted quoted statuses (they exist but have deleted_at set)
     let found_ids: HashSet<i64> = quoted_statuses.iter().map(|s| s.id).collect();
-    let deleted_ids: Vec<i64> = quote_ids.iter().filter(|id| !found_ids.contains(*id)).cloned().collect();
+    let deleted_ids: Vec<i64> = quote_ids
+        .iter()
+        .filter(|id| !found_ids.contains(*id))
+        .cloned()
+        .collect();
 
-    let account_ids: Vec<i64> = quoted_statuses.iter()
+    let account_ids: Vec<i64> = quoted_statuses
+        .iter()
         .map(|s| s.account_id)
         .collect::<HashSet<_>>()
         .into_iter()
@@ -2714,22 +3110,31 @@ pub async fn batch_quote_data(
     let account_map: HashMap<i64, Account> = accounts.into_iter().map(|a| (a.id, a)).collect();
 
     let qs_ids: Vec<i64> = quoted_statuses.iter().map(|s| s.id).collect();
-    let (media_map, tags_map, mentions_map, emojis_map, polls_map, cards_map, ctxs) = if !qs_ids.is_empty() {
-        let media = batch_status_media(state, &qs_ids).await?;
-        let tags = batch_statuses_tags(state, &qs_ids).await?;
-        let mentions = batch_status_mentions(state, &qs_ids).await?;
-        let emojis = batch_status_emojis(state, &quoted_statuses).await?;
-        let polls = batch_status_polls(state, &qs_ids, viewer_id).await?;
-        let cards = batch_status_cards(state, &qs_ids).await?;
-        let ctxs = if let Some(vid) = viewer_id {
-            super::statuses::batch_viewer_contexts(state, vid, &qs_ids).await?
+    let (media_map, tags_map, mentions_map, emojis_map, polls_map, cards_map, ctxs) =
+        if !qs_ids.is_empty() {
+            let media = batch_status_media(state, &qs_ids).await?;
+            let tags = batch_statuses_tags(state, &qs_ids).await?;
+            let mentions = batch_status_mentions(state, &qs_ids).await?;
+            let emojis = batch_status_emojis(state, &quoted_statuses).await?;
+            let polls = batch_status_polls(state, &qs_ids, viewer_id).await?;
+            let cards = batch_status_cards(state, &qs_ids).await?;
+            let ctxs = if let Some(vid) = viewer_id {
+                super::statuses::batch_viewer_contexts(state, vid, &qs_ids).await?
+            } else {
+                HashMap::new()
+            };
+            (media, tags, mentions, emojis, polls, cards, ctxs)
         } else {
-            HashMap::new()
+            (
+                HashMap::new(),
+                HashMap::new(),
+                HashMap::new(),
+                HashMap::new(),
+                HashMap::new(),
+                HashMap::new(),
+                HashMap::new(),
+            )
         };
-        (media, tags, mentions, emojis, polls, cards, ctxs)
-    } else {
-        (HashMap::new(), HashMap::new(), HashMap::new(), HashMap::new(), HashMap::new(), HashMap::new(), HashMap::new())
-    };
 
     // Fetch quote states for all quoting statuses that have a quoted_status_id in quotes table
     let quoting_ids: Vec<i64> = quote_of.keys().cloned().collect();
@@ -2741,14 +3146,26 @@ pub async fn batch_quote_data(
         .fetch_all(&state.db)
         .await
         .unwrap_or_default();
-        rows.into_iter().map(|r| (r.status_id, crate::db::models::quote_state::to_str(r.state).to_owned())).collect()
+        rows.into_iter()
+            .map(|r| {
+                (
+                    r.status_id,
+                    crate::db::models::quote_state::to_str(r.state).to_owned(),
+                )
+            })
+            .collect()
     } else {
         HashMap::new()
     };
 
     // Check block relationships between viewer and quoted status authors (for "unauthorized" state)
     let blocked_author_ids: HashSet<i64> = if let Some(vid) = viewer_id {
-        let author_ids: Vec<i64> = quoted_statuses.iter().map(|s| s.account_id).collect::<HashSet<_>>().into_iter().collect();
+        let author_ids: Vec<i64> = quoted_statuses
+            .iter()
+            .map(|s| s.account_id)
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
         if !author_ids.is_empty() {
             sqlx::query_scalar!(
                 r#"SELECT target_account_id FROM blocks WHERE account_id = $1 AND target_account_id = ANY($2::bigint[])
@@ -2781,7 +3198,17 @@ pub async fn batch_quote_data(
         .await
         .unwrap_or_default();
         rows.into_iter()
-            .filter_map(|r| r.quoted_status_id.map(|qid| (r.status_id, (crate::db::models::quote_state::to_str(r.state).to_owned(), qid))))
+            .filter_map(|r| {
+                r.quoted_status_id.map(|qid| {
+                    (
+                        r.status_id,
+                        (
+                            crate::db::models::quote_state::to_str(r.state).to_owned(),
+                            qid,
+                        ),
+                    )
+                })
+            })
             .collect()
     } else {
         HashMap::new()
@@ -2790,7 +3217,9 @@ pub async fn batch_quote_data(
     // Build a map from quoted status id → API Status
     let mut qs_map: HashMap<i64, super::types::Status> = HashMap::new();
     for qs in &quoted_statuses {
-        let Some(account) = account_map.get(&qs.account_id) else { continue };
+        let Some(account) = account_map.get(&qs.account_id) else {
+            continue;
+        };
         let media = media_map.get(&qs.id).cloned().unwrap_or_default();
         let mentions = mentions_map.get(&qs.id).cloned().unwrap_or_default();
         let ctx = ctxs.get(&qs.id).cloned();
@@ -2817,15 +3246,25 @@ pub async fn batch_quote_data(
     // as viewer-computed overrides per Mastodon's REST::BaseQuoteSerializer logic.
     let mut result: HashMap<i64, super::types::QuoteInfo> = HashMap::new();
     for s in statuses {
-        let Some(&qid) = quote_of.get(&s.id) else { continue };
-        let state_str = quote_states.get(&s.id).cloned().unwrap_or_else(|| "accepted".to_string());
+        let Some(&qid) = quote_of.get(&s.id) else {
+            continue;
+        };
+        let state_str = quote_states
+            .get(&s.id)
+            .cloned()
+            .unwrap_or_else(|| "accepted".to_string());
 
         // Derive effective display state and whether to include the quoted status body
         let (effective_state, include_status) = if deleted_ids.contains(&qid) {
             ("deleted".to_string(), false)
         } else {
-            let quoted_author_id = quoted_statuses.iter().find(|qs| qs.id == qid).map(|qs| qs.account_id);
-            let unauthorized = quoted_author_id.map(|aid| blocked_author_ids.contains(&aid)).unwrap_or(false);
+            let quoted_author_id = quoted_statuses
+                .iter()
+                .find(|qs| qs.id == qid)
+                .map(|qs| qs.account_id);
+            let unauthorized = quoted_author_id
+                .map(|aid| blocked_author_ids.contains(&aid))
+                .unwrap_or(false);
             if unauthorized {
                 ("unauthorized".to_string(), false)
             } else {
@@ -2833,12 +3272,19 @@ pub async fn batch_quote_data(
             }
         };
 
-        let quoted_status = if include_status { qs_map.get(&qid).cloned() } else { None };
-        result.insert(s.id, super::types::QuoteInfo {
-            state: effective_state,
-            quoted_status: quoted_status.map(Box::new),
-            quoted_status_id: None,
-        });
+        let quoted_status = if include_status {
+            qs_map.get(&qid).cloned()
+        } else {
+            None
+        };
+        result.insert(
+            s.id,
+            super::types::QuoteInfo {
+                state: effective_state,
+                quoted_status: quoted_status.map(Box::new),
+                quoted_status_id: None,
+            },
+        );
     }
     Ok(result)
 }
@@ -2877,12 +3323,14 @@ pub async fn fetch_status_poll(
         per_option_map.insert(r.choice, r.cnt);
     }
 
-    let options: Vec<super::types::PollOption> = option_titles.iter().enumerate().map(|(i, title)| {
-        super::types::PollOption {
+    let options: Vec<super::types::PollOption> = option_titles
+        .iter()
+        .enumerate()
+        .map(|(i, title)| super::types::PollOption {
             title: title.clone(),
             votes_count: Some(*per_option_map.get(&(i as i32)).unwrap_or(&0)),
-        }
-    }).collect();
+        })
+        .collect();
 
     // Compute aggregate counts live.
     let (votes_count, voters_count) = sqlx::query!(
@@ -2894,12 +3342,17 @@ pub async fn fetch_status_poll(
     .map(|r| (r.votes, r.voters))
     .unwrap_or((0, 0));
 
-    let voters_count = if row.multiple { Some(voters_count) } else { None };
+    let voters_count = if row.multiple {
+        Some(voters_count)
+    } else {
+        None
+    };
 
     let (voted, own_votes) = if let Some(vid) = viewer_id {
         let votes = sqlx::query!(
             "SELECT choice FROM poll_votes WHERE poll_id = $1 AND account_id = $2 ORDER BY choice",
-            row.id, vid,
+            row.id,
+            vid,
         )
         .fetch_all(&state.db)
         .await?;
@@ -2943,7 +3396,13 @@ pub async fn fetch_status_media(
 pub async fn fetch_reblog_data(
     state: &AppState,
     status: &crate::db::models::Status,
-) -> AppResult<Option<(crate::db::models::Status, Account, Vec<crate::db::models::MediaAttachment>)>> {
+) -> AppResult<
+    Option<(
+        crate::db::models::Status,
+        Account,
+        Vec<crate::db::models::MediaAttachment>,
+    )>,
+> {
     let Some(reblog_id) = status.reblog_of_id else {
         return Ok(None);
     };
@@ -2968,9 +3427,20 @@ pub async fn fetch_reblog_data(
     Ok(Some((reblog, reblog_account, reblog_media)))
 }
 
-async fn batch_build_relationships(state: &AppState, source_id: i64, target_ids: &[i64]) -> AppResult<Vec<Relationship>> {
-    struct FollowRow { show_reblogs: bool, notify: bool, languages: Option<Vec<String>> }
-    struct MuteRow { hide_notifications: bool, expires_at: Option<chrono::NaiveDateTime> }
+async fn batch_build_relationships(
+    state: &AppState,
+    source_id: i64,
+    target_ids: &[i64],
+) -> AppResult<Vec<Relationship>> {
+    struct FollowRow {
+        show_reblogs: bool,
+        notify: bool,
+        languages: Option<Vec<String>>,
+    }
+    struct MuteRow {
+        hide_notifications: bool,
+        expires_at: Option<chrono::NaiveDateTime>,
+    }
 
     // Accepted follows (outgoing)
     let follows_out = sqlx::query!(
@@ -2979,12 +3449,18 @@ async fn batch_build_relationships(state: &AppState, source_id: i64, target_ids:
     )
     .fetch_all(&state.db)
     .await?;
-    let follows_out_map: std::collections::HashMap<i64, _> = follows_out.into_iter()
-        .map(|r| (r.target_account_id, FollowRow {
-            show_reblogs: r.show_reblogs,
-            notify: r.notify,
-            languages: r.languages.filter(|l| !l.is_empty()),
-        }))
+    let follows_out_map: std::collections::HashMap<i64, _> = follows_out
+        .into_iter()
+        .map(|r| {
+            (
+                r.target_account_id,
+                FollowRow {
+                    show_reblogs: r.show_reblogs,
+                    notify: r.notify,
+                    languages: r.languages.filter(|l| !l.is_empty()),
+                },
+            )
+        })
         .collect();
 
     // Pending follow requests (outgoing)
@@ -3041,8 +3517,17 @@ async fn batch_build_relationships(state: &AppState, source_id: i64, target_ids:
     )
     .fetch_all(&state.db)
     .await?;
-    let mutes_map: std::collections::HashMap<i64, MuteRow> = mutes.into_iter()
-        .map(|r| (r.target_account_id, MuteRow { hide_notifications: r.hide_notifications, expires_at: r.expires_at }))
+    let mutes_map: std::collections::HashMap<i64, MuteRow> = mutes
+        .into_iter()
+        .map(|r| {
+            (
+                r.target_account_id,
+                MuteRow {
+                    hide_notifications: r.hide_notifications,
+                    expires_at: r.expires_at,
+                },
+            )
+        })
         .collect();
 
     let target_domains: std::collections::HashMap<i64, Option<String>> = sqlx::query!(
@@ -3061,7 +3546,8 @@ async fn batch_build_relationships(state: &AppState, source_id: i64, target_ids:
     } else {
         sqlx::query_scalar!(
             "SELECT domain FROM account_domain_blocks WHERE account_id = $1 AND domain = ANY($2)",
-            source_id, &domains_to_check,
+            source_id,
+            &domains_to_check,
         )
         .fetch_all(&state.db)
         .await?
@@ -3105,7 +3591,9 @@ async fn batch_build_relationships(state: &AppState, source_id: i64, target_ids:
             blocked_by: blocks_in.contains(&target_id),
             muting: mute.is_some(),
             muting_notifications: mute.is_some_and(|m| m.hide_notifications),
-            muting_expires_at: mute.and_then(|m| m.expires_at).map(super::convert::mastodon_date),
+            muting_expires_at: mute
+                .and_then(|m| m.expires_at)
+                .map(super::convert::mastodon_date),
             requested: follow_requests_out.contains(&target_id),
             requested_by: requested_by_set.contains(&target_id),
             domain_blocking,
@@ -3116,7 +3604,11 @@ async fn batch_build_relationships(state: &AppState, source_id: i64, target_ids:
     Ok(results)
 }
 
-async fn build_relationship(state: &AppState, source_id: i64, target_id: i64) -> AppResult<Relationship> {
+async fn build_relationship(
+    state: &AppState,
+    source_id: i64,
+    target_id: i64,
+) -> AppResult<Relationship> {
     // Check accepted follow (source → target)
     let follow = sqlx::query!(
         "SELECT show_reblogs, notify, languages FROM follows WHERE account_id = $1 AND target_account_id = $2",
@@ -3128,7 +3620,8 @@ async fn build_relationship(state: &AppState, source_id: i64, target_id: i64) ->
     // Check pending follow request (source → target)
     let requested = sqlx::query!(
         "SELECT 1 as exists FROM follow_requests WHERE account_id = $1 AND target_account_id = $2",
-        source_id, target_id
+        source_id,
+        target_id
     )
     .fetch_optional(&state.db)
     .await?
@@ -3136,7 +3629,8 @@ async fn build_relationship(state: &AppState, source_id: i64, target_id: i64) ->
 
     let followed_by = sqlx::query!(
         "SELECT 1 as exists FROM follows WHERE account_id = $1 AND target_account_id = $2",
-        target_id, source_id
+        target_id,
+        source_id
     )
     .fetch_optional(&state.db)
     .await?
@@ -3144,7 +3638,8 @@ async fn build_relationship(state: &AppState, source_id: i64, target_id: i64) ->
 
     let blocking = sqlx::query!(
         "SELECT 1 as exists FROM blocks WHERE account_id = $1 AND target_account_id = $2",
-        source_id, target_id
+        source_id,
+        target_id
     )
     .fetch_optional(&state.db)
     .await?
@@ -3152,7 +3647,8 @@ async fn build_relationship(state: &AppState, source_id: i64, target_id: i64) ->
 
     let blocked_by = sqlx::query!(
         "SELECT 1 as exists FROM blocks WHERE account_id = $1 AND target_account_id = $2",
-        target_id, source_id
+        target_id,
+        source_id
     )
     .fetch_optional(&state.db)
     .await?
@@ -3160,7 +3656,8 @@ async fn build_relationship(state: &AppState, source_id: i64, target_id: i64) ->
 
     let requested_by = sqlx::query!(
         "SELECT 1 as exists FROM follow_requests WHERE account_id = $1 AND target_account_id = $2",
-        target_id, source_id
+        target_id,
+        source_id
     )
     .fetch_optional(&state.db)
     .await?
@@ -3174,18 +3671,16 @@ async fn build_relationship(state: &AppState, source_id: i64, target_id: i64) ->
     .await?;
 
     // Check if source has domain-blocked target's domain
-    let target_domain = sqlx::query_scalar!(
-        "SELECT domain FROM accounts WHERE id = $1",
-        target_id
-    )
-    .fetch_optional(&state.db)
-    .await?
-    .flatten();
+    let target_domain = sqlx::query_scalar!("SELECT domain FROM accounts WHERE id = $1", target_id)
+        .fetch_optional(&state.db)
+        .await?
+        .flatten();
 
     let domain_blocking = if let Some(domain) = target_domain {
         sqlx::query!(
             "SELECT 1 as exists FROM account_domain_blocks WHERE account_id = $1 AND domain = $2",
-            source_id, domain
+            source_id,
+            domain
         )
         .fetch_optional(&state.db)
         .await?
@@ -3196,7 +3691,8 @@ async fn build_relationship(state: &AppState, source_id: i64, target_id: i64) ->
 
     let note = sqlx::query_scalar!(
         "SELECT comment FROM account_notes WHERE account_id = $1 AND target_account_id = $2",
-        source_id, target_id
+        source_id,
+        target_id
     )
     .fetch_optional(&state.db)
     .await?
@@ -3204,8 +3700,12 @@ async fn build_relationship(state: &AppState, source_id: i64, target_id: i64) ->
 
     let showing_reblogs = follow.as_ref().is_some_and(|f| f.show_reblogs);
     let notifying = follow.as_ref().is_some_and(|f| f.notify);
-    let languages = follow.as_ref().and_then(|f| f.languages.clone().filter(|l| !l.is_empty()));
-    let muting_expires_at = muting.as_ref().and_then(|m| m.expires_at)
+    let languages = follow
+        .as_ref()
+        .and_then(|f| f.languages.clone().filter(|l| !l.is_empty()));
+    let muting_expires_at = muting
+        .as_ref()
+        .and_then(|m| m.expires_at)
         .map(super::convert::mastodon_date);
 
     Ok(Relationship {
@@ -3225,7 +3725,8 @@ async fn build_relationship(state: &AppState, source_id: i64, target_id: i64) ->
         domain_blocking,
         endorsed: sqlx::query!(
             "SELECT 1 AS e FROM account_pins WHERE account_id = $1 AND target_account_id = $2",
-            source_id, target_id
+            source_id,
+            target_id
         )
         .fetch_optional(&state.db)
         .await?
@@ -3381,7 +3882,8 @@ pub async fn move_account(
     .fetch_one(&state.db)
     .await?;
 
-    let valid = crate::crypto::verify_password(&form.current_password, &user.encrypted_password).is_ok();
+    let valid =
+        crate::crypto::verify_password(&form.current_password, &user.encrypted_password).is_ok();
     if !valid {
         return Err(AppError::Unauthorized);
     }
@@ -3420,7 +3922,8 @@ pub async fn move_account(
 
     sqlx::query!(
         "UPDATE accounts SET moved_to_account_id = $1, updated_at = now() WHERE id = $2",
-        moved_id, auth.account_id,
+        moved_id,
+        auth.account_id,
     )
     .execute(&state.db)
     .await?;
@@ -3433,9 +3936,15 @@ pub async fn move_account(
     .fetch_one(&state.db)
     .await?;
     if !new_uri.is_empty() && mover.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
-        let actor_url = crate::federation::tag::account_uri(&instance.domain, auth.account_id, mover.id_scheme, &mover.username);
+        let actor_url = crate::federation::tag::account_uri(
+            &instance.domain,
+            auth.account_id,
+            mover.id_scheme,
+            &mover.username,
+        );
         let move_id = format!("{actor_url}#moves/{}", crate::snowflake::next_id());
-        let activity = crate::federation::activity::move_actor(&move_id, &actor_url, &actor_url, &new_uri);
+        let activity =
+            crate::federation::activity::move_actor(&move_id, &actor_url, &actor_url, &new_uri);
         let key_id = format!("{actor_url}#main-key");
         if let Err(e) = crate::federation::delivery::fanout_to_followers(
             &state,
@@ -3473,12 +3982,16 @@ pub async fn list_aliases(
     )
     .fetch_all(&state.db)
     .await?;
-    Ok(Json(rows.into_iter().map(|r| AccountAlias {
-        id: r.id.to_string(),
-        account_id: r.account_id.to_string(),
-        uri: r.uri,
-        created_at: super::convert::mastodon_date(r.created_at),
-    }).collect()))
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| AccountAlias {
+                id: r.id.to_string(),
+                account_id: r.account_id.to_string(),
+                uri: r.uri,
+                created_at: super::convert::mastodon_date(r.created_at),
+            })
+            .collect(),
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -3516,7 +4029,8 @@ pub async fn delete_alias(
     auth.require_scope("write:accounts")?;
     sqlx::query!(
         "DELETE FROM account_aliases WHERE id = $1 AND account_id = $2",
-        id, auth.account_id,
+        id,
+        auth.account_id,
     )
     .execute(&state.db)
     .await?;
@@ -3547,7 +4061,8 @@ pub async fn set_account_note(
     if comment.trim().is_empty() {
         sqlx::query!(
             "DELETE FROM account_notes WHERE account_id = $1 AND target_account_id = $2",
-            auth.account_id, target_id,
+            auth.account_id,
+            target_id,
         )
         .execute(&state.db)
         .await?;
@@ -3563,7 +4078,9 @@ pub async fn set_account_note(
         .await?;
     }
 
-    build_relationship(&state, auth.account_id, target_id).await.map(Json)
+    build_relationship(&state, auth.account_id, target_id)
+        .await
+        .map(Json)
 }
 
 // ── POST /api/v1/accounts/:id/remove_from_followers ───────────────────────
@@ -3602,9 +4119,13 @@ pub async fn remove_from_followers(
             let remover = fetch_account(&state, auth.account_id).await?;
             let follower = fetch_account(&state, requester_id).await?;
             if follower.domain.is_some()
-                && remover.private_key.as_deref().is_some_and(|s| !s.is_empty())
+                && remover
+                    .private_key
+                    .as_deref()
+                    .is_some_and(|s| !s.is_empty())
             {
-                let actor_url = crate::federation::tag::account_uri_of(&state.instance.domain, &remover);
+                let actor_url =
+                    crate::federation::tag::account_uri_of(&state.instance.domain, &remover);
                 let key_id = format!("{actor_url}#main-key");
                 let reject_id = format!(
                     "https://{}/activities/{}",
@@ -3612,7 +4133,11 @@ pub async fn remove_from_followers(
                     crate::snowflake::next_id()
                 );
                 if let Ok(activity) = crate::federation::activity::reject_follow(
-                    &reject_id, &actor_url, &follow_uri, &follower.uri, &actor_url,
+                    &reject_id,
+                    &actor_url,
+                    &follow_uri,
+                    &follower.uri,
+                    &actor_url,
                 ) {
                     let inbox = if !follower.shared_inbox_url.is_empty() {
                         follower.shared_inbox_url.clone()
@@ -3621,8 +4146,13 @@ pub async fn remove_from_followers(
                     };
                     if !inbox.is_empty() {
                         if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
-                            &state, activity, vec![inbox], key_id,
-                        ).await {
+                            &state,
+                            activity,
+                            vec![inbox],
+                            key_id,
+                        )
+                        .await
+                        {
                             tracing::warn!(error = %e, "failed to enqueue Reject(Follow) for removed follower");
                         }
                     }
@@ -3631,7 +4161,9 @@ pub async fn remove_from_followers(
         }
     }
 
-    build_relationship(&state, auth.account_id, requester_id).await.map(Json)
+    build_relationship(&state, auth.account_id, requester_id)
+        .await
+        .map(Json)
 }
 
 // ── POST /api/v1/accounts/:id/endorse ────────────────────────────────────
@@ -3646,7 +4178,8 @@ pub async fn endorse_account(
     // accounts you follow.
     let following = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM follows WHERE account_id = $1 AND target_account_id = $2)",
-        auth.account_id, target_id,
+        auth.account_id,
+        target_id,
     )
     .fetch_one(&state.db)
     .await?
@@ -3662,7 +4195,9 @@ pub async fn endorse_account(
     )
     .execute(&state.db)
     .await?;
-    build_relationship(&state, auth.account_id, target_id).await.map(Json)
+    build_relationship(&state, auth.account_id, target_id)
+        .await
+        .map(Json)
 }
 
 // ── POST /api/v1/accounts/:id/unendorse ──────────────────────────────────
@@ -3675,11 +4210,14 @@ pub async fn unendorse_account(
     auth.require_scope("write:accounts")?;
     sqlx::query!(
         "DELETE FROM account_pins WHERE account_id = $1 AND target_account_id = $2",
-        auth.account_id, target_id,
+        auth.account_id,
+        target_id,
     )
     .execute(&state.db)
     .await?;
-    build_relationship(&state, auth.account_id, target_id).await.map(Json)
+    build_relationship(&state, auth.account_id, target_id)
+        .await
+        .map(Json)
 }
 
 // ── GET /api/v1/accounts/:id/endorsements ────────────────────────────────
@@ -3714,10 +4252,13 @@ pub async fn get_endorsements(
     .await?;
 
     let api_accounts = batch_accounts_to_api(&state, &accounts).await;
-    let link = api_accounts.first().zip(api_accounts.last()).map(|(newest, oldest)| {
-        let extra = super::non_pagination_query(uri.query());
-        super::link_header(&req_headers, uri.path(), &extra, &newest.id, &oldest.id)
-    });
+    let link = api_accounts
+        .first()
+        .zip(api_accounts.last())
+        .map(|(newest, oldest)| {
+            let extra = super::non_pagination_query(uri.query());
+            super::link_header(&req_headers, uri.path(), &extra, &newest.id, &oldest.id)
+        });
     let mut resp_headers = HeaderMap::new();
     if let Some(v) = link {
         if let Ok(val) = v.parse() {
@@ -3738,7 +4279,11 @@ pub async fn get_my_endorsements(
 ) -> AppResult<impl IntoResponse> {
     auth.require_scope("read:accounts")?;
     let unlimited = q.limit.as_deref() == Some("0");
-    let limit = if unlimited { i64::MAX } else { q.limit_clamped(40, 80) };
+    let limit = if unlimited {
+        i64::MAX
+    } else {
+        q.limit_clamped(40, 80)
+    };
     let max_id = q.max_id.as_deref().and_then(|s| s.parse::<i64>().ok());
     let since_id = q.since_id.as_deref().and_then(|s| s.parse::<i64>().ok());
 
@@ -3762,11 +4307,16 @@ pub async fn get_my_endorsements(
     .await?;
 
     let api_accounts = batch_accounts_to_api(&state, &accounts).await;
-    let link = if unlimited { None } else {
-        api_accounts.first().zip(api_accounts.last()).map(|(newest, oldest)| {
-            let extra = super::non_pagination_query(uri.query());
-            super::link_header(&req_headers, uri.path(), &extra, &newest.id, &oldest.id)
-        })
+    let link = if unlimited {
+        None
+    } else {
+        api_accounts
+            .first()
+            .zip(api_accounts.last())
+            .map(|(newest, oldest)| {
+                let extra = super::non_pagination_query(uri.query());
+                super::link_header(&req_headers, uri.path(), &extra, &newest.id, &oldest.id)
+            })
     };
     let mut resp_headers = HeaderMap::new();
     if let Some(v) = link {
@@ -3781,7 +4331,9 @@ pub async fn get_my_endorsements(
 
 pub async fn get_account_featured_tags(
     State(state): State<AppState>,
-    Extension(crate::middleware::ResolvedInstance(instance)): Extension<crate::middleware::ResolvedInstance>,
+    Extension(crate::middleware::ResolvedInstance(instance)): Extension<
+        crate::middleware::ResolvedInstance,
+    >,
     Path(id): Path<i64>,
 ) -> AppResult<Json<Vec<super::types::FeaturedTag>>> {
     let domain = &instance.domain;
@@ -3800,7 +4352,10 @@ pub async fn get_account_featured_tags(
         .into_iter()
         .map(|r| {
             let url = if let Some(ref acct_domain) = r.domain {
-                format!("https://{}/@{}@{}/tagged/{}", domain, r.username, acct_domain, r.name)
+                format!(
+                    "https://{}/@{}@{}/tagged/{}",
+                    domain, r.username, acct_domain, r.name
+                )
             } else {
                 format!("https://{}/@{}/tagged/{}", domain, r.username, r.name)
             };
@@ -3821,10 +4376,14 @@ pub async fn get_account_featured_tags(
 pub async fn get_profile(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedUser>,
-    Extension(crate::middleware::ResolvedInstance(instance)): Extension<crate::middleware::ResolvedInstance>,
+    Extension(crate::middleware::ResolvedInstance(instance)): Extension<
+        crate::middleware::ResolvedInstance,
+    >,
 ) -> AppResult<Json<super::types::Profile>> {
     auth.require_scope("read:accounts")?;
-    Ok(Json(build_profile(&state, &instance.domain, auth.account_id).await?))
+    Ok(Json(
+        build_profile(&state, &instance.domain, auth.account_id).await?,
+    ))
 }
 
 /// PUT /api/v1/profile — accepts a JSON body and returns the current profile.
@@ -3832,11 +4391,15 @@ pub async fn get_profile(
 pub async fn put_profile(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedUser>,
-    Extension(crate::middleware::ResolvedInstance(instance)): Extension<crate::middleware::ResolvedInstance>,
+    Extension(crate::middleware::ResolvedInstance(instance)): Extension<
+        crate::middleware::ResolvedInstance,
+    >,
     _body: Option<Json<serde_json::Value>>,
 ) -> AppResult<Json<super::types::Profile>> {
     auth.require_scope("write:accounts")?;
-    Ok(Json(build_profile(&state, &instance.domain, auth.account_id).await?))
+    Ok(Json(
+        build_profile(&state, &instance.domain, auth.account_id).await?,
+    ))
 }
 
 async fn build_profile(
@@ -3844,13 +4407,9 @@ async fn build_profile(
     domain: &str,
     account_id: i64,
 ) -> AppResult<super::types::Profile> {
-    let account = sqlx::query_as!(
-        Account,
-        "SELECT * FROM accounts WHERE id = $1",
-        account_id,
-    )
-    .fetch_one(&state.db)
-    .await?;
+    let account = sqlx::query_as!(Account, "SELECT * FROM accounts WHERE id = $1", account_id,)
+        .fetch_one(&state.db)
+        .await?;
 
     let domain = &domain.to_string();
     let featured_tag_rows = sqlx::query!(
@@ -3876,12 +4435,16 @@ async fn build_profile(
         .collect();
 
     let a = &account;
-    let fields = super::convert::fields_from_db(a.fields.as_ref().unwrap_or(&serde_json::json!([])));
-    let formatted_fields = fields.iter().map(|f| super::types::Field {
-        name: f.name.clone(),
-        value: super::formatting::format_field_value(&f.value),
-        verified_at: f.verified_at.clone(),
-    }).collect();
+    let fields =
+        super::convert::fields_from_db(a.fields.as_ref().unwrap_or(&serde_json::json!([])));
+    let formatted_fields = fields
+        .iter()
+        .map(|f| super::types::Field {
+            name: f.name.clone(),
+            value: super::formatting::format_field_value(&f.value),
+            verified_at: f.verified_at.clone(),
+        })
+        .collect();
     let profile = super::types::Profile {
         id: a.id.to_string(),
         username: a.username.clone(),
@@ -3970,9 +4533,7 @@ pub async fn get_familiar_followers(
 ) -> AppResult<Json<Vec<super::types::FamiliarFollowers>>> {
     auth.require_scope("read:follows")?;
     let mut seen = std::collections::HashSet::new();
-    let ids: Vec<i64> = url::form_urlencoded::parse(
-            qs.as_deref().unwrap_or("").as_bytes()
-        )
+    let ids: Vec<i64> = url::form_urlencoded::parse(qs.as_deref().unwrap_or("").as_bytes())
         .filter(|(k, _)| k == "id[]" || k == "id")
         .filter_map(|(_, v)| v.parse::<i64>().ok())
         .filter(|id| seen.insert(*id))
@@ -4050,7 +4611,9 @@ pub async fn get_directory(
                  ))
                ORDER BY created_at DESC
                LIMIT $2 OFFSET $3"#,
-            local_only, limit, offset,
+            local_only,
+            limit,
+            offset,
         )
         .fetch_all(&state.db)
         .await?
@@ -4070,7 +4633,9 @@ pub async fn get_directory(
                    WHERE s.account_id = a.id AND s.deleted_at IS NULL
                ) DESC NULLS LAST
                LIMIT $2 OFFSET $3"#,
-            local_only, limit, offset,
+            local_only,
+            limit,
+            offset,
         )
         .fetch_all(&state.db)
         .await?
@@ -4087,9 +4652,7 @@ pub async fn get_accounts_batch(
 ) -> AppResult<Json<Vec<ApiAccount>>> {
     // serde_urlencoded treats id[]=v1&id[]=v2 as a duplicate field → 400.
     // Parse with form_urlencoded which correctly returns each pair separately.
-    let ids: Vec<i64> = url::form_urlencoded::parse(
-            qs.as_deref().unwrap_or("").as_bytes()
-        )
+    let ids: Vec<i64> = url::form_urlencoded::parse(qs.as_deref().unwrap_or("").as_bytes())
         .filter(|(k, _)| k == "id[]" || k == "id")
         .filter_map(|(_, v)| v.parse::<i64>().ok())
         .collect();
@@ -4158,13 +4721,20 @@ pub async fn fetch_statuses_tags(
     )
     .fetch_all(&state.db)
     .await?;
-    Ok(rows.into_iter().map(|r| {
-        let tag_lower = r.name.to_lowercase();
-        super::types::StatusTag {
-            url: format!("https://{}/tags/{}", domain, urlencoding::encode(&tag_lower)),
-            name: r.name,
-        }
-    }).collect())
+    Ok(rows
+        .into_iter()
+        .map(|r| {
+            let tag_lower = r.name.to_lowercase();
+            super::types::StatusTag {
+                url: format!(
+                    "https://{}/tags/{}",
+                    domain,
+                    urlencoding::encode(&tag_lower)
+                ),
+                name: r.name,
+            }
+        })
+        .collect())
 }
 
 pub async fn fetch_status_mentions(
@@ -4181,15 +4751,18 @@ pub async fn fetch_status_mentions(
     )
     .fetch_all(&state.db)
     .await?;
-    Ok(rows.into_iter().map(|r| super::types::StatusMention {
-        id: r.account_id.to_string(),
-        acct: match &r.domain {
-            Some(d) => format!("{}@{}", r.username, d),
-            None => r.username.clone(),
-        },
-        url: r.url.unwrap_or_default(),
-        username: r.username,
-    }).collect())
+    Ok(rows
+        .into_iter()
+        .map(|r| super::types::StatusMention {
+            id: r.account_id.to_string(),
+            acct: match &r.domain {
+                Some(d) => format!("{}@{}", r.username, d),
+                None => r.username.clone(),
+            },
+            url: r.url.unwrap_or_default(),
+            username: r.username,
+        })
+        .collect())
 }
 
 pub async fn batch_statuses_tags(
@@ -4210,13 +4783,20 @@ pub async fn batch_statuses_tags(
     )
     .fetch_all(&state.db)
     .await?;
-    let mut map: std::collections::HashMap<i64, Vec<super::types::StatusTag>> = std::collections::HashMap::new();
+    let mut map: std::collections::HashMap<i64, Vec<super::types::StatusTag>> =
+        std::collections::HashMap::new();
     for r in rows {
         let tag_lower = r.name.to_lowercase();
-        map.entry(r.status_id).or_default().push(super::types::StatusTag {
-            url: format!("https://{}/tags/{}", domain, urlencoding::encode(&tag_lower)),
-            name: r.name,
-        });
+        map.entry(r.status_id)
+            .or_default()
+            .push(super::types::StatusTag {
+                url: format!(
+                    "https://{}/tags/{}",
+                    domain,
+                    urlencoding::encode(&tag_lower)
+                ),
+                name: r.name,
+            });
     }
     Ok(map)
 }
@@ -4238,17 +4818,20 @@ pub async fn batch_status_mentions(
     )
     .fetch_all(&state.db)
     .await?;
-    let mut map: std::collections::HashMap<i64, Vec<super::types::StatusMention>> = std::collections::HashMap::new();
+    let mut map: std::collections::HashMap<i64, Vec<super::types::StatusMention>> =
+        std::collections::HashMap::new();
     for r in rows {
-        map.entry(r.status_id).or_default().push(super::types::StatusMention {
-            id: r.account_id.to_string(),
-            acct: match &r.domain {
-                Some(d) => format!("{}@{}", r.username, d),
-                None => r.username.clone(),
-            },
-            url: r.url.unwrap_or_default(),
-            username: r.username,
-        });
+        map.entry(r.status_id)
+            .or_default()
+            .push(super::types::StatusMention {
+                id: r.account_id.to_string(),
+                acct: match &r.domain {
+                    Some(d) => format!("{}@{}", r.username, d),
+                    None => r.username.clone(),
+                },
+                url: r.url.unwrap_or_default(),
+                username: r.username,
+            });
     }
     Ok(map)
 }
@@ -4289,13 +4872,15 @@ pub async fn batch_status_emojis(
         }
     }
 
-    let mut map: std::collections::HashMap<i64, Vec<super::types::CustomEmoji>> = std::collections::HashMap::new();
+    let mut map: std::collections::HashMap<i64, Vec<super::types::CustomEmoji>> =
+        std::collections::HashMap::new();
 
     if status_codes.is_empty() {
         return Ok(map);
     }
 
-    let all_codes: Vec<String> = status_codes.iter()
+    let all_codes: Vec<String> = status_codes
+        .iter()
         .flat_map(|(_, codes)| codes.iter().cloned())
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
@@ -4314,20 +4899,24 @@ pub async fn batch_status_emojis(
         .into_iter()
         .map(|r| {
             let url = r.image_remote_url.unwrap_or_default();
-            (r.shortcode.clone(), super::types::CustomEmoji {
-                shortcode: r.shortcode,
-                url: url.clone(),
-                static_url: url,
-                visible_in_picker: r.visible_in_picker,
-                category: None,
-                featured: None,
-            })
+            (
+                r.shortcode.clone(),
+                super::types::CustomEmoji {
+                    shortcode: r.shortcode,
+                    url: url.clone(),
+                    static_url: url,
+                    visible_in_picker: r.visible_in_picker,
+                    category: None,
+                    featured: None,
+                },
+            )
         })
         .collect();
 
     for (status_id, codes) in status_codes {
         let unique_codes: std::collections::HashSet<&String> = codes.iter().collect();
-        let emojis: Vec<super::types::CustomEmoji> = unique_codes.iter()
+        let emojis: Vec<super::types::CustomEmoji> = unique_codes
+            .iter()
             .filter_map(|c| emoji_by_code.get(*c).cloned())
             .collect();
         if !emojis.is_empty() {
@@ -4365,7 +4954,11 @@ pub async fn batch_status_polls(
     let poll_ids: Vec<i64> = rows.iter().map(|r| r.id).collect();
 
     // Batch-fetch per-option vote counts live from poll_votes.
-    struct OptionCount { poll_id: i64, choice: i32, cnt: i64 }
+    struct OptionCount {
+        poll_id: i64,
+        choice: i32,
+        cnt: i64,
+    }
     let option_counts: Vec<OptionCount> = sqlx::query_as!(
         OptionCount,
         "SELECT poll_id, choice, COUNT(*)::bigint AS \"cnt!\" FROM poll_votes WHERE poll_id = ANY($1::bigint[]) GROUP BY poll_id, choice",
@@ -4380,7 +4973,11 @@ pub async fn batch_status_polls(
     }
 
     // Batch-fetch total votes and unique voters per poll.
-    struct PollTotals { poll_id: i64, votes: i64, voters: i64 }
+    struct PollTotals {
+        poll_id: i64,
+        votes: i64,
+        voters: i64,
+    }
     let totals: Vec<PollTotals> = sqlx::query_as!(
         PollTotals,
         r#"SELECT poll_id, COUNT(*)::bigint AS "votes!", COUNT(DISTINCT account_id)::bigint AS "voters!" FROM poll_votes WHERE poll_id = ANY($1::bigint[]) GROUP BY poll_id"#,
@@ -4416,15 +5013,27 @@ pub async fn batch_status_polls(
     for row in rows {
         let expired = row.expires_at.is_some_and(|t| t < now);
         let option_titles: Vec<String> = row.options;
-        let options: Vec<super::types::PollOption> = option_titles.iter().enumerate().map(|(i, title)| {
-            let cnt = *counts_by_poll_option.get(&(row.id, i as i32)).unwrap_or(&0);
-            super::types::PollOption { title: title.clone(), votes_count: Some(cnt) }
-        }).collect();
+        let options: Vec<super::types::PollOption> = option_titles
+            .iter()
+            .enumerate()
+            .map(|(i, title)| {
+                let cnt = *counts_by_poll_option.get(&(row.id, i as i32)).unwrap_or(&0);
+                super::types::PollOption {
+                    title: title.clone(),
+                    votes_count: Some(cnt),
+                }
+            })
+            .collect();
 
-        let (votes_count, voters_count) = totals_map.get(&row.id)
+        let (votes_count, voters_count) = totals_map
+            .get(&row.id)
             .map(|&(v, u)| (v, u))
             .unwrap_or((0, 0));
-        let voters_count = if row.multiple { Some(voters_count) } else { None };
+        let voters_count = if row.multiple {
+            Some(voters_count)
+        } else {
+            None
+        };
 
         let (voted, own_votes) = if viewer_id.is_some() {
             let votes = votes_by_poll.get(&row.id).cloned().unwrap_or_default();
@@ -4436,18 +5045,21 @@ pub async fn batch_status_polls(
         } else {
             (None, None)
         };
-        result.insert(row.status_id, super::types::Poll {
-            id: row.id.to_string(),
-            expires_at: row.expires_at.map(super::convert::mastodon_date),
-            expired,
-            multiple: row.multiple,
-            votes_count,
-            voters_count,
-            options,
-            emojis: vec![],
-            voted,
-            own_votes,
-        });
+        result.insert(
+            row.status_id,
+            super::types::Poll {
+                id: row.id.to_string(),
+                expires_at: row.expires_at.map(super::convert::mastodon_date),
+                expired,
+                multiple: row.multiple,
+                votes_count,
+                voters_count,
+                options,
+                emojis: vec![],
+                voted,
+                own_votes,
+            },
+        );
     }
     Ok(result)
 }
@@ -4479,28 +5091,30 @@ pub async fn batch_status_cards(
 
     let mut result = HashMap::new();
     for r in rows {
-        result.entry(r.status_id).or_insert_with(|| super::types::PreviewCard {
-            url: r.url,
-            title: r.title,
-            description: r.description,
-            language: None,
-            card_type: r.card_type,
-            author_name: r.author_name,
-            author_url: r.author_url,
-            provider_name: r.provider_name,
-            provider_url: r.provider_url,
-            html: r.html,
-            width: r.width,
-            height: r.height,
-            image: r.image_url,
-            image_description: String::new(),
-            embed_url: r.embed_url,
-            blurhash: r.blurhash,
-            published_at: None,
-            authors: vec![],
-            missing_attribution: None,
-            history: None,
-        });
+        result
+            .entry(r.status_id)
+            .or_insert_with(|| super::types::PreviewCard {
+                url: r.url,
+                title: r.title,
+                description: r.description,
+                language: None,
+                card_type: r.card_type,
+                author_name: r.author_name,
+                author_url: r.author_url,
+                provider_name: r.provider_name,
+                provider_url: r.provider_url,
+                html: r.html,
+                width: r.width,
+                height: r.height,
+                image: r.image_url,
+                image_description: String::new(),
+                embed_url: r.embed_url,
+                blurhash: r.blurhash,
+                published_at: None,
+                authors: vec![],
+                missing_attribution: None,
+                history: None,
+            });
     }
     Ok(result)
 }
@@ -4511,7 +5125,11 @@ pub async fn build_status(
     s: &crate::db::models::Status,
     account: &Account,
     media: Vec<crate::db::models::MediaAttachment>,
-    reblog: Option<(crate::db::models::Status, Account, Vec<crate::db::models::MediaAttachment>)>,
+    reblog: Option<(
+        crate::db::models::Status,
+        Account,
+        Vec<crate::db::models::MediaAttachment>,
+    )>,
     viewer_ctx: Option<super::convert::StatusViewerContext>,
 ) -> AppResult<super::types::Status> {
     build_status_with_app(state, s, account, media, reblog, viewer_ctx, None).await
@@ -4522,7 +5140,11 @@ pub async fn build_status_with_app(
     s: &crate::db::models::Status,
     account: &Account,
     media: Vec<crate::db::models::MediaAttachment>,
-    reblog: Option<(crate::db::models::Status, Account, Vec<crate::db::models::MediaAttachment>)>,
+    reblog: Option<(
+        crate::db::models::Status,
+        Account,
+        Vec<crate::db::models::MediaAttachment>,
+    )>,
     viewer_ctx: Option<super::convert::StatusViewerContext>,
     application: Option<super::types::Application>,
 ) -> AppResult<super::types::Status> {
@@ -4541,7 +5163,14 @@ pub async fn build_status_with_app(
     };
 
     let mut api = super::convert::status_from_db_with_app(
-        s, account, media, reblog, viewer_ctx, application, &mentions, &reblog_mentions,
+        s,
+        account,
+        media,
+        reblog,
+        viewer_ctx,
+        application,
+        &mentions,
+        &reblog_mentions,
     );
     let id: i64 = api.id.parse().unwrap_or(0);
     api.account.emojis = fetch_account_emojis(state, account).await;
@@ -4642,24 +5271,23 @@ async fn fetch_status_emojis(
     .await
     .unwrap_or_default();
 
-    rows.into_iter().map(|r| {
-        let url = r.image_remote_url.unwrap_or_default();
-        super::types::CustomEmoji {
-            shortcode: r.shortcode,
-            url: url.clone(),
-            static_url: url,
-            visible_in_picker: r.visible_in_picker,
-            category: None,
-            featured: None,
-        }
-    }).collect()
+    rows.into_iter()
+        .map(|r| {
+            let url = r.image_remote_url.unwrap_or_default();
+            super::types::CustomEmoji {
+                shortcode: r.shortcode,
+                url: url.clone(),
+                static_url: url,
+                visible_in_picker: r.visible_in_picker,
+                category: None,
+                featured: None,
+            }
+        })
+        .collect()
 }
 
 /// Extract `:shortcode:` patterns from account profile fields and look them up.
-pub async fn fetch_account_emojis(
-    state: &AppState,
-    a: &Account,
-) -> Vec<super::types::CustomEmoji> {
+pub async fn fetch_account_emojis(state: &AppState, a: &Account) -> Vec<super::types::CustomEmoji> {
     let mut combined = format!("{} {}", a.display_name, a.note);
     if let Some(fields) = a.fields.as_ref().and_then(|f| f.as_array()) {
         for f in fields {
@@ -4697,17 +5325,19 @@ pub async fn fetch_account_emojis(
     .fetch_all(&state.db)
     .await
     .unwrap_or_default();
-    rows.into_iter().map(|r| {
-        let url = r.image_remote_url.unwrap_or_default();
-        super::types::CustomEmoji {
-            shortcode: r.shortcode,
-            url: url.clone(),
-            static_url: url,
-            visible_in_picker: r.visible_in_picker,
-            category: None,
-            featured: None,
-        }
-    }).collect()
+    rows.into_iter()
+        .map(|r| {
+            let url = r.image_remote_url.unwrap_or_default();
+            super::types::CustomEmoji {
+                shortcode: r.shortcode,
+                url: url.clone(),
+                static_url: url,
+                visible_in_picker: r.visible_in_picker,
+                category: None,
+                featured: None,
+            }
+        })
+        .collect()
 }
 
 /// Extract emoji shortcodes from account profile text.
@@ -4803,7 +5433,8 @@ pub async fn batch_account_emojis(
     for a in accounts {
         if let Some(codes) = account_shortcodes.get(&a.id) {
             let mut seen = std::collections::HashSet::new();
-            let emojis: Vec<_> = codes.iter()
+            let emojis: Vec<_> = codes
+                .iter()
                 .filter(|code| seen.insert(*code))
                 .filter_map(|code| emoji_lookup.get(code).cloned())
                 .collect();
@@ -4821,7 +5452,8 @@ pub async fn batch_account_roles(
     state: &AppState,
     accounts: &[Account],
 ) -> std::collections::HashMap<i64, Vec<super::types::AccountRole>> {
-    let local_ids: Vec<i64> = accounts.iter()
+    let local_ids: Vec<i64> = accounts
+        .iter()
         .filter(|a| a.domain.is_none())
         .map(|a| a.id)
         .collect();
@@ -4913,29 +5545,40 @@ pub async fn batch_accounts_to_api(
     .await
     .unwrap_or_default()
     .into_iter()
-    .map(|r| (r.account_id, (r.statuses_count, r.following_count, r.followers_count)))
+    .map(|r| {
+        (
+            r.account_id,
+            (r.statuses_count, r.following_count, r.followers_count),
+        )
+    })
     .collect();
-    accounts.iter().map(|a| {
-        let mut api = super::convert::account_from_db(a);
-        api.emojis = emojis_map.get(&a.id).cloned().unwrap_or_default();
-        api.roles = roles_map.get(&a.id).cloned().unwrap_or_default();
-        if let Some(&(s, fg, fr)) = stats_map.get(&a.id) {
-            api.statuses_count = s;
-            api.following_count = fg;
-            api.followers_count = fr;
-        }
-        api
-    }).collect()
+    accounts
+        .iter()
+        .map(|a| {
+            let mut api = super::convert::account_from_db(a);
+            api.emojis = emojis_map.get(&a.id).cloned().unwrap_or_default();
+            api.roles = roles_map.get(&a.id).cloned().unwrap_or_default();
+            if let Some(&(s, fg, fr)) = stats_map.get(&a.id) {
+                api.statuses_count = s;
+                api.following_count = fg;
+                api.followers_count = fr;
+            }
+            api
+        })
+        .collect()
 }
 
 /// Read a user's stored preferences from `users.settings` (a JSON object).
 pub async fn user_settings_json(state: &AppState, account_id: i64) -> serde_json::Value {
-    let raw = sqlx::query!("SELECT settings FROM users WHERE account_id = $1", account_id)
-        .fetch_optional(&state.db)
-        .await
-        .ok()
-        .flatten()
-        .and_then(|r| r.settings);
+    let raw = sqlx::query!(
+        "SELECT settings FROM users WHERE account_id = $1",
+        account_id
+    )
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten()
+    .and_then(|r| r.settings);
     raw.and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_else(|| serde_json::json!({}))
 }
@@ -4952,11 +5595,11 @@ pub async fn user_defaults(state: &AppState, account_id: i64) -> UserDefaults {
     let s = user_settings_json(state, account_id).await;
     let locked = sqlx::query_scalar::<_, bool>("SELECT locked FROM accounts WHERE id = $1")
         .bind(account_id)
-    .fetch_optional(&state.db)
-    .await
-    .ok()
-    .flatten()
-    .unwrap_or(false);
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(false);
     UserDefaults {
         privacy: s
             .get("default_privacy")
@@ -4985,7 +5628,11 @@ pub async fn user_defaults(state: &AppState, account_id: i64) -> UserDefaults {
 
 /// Populate an account entity's `statuses_count` / `following_count` /
 /// `followers_count` from the `account_stats` table.
-pub async fn apply_account_stats(state: &AppState, api: &mut super::types::Account, account_id: i64) {
+pub async fn apply_account_stats(
+    state: &AppState,
+    api: &mut super::types::Account,
+    account_id: i64,
+) {
     if let Ok(Some(st)) = sqlx::query!(
         "SELECT statuses_count, following_count, followers_count
          FROM account_stats WHERE account_id = $1",
@@ -5010,7 +5657,8 @@ pub fn spawn_card_fetch(state: &AppState, status_id: i64, content: String) {
     };
     let state = state.clone();
     tokio::spawn(async move {
-        let Some(card_id) = crate::preview_card::fetch_and_store(&state.db, &state.fetch, &url).await
+        let Some(card_id) =
+            crate::preview_card::fetch_and_store(&state.db, &state.fetch, &url).await
         else {
             return;
         };
@@ -5032,7 +5680,8 @@ pub async fn delete_account(
     body: Option<Json<serde_json::Value>>,
 ) -> AppResult<axum::http::StatusCode> {
     auth.require_scope("write:accounts")?;
-    let password = body.as_ref()
+    let password = body
+        .as_ref()
         .and_then(|b| b.get("password"))
         .and_then(|v| v.as_str())
         .unwrap_or("");
@@ -5053,7 +5702,9 @@ pub async fn delete_account(
     sqlx::query!(
         "UPDATE statuses SET deleted_at = now() WHERE account_id = $1 AND deleted_at IS NULL",
         auth.account_id,
-    ).execute(&mut *tx).await?;
+    )
+    .execute(&mut *tx)
+    .await?;
     sqlx::query!(
         r#"UPDATE oauth_access_tokens t
            SET revoked_at = now()
@@ -5062,15 +5713,18 @@ pub async fn delete_account(
              AND u.account_id = $1
              AND t.revoked_at IS NULL"#,
         auth.account_id,
-    ).execute(&mut *tx).await?;
+    )
+    .execute(&mut *tx)
+    .await?;
     sqlx::query!(
         "UPDATE accounts SET suspended_at = now() WHERE id = $1",
         auth.account_id,
-    ).execute(&mut *tx).await?;
-    sqlx::query!(
-        "DELETE FROM users WHERE account_id = $1",
-        auth.account_id,
-    ).execute(&mut *tx).await?;
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!("DELETE FROM users WHERE account_id = $1", auth.account_id,)
+        .execute(&mut *tx)
+        .await?;
     tx.commit().await?;
 
     Ok(axum::http::StatusCode::OK)
@@ -5084,8 +5738,6 @@ pub async fn list_donation_campaigns() -> Json<Vec<serde_json::Value>> {
 
 // ── GET /api/v1/accounts/:id/identity_proofs ─────────────────────────────
 
-pub async fn get_account_identity_proofs(
-    Path(_id): Path<i64>,
-) -> Json<Vec<serde_json::Value>> {
+pub async fn get_account_identity_proofs(Path(_id): Path<i64>) -> Json<Vec<serde_json::Value>> {
     Json(vec![])
 }

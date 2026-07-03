@@ -14,8 +14,15 @@ async fn make_admin(ctx: &TestContext) {
 async fn test_admin_requires_admin_role() {
     let ctx = TestContext::new("admin-403").await;
 
-    let resp = ctx.api.get("/api/v1/admin/accounts", Some(&ctx.alice_token)).await;
-    assert_eq!(resp.status(), StatusCode::FORBIDDEN, "non-admin should get 403");
+    let resp = ctx
+        .api
+        .get("/api/v1/admin/accounts", Some(&ctx.alice_token))
+        .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::FORBIDDEN,
+        "non-admin should get 403"
+    );
 }
 
 /// A Moderator role (position < 100, with manage_reports + manage_users but no
@@ -35,23 +42,41 @@ async fn test_moderator_permission_scoping() {
         eunha::snowflake::next_id(),
         (1_i64 << 4) | (1_i64 << 10),
     ).fetch_one(&ctx.db).await.unwrap();
-    sqlx::query!("UPDATE users SET role_id = $1 WHERE account_id = $2", role_id, alice_uuid)
-        .execute(&ctx.db).await.unwrap();
+    sqlx::query!(
+        "UPDATE users SET role_id = $1 WHERE account_id = $2",
+        role_id,
+        alice_uuid
+    )
+    .execute(&ctx.db)
+    .await
+    .unwrap();
 
     // Allowed: reports (manage_reports) and account list (manage_users).
     assert_eq!(
-        ctx.api.get("/api/v1/admin/reports", Some(&ctx.alice_token)).await.status(),
-        StatusCode::OK, "moderator should access reports",
+        ctx.api
+            .get("/api/v1/admin/reports", Some(&ctx.alice_token))
+            .await
+            .status(),
+        StatusCode::OK,
+        "moderator should access reports",
     );
     assert_eq!(
-        ctx.api.get("/api/v1/admin/accounts", Some(&ctx.alice_token)).await.status(),
-        StatusCode::OK, "moderator should access account moderation",
+        ctx.api
+            .get("/api/v1/admin/accounts", Some(&ctx.alice_token))
+            .await
+            .status(),
+        StatusCode::OK,
+        "moderator should access account moderation",
     );
 
     // Denied: domain blocks require manage_federation / admin.
     assert_eq!(
-        ctx.api.get("/api/v1/admin/domain_blocks", Some(&ctx.alice_token)).await.status(),
-        StatusCode::FORBIDDEN, "moderator must not access admin-only domain blocks",
+        ctx.api
+            .get("/api/v1/admin/domain_blocks", Some(&ctx.alice_token))
+            .await
+            .status(),
+        StatusCode::FORBIDDEN,
+        "moderator must not access admin-only domain blocks",
     );
 }
 
@@ -61,14 +86,26 @@ async fn test_admin_list_accounts() {
     let ctx = TestContext::new("admin-list").await;
     make_admin(&ctx).await;
 
-    let resp = ctx.api.get("/api/v1/admin/accounts", Some(&ctx.alice_token)).await;
+    let resp = ctx
+        .api
+        .get("/api/v1/admin/accounts", Some(&ctx.alice_token))
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let list: Vec<Value> = resp.json().await.unwrap();
-    assert!(!list.is_empty(), "expected at least alice and bob in admin accounts");
+    assert!(
+        !list.is_empty(),
+        "expected at least alice and bob in admin accounts"
+    );
     // All entries should have an id and username.
     for acc in &list {
-        assert!(acc["id"].as_str().is_some(), "admin account missing id: {acc}");
-        assert!(acc["username"].as_str().is_some(), "admin account missing username: {acc}");
+        assert!(
+            acc["id"].as_str().is_some(),
+            "admin account missing id: {acc}"
+        );
+        assert!(
+            acc["username"].as_str().is_some(),
+            "admin account missing username: {acc}"
+        );
     }
 }
 
@@ -78,12 +115,22 @@ async fn test_admin_list_accounts_filter_by_username() {
     let ctx = TestContext::new("admin-list-user").await;
     make_admin(&ctx).await;
 
-    let resp = ctx.api.get("/api/v1/admin/accounts?username=alice", Some(&ctx.alice_token)).await;
+    let resp = ctx
+        .api
+        .get(
+            "/api/v1/admin/accounts?username=alice",
+            Some(&ctx.alice_token),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let list: Vec<Value> = resp.json().await.unwrap();
     assert!(!list.is_empty(), "expected alice");
     for acc in &list {
-        assert_eq!(acc["username"].as_str(), Some("alice"), "non-alice account in filtered results");
+        assert_eq!(
+            acc["username"].as_str(),
+            Some("alice"),
+            "non-alice account in filtered results"
+        );
     }
 }
 
@@ -93,10 +140,17 @@ async fn test_admin_list_accounts_limit() {
     let ctx = TestContext::new("admin-list-limit").await;
     make_admin(&ctx).await;
 
-    let resp = ctx.api.get("/api/v1/admin/accounts?limit=1", Some(&ctx.alice_token)).await;
+    let resp = ctx
+        .api
+        .get("/api/v1/admin/accounts?limit=1", Some(&ctx.alice_token))
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let list: Vec<Value> = resp.json().await.unwrap();
-    assert!(list.len() <= 1, "limit=1 should return at most 1 account, got {}", list.len());
+    assert!(
+        list.len() <= 1,
+        "limit=1 should return at most 1 account, got {}",
+        list.len()
+    );
 }
 
 /// GET /api/v1/admin/accounts/:id returns a specific account.
@@ -105,10 +159,13 @@ async fn test_admin_get_account() {
     let ctx = TestContext::new("admin-get").await;
     make_admin(&ctx).await;
 
-    let resp = ctx.api.get(
-        &format!("/api/v1/admin/accounts/{}", ctx.bob_id),
-        Some(&ctx.alice_token),
-    ).await;
+    let resp = ctx
+        .api
+        .get(
+            &format!("/api/v1/admin/accounts/{}", ctx.bob_id),
+            Some(&ctx.alice_token),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let acc: Value = resp.json().await.unwrap();
     assert_eq!(acc["id"].as_str(), Some(ctx.bob_id.as_str()));
@@ -122,23 +179,37 @@ async fn test_admin_silence_and_unsilence() {
     let ctx = TestContext::new("admin-silence").await;
     make_admin(&ctx).await;
 
-    let silence_resp = ctx.api.post_json(
-        &format!("/api/v1/admin/accounts/{}/silence", ctx.bob_id),
-        Some(&ctx.alice_token),
-        &serde_json::json!({}),
-    ).await;
+    let silence_resp = ctx
+        .api
+        .post_json(
+            &format!("/api/v1/admin/accounts/{}/silence", ctx.bob_id),
+            Some(&ctx.alice_token),
+            &serde_json::json!({}),
+        )
+        .await;
     assert_eq!(silence_resp.status(), StatusCode::OK);
     let silenced: Value = silence_resp.json().await.unwrap();
-    assert_eq!(silenced["silenced"].as_bool(), Some(true), "silenced should be true after silence");
+    assert_eq!(
+        silenced["silenced"].as_bool(),
+        Some(true),
+        "silenced should be true after silence"
+    );
 
-    let unsilence_resp = ctx.api.post_json(
-        &format!("/api/v1/admin/accounts/{}/unsilence", ctx.bob_id),
-        Some(&ctx.alice_token),
-        &serde_json::json!({}),
-    ).await;
+    let unsilence_resp = ctx
+        .api
+        .post_json(
+            &format!("/api/v1/admin/accounts/{}/unsilence", ctx.bob_id),
+            Some(&ctx.alice_token),
+            &serde_json::json!({}),
+        )
+        .await;
     assert_eq!(unsilence_resp.status(), StatusCode::OK);
     let unsilenced: Value = unsilence_resp.json().await.unwrap();
-    assert_eq!(unsilenced["silenced"].as_bool(), Some(false), "silenced should be false after unsilence");
+    assert_eq!(
+        unsilenced["silenced"].as_bool(),
+        Some(false),
+        "silenced should be false after unsilence"
+    );
 }
 
 /// POST /api/v1/admin/accounts/:id/suspend and unsuspend toggle suspended state.
@@ -147,20 +218,26 @@ async fn test_admin_suspend_and_unsuspend() {
     let ctx = TestContext::new("admin-suspend").await;
     make_admin(&ctx).await;
 
-    let suspend_resp = ctx.api.post_json(
-        &format!("/api/v1/admin/accounts/{}/suspend", ctx.bob_id),
-        Some(&ctx.alice_token),
-        &serde_json::json!({}),
-    ).await;
+    let suspend_resp = ctx
+        .api
+        .post_json(
+            &format!("/api/v1/admin/accounts/{}/suspend", ctx.bob_id),
+            Some(&ctx.alice_token),
+            &serde_json::json!({}),
+        )
+        .await;
     assert_eq!(suspend_resp.status(), StatusCode::OK);
     let suspended: Value = suspend_resp.json().await.unwrap();
     assert_eq!(suspended["suspended"].as_bool(), Some(true));
 
-    let unsuspend_resp = ctx.api.post_json(
-        &format!("/api/v1/admin/accounts/{}/unsuspend", ctx.bob_id),
-        Some(&ctx.alice_token),
-        &serde_json::json!({}),
-    ).await;
+    let unsuspend_resp = ctx
+        .api
+        .post_json(
+            &format!("/api/v1/admin/accounts/{}/unsuspend", ctx.bob_id),
+            Some(&ctx.alice_token),
+            &serde_json::json!({}),
+        )
+        .await;
     assert_eq!(unsuspend_resp.status(), StatusCode::OK);
     let unsuspended: Value = unsuspend_resp.json().await.unwrap();
     assert_eq!(unsuspended["suspended"].as_bool(), Some(false));
@@ -172,7 +249,10 @@ async fn test_admin_list_reports_empty() {
     let ctx = TestContext::new("admin-reports").await;
     make_admin(&ctx).await;
 
-    let resp = ctx.api.get("/api/v1/admin/reports", Some(&ctx.alice_token)).await;
+    let resp = ctx
+        .api
+        .get("/api/v1/admin/reports", Some(&ctx.alice_token))
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let _: Vec<Value> = resp.json().await.unwrap();
 }
@@ -183,7 +263,10 @@ async fn test_admin_list_roles() {
     let ctx = TestContext::new("admin-roles").await;
     make_admin(&ctx).await;
 
-    let resp = ctx.api.get("/api/v1/admin/roles", Some(&ctx.alice_token)).await;
+    let resp = ctx
+        .api
+        .get("/api/v1/admin/roles", Some(&ctx.alice_token))
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let roles: Vec<Value> = resp.json().await.unwrap();
     assert!(!roles.is_empty(), "expected at least one role");
@@ -196,37 +279,52 @@ async fn test_admin_resolve_and_reopen_report() {
     make_admin(&ctx).await;
 
     // Bob files a report against alice.
-    let report_resp = ctx.api.post_json(
-        "/api/v1/reports",
-        Some(&ctx.bob_token),
-        &json!({
-            "account_id": ctx.alice_id,
-            "comment": "test report for admin resolve"
-        }),
-    ).await;
+    let report_resp = ctx
+        .api
+        .post_json(
+            "/api/v1/reports",
+            Some(&ctx.bob_token),
+            &json!({
+                "account_id": ctx.alice_id,
+                "comment": "test report for admin resolve"
+            }),
+        )
+        .await;
     assert_eq!(report_resp.status(), StatusCode::OK);
     let report: Value = report_resp.json().await.unwrap();
     let report_id = report["id"].as_str().expect("report id missing");
 
     // Admin resolves it.
-    let resolve_resp = ctx.api.post_json(
-        &format!("/api/v1/admin/reports/{report_id}/resolve"),
-        Some(&ctx.alice_token),
-        &json!({}),
-    ).await;
+    let resolve_resp = ctx
+        .api
+        .post_json(
+            &format!("/api/v1/admin/reports/{report_id}/resolve"),
+            Some(&ctx.alice_token),
+            &json!({}),
+        )
+        .await;
     assert_eq!(resolve_resp.status(), StatusCode::OK);
     let resolved: Value = resolve_resp.json().await.unwrap();
-    assert!(resolved["action_taken"].as_bool().unwrap_or(false), "action_taken should be true after resolve");
+    assert!(
+        resolved["action_taken"].as_bool().unwrap_or(false),
+        "action_taken should be true after resolve"
+    );
 
     // Reopen it.
-    let reopen_resp = ctx.api.post_json(
-        &format!("/api/v1/admin/reports/{report_id}/reopen"),
-        Some(&ctx.alice_token),
-        &json!({}),
-    ).await;
+    let reopen_resp = ctx
+        .api
+        .post_json(
+            &format!("/api/v1/admin/reports/{report_id}/reopen"),
+            Some(&ctx.alice_token),
+            &json!({}),
+        )
+        .await;
     assert_eq!(reopen_resp.status(), StatusCode::OK);
     let reopened: Value = reopen_resp.json().await.unwrap();
-    assert!(!reopened["action_taken"].as_bool().unwrap_or(true), "action_taken should be false after reopen");
+    assert!(
+        !reopened["action_taken"].as_bool().unwrap_or(true),
+        "action_taken should be false after reopen"
+    );
 }
 
 /// GET /api/v1/admin/reports/:id returns the specific report.
@@ -235,17 +333,26 @@ async fn test_admin_get_report() {
     let ctx = TestContext::new("admin-get-report").await;
     make_admin(&ctx).await;
 
-    let report: Value = ctx.api.post_json(
-        "/api/v1/reports",
-        Some(&ctx.bob_token),
-        &json!({"account_id": ctx.alice_id, "comment": "admin get report test"}),
-    ).await.json().await.unwrap();
+    let report: Value = ctx
+        .api
+        .post_json(
+            "/api/v1/reports",
+            Some(&ctx.bob_token),
+            &json!({"account_id": ctx.alice_id, "comment": "admin get report test"}),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
     let report_id = report["id"].as_str().unwrap();
 
-    let resp = ctx.api.get(
-        &format!("/api/v1/admin/reports/{report_id}"),
-        Some(&ctx.alice_token),
-    ).await;
+    let resp = ctx
+        .api
+        .get(
+            &format!("/api/v1/admin/reports/{report_id}"),
+            Some(&ctx.alice_token),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let body: Value = resp.json().await.unwrap();
     assert_eq!(body["id"].as_str(), Some(report_id));
@@ -257,29 +364,51 @@ async fn test_admin_domain_allows_crud() {
     let ctx = TestContext::new("admin-dallow").await;
     make_admin(&ctx).await;
 
-    let create_resp = ctx.api.post_json(
-        "/api/v1/admin/domain_allows",
-        Some(&ctx.alice_token),
-        &json!({"domain": "trusted.example.com"}),
-    ).await;
+    let create_resp = ctx
+        .api
+        .post_json(
+            "/api/v1/admin/domain_allows",
+            Some(&ctx.alice_token),
+            &json!({"domain": "trusted.example.com"}),
+        )
+        .await;
     assert_eq!(create_resp.status(), StatusCode::OK);
     let allow: Value = create_resp.json().await.unwrap();
     let allow_id = allow["id"].as_str().expect("id missing");
     assert_eq!(allow["domain"].as_str(), Some("trusted.example.com"));
 
-    let list: Vec<Value> = ctx.api.get("/api/v1/admin/domain_allows", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
-    assert!(list.iter().any(|a| a["id"].as_str() == Some(allow_id)), "created allow not in list");
+    let list: Vec<Value> = ctx
+        .api
+        .get("/api/v1/admin/domain_allows", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        list.iter().any(|a| a["id"].as_str() == Some(allow_id)),
+        "created allow not in list"
+    );
 
-    let del = ctx.api.delete(
-        &format!("/api/v1/admin/domain_allows/{allow_id}"),
-        &ctx.alice_token,
-    ).await;
+    let del = ctx
+        .api
+        .delete(
+            &format!("/api/v1/admin/domain_allows/{allow_id}"),
+            &ctx.alice_token,
+        )
+        .await;
     assert_eq!(del.status(), StatusCode::OK);
 
-    let after: Vec<Value> = ctx.api.get("/api/v1/admin/domain_allows", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
-    assert!(!after.iter().any(|a| a["id"].as_str() == Some(allow_id)), "deleted allow still in list");
+    let after: Vec<Value> = ctx
+        .api
+        .get("/api/v1/admin/domain_allows", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        !after.iter().any(|a| a["id"].as_str() == Some(allow_id)),
+        "deleted allow still in list"
+    );
 }
 
 /// Admin domain blocks: create, list, delete.
@@ -288,15 +417,18 @@ async fn test_admin_domain_blocks_crud() {
     let ctx = TestContext::new("admin-dblock").await;
     make_admin(&ctx).await;
 
-    let create_resp = ctx.api.post_json(
-        "/api/v1/admin/domain_blocks",
-        Some(&ctx.alice_token),
-        &json!({
-            "domain": "spam.example.com",
-            "severity": "silence",
-            "reject_media": true
-        }),
-    ).await;
+    let create_resp = ctx
+        .api
+        .post_json(
+            "/api/v1/admin/domain_blocks",
+            Some(&ctx.alice_token),
+            &json!({
+                "domain": "spam.example.com",
+                "severity": "silence",
+                "reject_media": true
+            }),
+        )
+        .await;
     assert_eq!(create_resp.status(), StatusCode::OK);
     let block: Value = create_resp.json().await.unwrap();
     let block_id = block["id"].as_str().expect("id missing");
@@ -304,19 +436,38 @@ async fn test_admin_domain_blocks_crud() {
     assert_eq!(block["severity"].as_str(), Some("silence"));
     assert_eq!(block["reject_media"].as_bool(), Some(true));
 
-    let list: Vec<Value> = ctx.api.get("/api/v1/admin/domain_blocks", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
-    assert!(list.iter().any(|b| b["id"].as_str() == Some(block_id)), "created block not in list");
+    let list: Vec<Value> = ctx
+        .api
+        .get("/api/v1/admin/domain_blocks", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        list.iter().any(|b| b["id"].as_str() == Some(block_id)),
+        "created block not in list"
+    );
 
-    let del = ctx.api.delete(
-        &format!("/api/v1/admin/domain_blocks/{block_id}"),
-        &ctx.alice_token,
-    ).await;
+    let del = ctx
+        .api
+        .delete(
+            &format!("/api/v1/admin/domain_blocks/{block_id}"),
+            &ctx.alice_token,
+        )
+        .await;
     assert_eq!(del.status(), StatusCode::OK);
 
-    let after: Vec<Value> = ctx.api.get("/api/v1/admin/domain_blocks", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
-    assert!(!after.iter().any(|b| b["id"].as_str() == Some(block_id)), "deleted block still in list");
+    let after: Vec<Value> = ctx
+        .api
+        .get("/api/v1/admin/domain_blocks", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        !after.iter().any(|b| b["id"].as_str() == Some(block_id)),
+        "deleted block still in list"
+    );
 }
 
 /// POST /api/v1/admin/accounts/:id/approve returns 200 with the account.
@@ -325,11 +476,14 @@ async fn test_admin_approve_account() {
     let ctx = TestContext::new("admin-approve").await;
     make_admin(&ctx).await;
 
-    let resp = ctx.api.post_json(
-        &format!("/api/v1/admin/accounts/{}/approve", ctx.bob_id),
-        Some(&ctx.alice_token),
-        &json!({}),
-    ).await;
+    let resp = ctx
+        .api
+        .post_json(
+            &format!("/api/v1/admin/accounts/{}/approve", ctx.bob_id),
+            Some(&ctx.alice_token),
+            &json!({}),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let acc: Value = resp.json().await.unwrap();
     assert_eq!(acc["id"].as_str(), Some(ctx.bob_id.as_str()));
@@ -343,17 +497,22 @@ async fn test_admin_enable_account() {
     make_admin(&ctx).await;
 
     // Suspend bob first, then enable.
-    ctx.api.post_json(
-        &format!("/api/v1/admin/accounts/{}/suspend", ctx.bob_id),
-        Some(&ctx.alice_token),
-        &json!({}),
-    ).await;
+    ctx.api
+        .post_json(
+            &format!("/api/v1/admin/accounts/{}/suspend", ctx.bob_id),
+            Some(&ctx.alice_token),
+            &json!({}),
+        )
+        .await;
 
-    let enable_resp = ctx.api.post_json(
-        &format!("/api/v1/admin/accounts/{}/enable", ctx.bob_id),
-        Some(&ctx.alice_token),
-        &json!({}),
-    ).await;
+    let enable_resp = ctx
+        .api
+        .post_json(
+            &format!("/api/v1/admin/accounts/{}/enable", ctx.bob_id),
+            Some(&ctx.alice_token),
+            &json!({}),
+        )
+        .await;
     assert_eq!(enable_resp.status(), StatusCode::OK);
     let acc: Value = enable_resp.json().await.unwrap();
     assert_eq!(acc["suspended"].as_bool(), Some(false));
@@ -365,7 +524,10 @@ async fn test_admin_get_role_by_id() {
     let ctx = TestContext::new("admin-role-id").await;
     make_admin(&ctx).await;
 
-    let resp = ctx.api.get("/api/v1/admin/roles/1", Some(&ctx.alice_token)).await;
+    let resp = ctx
+        .api
+        .get("/api/v1/admin/roles/1", Some(&ctx.alice_token))
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let role: Value = resp.json().await.unwrap();
     assert_eq!(role["id"].as_str(), Some("1"), "expected role id 1 (Admin)");
@@ -378,15 +540,18 @@ async fn test_admin_measures() {
     let ctx = TestContext::new("admin-measures").await;
     make_admin(&ctx).await;
 
-    let resp = ctx.api.post_json(
-        "/api/v1/admin/measures",
-        Some(&ctx.alice_token),
-        &json!({
-            "keys": ["new_users", "active_users"],
-            "start_at": "2020-01-01T00:00:00Z",
-            "end_at": "2099-01-01T00:00:00Z"
-        }),
-    ).await;
+    let resp = ctx
+        .api
+        .post_json(
+            "/api/v1/admin/measures",
+            Some(&ctx.alice_token),
+            &json!({
+                "keys": ["new_users", "active_users"],
+                "start_at": "2020-01-01T00:00:00Z",
+                "end_at": "2099-01-01T00:00:00Z"
+            }),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let measures: Vec<Value> = resp.json().await.unwrap();
     assert_eq!(measures.len(), 2, "expected 2 measure objects");
@@ -402,15 +567,18 @@ async fn test_admin_dimensions() {
     let ctx = TestContext::new("admin-dimensions").await;
     make_admin(&ctx).await;
 
-    let resp = ctx.api.post_json(
-        "/api/v1/admin/dimensions",
-        Some(&ctx.alice_token),
-        &json!({
-            "keys": ["sources"],
-            "start_at": "2020-01-01T00:00:00Z",
-            "end_at": "2099-01-01T00:00:00Z"
-        }),
-    ).await;
+    let resp = ctx
+        .api
+        .post_json(
+            "/api/v1/admin/dimensions",
+            Some(&ctx.alice_token),
+            &json!({
+                "keys": ["sources"],
+                "start_at": "2020-01-01T00:00:00Z",
+                "end_at": "2099-01-01T00:00:00Z"
+            }),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let dims: Vec<Value> = resp.json().await.unwrap();
     // Even with no data, should return an array.
@@ -426,15 +594,18 @@ async fn test_admin_retention() {
     make_admin(&ctx).await;
 
     // Use a past date range that predates any test accounts to get an empty array quickly.
-    let resp = ctx.api.post_json(
-        "/api/v1/admin/retention",
-        Some(&ctx.alice_token),
-        &json!({
-            "start_at": "2015-01-01T00:00:00Z",
-            "end_at": "2020-01-01T00:00:00Z",
-            "frequency": "month"
-        }),
-    ).await;
+    let resp = ctx
+        .api
+        .post_json(
+            "/api/v1/admin/retention",
+            Some(&ctx.alice_token),
+            &json!({
+                "start_at": "2015-01-01T00:00:00Z",
+                "end_at": "2020-01-01T00:00:00Z",
+                "frequency": "month"
+            }),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let result: Vec<Value> = resp.json().await.unwrap();
     // No accounts were created in that range so the cohort array is empty.
@@ -447,15 +618,18 @@ async fn test_admin_ip_blocks_crud() {
     let ctx = TestContext::new("admin-ipblock").await;
     make_admin(&ctx).await;
 
-    let create_resp = ctx.api.post_json(
-        "/api/v1/admin/ip_blocks",
-        Some(&ctx.alice_token),
-        &json!({
-            "ip": "192.0.2.1",
-            "severity": "sign_up_block",
-            "comment": "test ip block"
-        }),
-    ).await;
+    let create_resp = ctx
+        .api
+        .post_json(
+            "/api/v1/admin/ip_blocks",
+            Some(&ctx.alice_token),
+            &json!({
+                "ip": "192.0.2.1",
+                "severity": "sign_up_block",
+                "comment": "test ip block"
+            }),
+        )
+        .await;
     assert_eq!(create_resp.status(), StatusCode::OK);
     let block: Value = create_resp.json().await.unwrap();
     let block_id = block["id"].as_str().expect("id missing");
@@ -463,24 +637,35 @@ async fn test_admin_ip_blocks_crud() {
     assert_eq!(block["severity"].as_str(), Some("sign_up_block"));
 
     // List.
-    let list: Vec<Value> = ctx.api.get("/api/v1/admin/ip_blocks", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
+    let list: Vec<Value> = ctx
+        .api
+        .get("/api/v1/admin/ip_blocks", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(list.iter().any(|b| b["id"].as_str() == Some(block_id)));
 
     // Get single.
-    let get_resp = ctx.api.get(
-        &format!("/api/v1/admin/ip_blocks/{block_id}"),
-        Some(&ctx.alice_token),
-    ).await;
+    let get_resp = ctx
+        .api
+        .get(
+            &format!("/api/v1/admin/ip_blocks/{block_id}"),
+            Some(&ctx.alice_token),
+        )
+        .await;
     assert_eq!(get_resp.status(), StatusCode::OK);
     let got: Value = get_resp.json().await.unwrap();
     assert_eq!(got["id"].as_str(), Some(block_id));
 
     // Delete.
-    let del = ctx.api.delete(
-        &format!("/api/v1/admin/ip_blocks/{block_id}"),
-        &ctx.alice_token,
-    ).await;
+    let del = ctx
+        .api
+        .delete(
+            &format!("/api/v1/admin/ip_blocks/{block_id}"),
+            &ctx.alice_token,
+        )
+        .await;
     assert_eq!(del.status(), StatusCode::OK);
 }
 
@@ -490,30 +675,44 @@ async fn test_admin_email_domain_blocks_crud() {
     let ctx = TestContext::new("admin-edblock").await;
     make_admin(&ctx).await;
 
-    let create_resp = ctx.api.post_json(
-        "/api/v1/admin/email_domain_blocks",
-        Some(&ctx.alice_token),
-        &json!({"domain": "spam-email.example.com"}),
-    ).await;
+    let create_resp = ctx
+        .api
+        .post_json(
+            "/api/v1/admin/email_domain_blocks",
+            Some(&ctx.alice_token),
+            &json!({"domain": "spam-email.example.com"}),
+        )
+        .await;
     assert_eq!(create_resp.status(), StatusCode::OK);
     let block: Value = create_resp.json().await.unwrap();
     let block_id = block["id"].as_str().expect("id missing");
     assert_eq!(block["domain"].as_str(), Some("spam-email.example.com"));
 
-    let list: Vec<Value> = ctx.api.get("/api/v1/admin/email_domain_blocks", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
+    let list: Vec<Value> = ctx
+        .api
+        .get("/api/v1/admin/email_domain_blocks", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(list.iter().any(|b| b["id"].as_str() == Some(block_id)));
 
-    let get_resp = ctx.api.get(
-        &format!("/api/v1/admin/email_domain_blocks/{block_id}"),
-        Some(&ctx.alice_token),
-    ).await;
+    let get_resp = ctx
+        .api
+        .get(
+            &format!("/api/v1/admin/email_domain_blocks/{block_id}"),
+            Some(&ctx.alice_token),
+        )
+        .await;
     assert_eq!(get_resp.status(), StatusCode::OK);
 
-    let del = ctx.api.delete(
-        &format!("/api/v1/admin/email_domain_blocks/{block_id}"),
-        &ctx.alice_token,
-    ).await;
+    let del = ctx
+        .api
+        .delete(
+            &format!("/api/v1/admin/email_domain_blocks/{block_id}"),
+            &ctx.alice_token,
+        )
+        .await;
     assert_eq!(del.status(), StatusCode::OK);
 }
 
@@ -523,25 +722,39 @@ async fn test_admin_update_ip_block() {
     let ctx = TestContext::new("admin-ipblock-upd").await;
     make_admin(&ctx).await;
 
-    let block: Value = ctx.api.post_json(
-        "/api/v1/admin/ip_blocks",
-        Some(&ctx.alice_token),
-        &json!({"ip": "192.0.2.99", "severity": "sign_up_block"}),
-    ).await.json().await.unwrap();
+    let block: Value = ctx
+        .api
+        .post_json(
+            "/api/v1/admin/ip_blocks",
+            Some(&ctx.alice_token),
+            &json!({"ip": "192.0.2.99", "severity": "sign_up_block"}),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
     let block_id = block["id"].as_str().unwrap();
 
-    let update_resp = ctx.api.patch_json(
-        &format!("/api/v1/admin/ip_blocks/{block_id}"),
-        Some(&ctx.alice_token),
-        &json!({"ip": "192.0.2.99", "severity": "noop", "comment": "updated"}),
-    ).await;
+    let update_resp = ctx
+        .api
+        .patch_json(
+            &format!("/api/v1/admin/ip_blocks/{block_id}"),
+            Some(&ctx.alice_token),
+            &json!({"ip": "192.0.2.99", "severity": "noop", "comment": "updated"}),
+        )
+        .await;
     assert_eq!(update_resp.status(), StatusCode::OK);
     let updated: Value = update_resp.json().await.unwrap();
     assert_eq!(updated["severity"].as_str(), Some("noop"));
     assert_eq!(updated["comment"].as_str(), Some("updated"));
 
     // Clean up.
-    ctx.api.delete(&format!("/api/v1/admin/ip_blocks/{block_id}"), &ctx.alice_token).await;
+    ctx.api
+        .delete(
+            &format!("/api/v1/admin/ip_blocks/{block_id}"),
+            &ctx.alice_token,
+        )
+        .await;
 }
 
 /// GET /api/v1/admin/custom_emojis returns a JSON array (may be empty).
@@ -550,7 +763,10 @@ async fn test_admin_list_custom_emojis() {
     let ctx = TestContext::new("admin-emojis").await;
     make_admin(&ctx).await;
 
-    let resp = ctx.api.get("/api/v1/admin/custom_emojis", Some(&ctx.alice_token)).await;
+    let resp = ctx
+        .api
+        .get("/api/v1/admin/custom_emojis", Some(&ctx.alice_token))
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let _: Vec<Value> = resp.json().await.unwrap();
 }
@@ -562,39 +778,65 @@ async fn test_admin_list_accounts_filter_by_status() {
     make_admin(&ctx).await;
 
     // Before suspension, status=suspended should not include bob.
-    let before: Vec<Value> = ctx.api.get(
-        "/api/v1/admin/accounts?status=suspended",
-        Some(&ctx.alice_token),
-    ).await.json().await.unwrap();
+    let before: Vec<Value> = ctx
+        .api
+        .get(
+            "/api/v1/admin/accounts?status=suspended",
+            Some(&ctx.alice_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(
-        before.iter().all(|a| a["suspended"].as_bool() != Some(false)),
+        before
+            .iter()
+            .all(|a| a["suspended"].as_bool() != Some(false)),
         "status=suspended should only return suspended accounts",
     );
 
     // Suspend bob.
-    ctx.api.post_json(
-        &format!("/api/v1/admin/accounts/{}/suspend", ctx.bob_id),
-        Some(&ctx.alice_token),
-        &json!({}),
-    ).await;
+    ctx.api
+        .post_json(
+            &format!("/api/v1/admin/accounts/{}/suspend", ctx.bob_id),
+            Some(&ctx.alice_token),
+            &json!({}),
+        )
+        .await;
 
     // Now bob should appear in status=suspended results.
-    let after: Vec<Value> = ctx.api.get(
-        "/api/v1/admin/accounts?status=suspended",
-        Some(&ctx.alice_token),
-    ).await.json().await.unwrap();
+    let after: Vec<Value> = ctx
+        .api
+        .get(
+            "/api/v1/admin/accounts?status=suspended",
+            Some(&ctx.alice_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(
-        after.iter().any(|a| a["id"].as_str() == Some(ctx.bob_id.as_str())),
+        after
+            .iter()
+            .any(|a| a["id"].as_str() == Some(ctx.bob_id.as_str())),
         "bob should appear in status=suspended after suspension",
     );
 
     // status=active should NOT include bob now.
-    let active: Vec<Value> = ctx.api.get(
-        "/api/v1/admin/accounts?status=active",
-        Some(&ctx.alice_token),
-    ).await.json().await.unwrap();
+    let active: Vec<Value> = ctx
+        .api
+        .get(
+            "/api/v1/admin/accounts?status=active",
+            Some(&ctx.alice_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(
-        active.iter().all(|a| a["id"].as_str() != Some(ctx.bob_id.as_str())),
+        active
+            .iter()
+            .all(|a| a["id"].as_str() != Some(ctx.bob_id.as_str())),
         "suspended bob should not appear in status=active",
     );
 }
@@ -606,21 +848,31 @@ async fn test_admin_reject_account() {
     make_admin(&ctx).await;
 
     // Create a fresh context to get an account to reject that doesn't affect other tests.
-    let resp = ctx.api.post_json(
-        &format!("/api/v1/admin/accounts/{}/reject", ctx.bob_id),
-        Some(&ctx.alice_token),
-        &json!({}),
-    ).await;
+    let resp = ctx
+        .api
+        .post_json(
+            &format!("/api/v1/admin/accounts/{}/reject", ctx.bob_id),
+            Some(&ctx.alice_token),
+            &json!({}),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
 
     // Bob should now be suspended.
-    let get_resp = ctx.api.get(
-        &format!("/api/v1/admin/accounts/{}", ctx.bob_id),
-        Some(&ctx.alice_token),
-    ).await;
+    let get_resp = ctx
+        .api
+        .get(
+            &format!("/api/v1/admin/accounts/{}", ctx.bob_id),
+            Some(&ctx.alice_token),
+        )
+        .await;
     assert_eq!(get_resp.status(), StatusCode::OK);
     let acc: Value = get_resp.json().await.unwrap();
-    assert_eq!(acc["suspended"].as_bool(), Some(true), "bob should be suspended after reject");
+    assert_eq!(
+        acc["suspended"].as_bool(),
+        Some(true),
+        "bob should be suspended after reject"
+    );
 }
 
 /// admin/accounts?status=active returns approved, non-suspended accounts.
@@ -629,14 +881,22 @@ async fn test_admin_list_accounts_active_includes_approved_users() {
     let ctx = TestContext::new("admin-active-filter").await;
     make_admin(&ctx).await;
 
-    let active: Vec<Value> = ctx.api.get(
-        "/api/v1/admin/accounts?status=active",
-        Some(&ctx.alice_token),
-    ).await.json().await.unwrap();
+    let active: Vec<Value> = ctx
+        .api
+        .get(
+            "/api/v1/admin/accounts?status=active",
+            Some(&ctx.alice_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
 
     // Alice is an approved, non-suspended user: she should appear in status=active.
     assert!(
-        active.iter().any(|a| a["id"].as_str() == Some(ctx.alice_id.as_str())),
+        active
+            .iter()
+            .any(|a| a["id"].as_str() == Some(ctx.alice_id.as_str())),
         "alice (approved, not suspended) should appear in status=active",
     );
     // Suspended or silenced accounts must not appear.
@@ -660,24 +920,37 @@ async fn test_admin_list_accounts_pending_filter() {
 
     // Set bob's approved_at to NULL to simulate a pending account.
     let db = ctx.db.clone();
-    sqlx::query!("UPDATE users SET approved = false WHERE account_id = $1", bob_uuid)
-        .execute(&db)
+    sqlx::query!(
+        "UPDATE users SET approved = false WHERE account_id = $1",
+        bob_uuid
+    )
+    .execute(&db)
+    .await
+    .unwrap();
+
+    let pending: Vec<Value> = ctx
+        .api
+        .get(
+            "/api/v1/admin/accounts?status=pending",
+            Some(&ctx.alice_token),
+        )
+        .await
+        .json()
         .await
         .unwrap();
 
-    let pending: Vec<Value> = ctx.api.get(
-        "/api/v1/admin/accounts?status=pending",
-        Some(&ctx.alice_token),
-    ).await.json().await.unwrap();
-
     // Bob should appear in pending.
     assert!(
-        pending.iter().any(|a| a["id"].as_str() == Some(ctx.bob_id.as_str())),
+        pending
+            .iter()
+            .any(|a| a["id"].as_str() == Some(ctx.bob_id.as_str())),
         "bob (approved_at=NULL) should appear in status=pending: {pending:?}",
     );
     // Alice (approved) should NOT appear in pending.
     assert!(
-        !pending.iter().any(|a| a["id"].as_str() == Some(ctx.alice_id.as_str())),
+        !pending
+            .iter()
+            .any(|a| a["id"].as_str() == Some(ctx.alice_id.as_str())),
         "alice (approved) should not appear in status=pending",
     );
     let _ = alice_uuid; // suppress unused warning
@@ -689,18 +962,32 @@ async fn test_admin_accounts_ordered_by_id_desc() {
     let ctx = TestContext::new("admin-acct-order").await;
     make_admin(&ctx).await;
 
-    let accounts: Vec<serde_json::Value> = ctx.api.get(
-        "/api/v1/admin/accounts",
-        Some(&ctx.alice_token),
-    ).await.json().await.unwrap();
+    let accounts: Vec<serde_json::Value> = ctx
+        .api
+        .get("/api/v1/admin/accounts", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
 
-    assert!(accounts.len() >= 2, "need at least alice and bob to verify ordering");
+    assert!(
+        accounts.len() >= 2,
+        "need at least alice and bob to verify ordering"
+    );
 
-    let ids: Vec<i64> = accounts.iter()
+    let ids: Vec<i64> = accounts
+        .iter()
         .filter_map(|a| a["id"].as_str().and_then(|s| s.parse::<i64>().ok()))
         .collect();
-    let sorted_desc: Vec<i64> = { let mut s = ids.clone(); s.sort_unstable_by(|a, b| b.cmp(a)); s };
-    assert_eq!(ids, sorted_desc, "admin accounts should be ordered by id DESC");
+    let sorted_desc: Vec<i64> = {
+        let mut s = ids.clone();
+        s.sort_unstable_by(|a, b| b.cmp(a));
+        s
+    };
+    assert_eq!(
+        ids, sorted_desc,
+        "admin accounts should be ordered by id DESC"
+    );
 }
 
 /// GET /api/v1/admin/domain_blocks/:id returns the specific block.
@@ -709,23 +996,37 @@ async fn test_admin_get_domain_block() {
     let ctx = TestContext::new("admin-dblock-get").await;
     make_admin(&ctx).await;
 
-    let block: Value = ctx.api.post_json(
-        "/api/v1/admin/domain_blocks",
-        Some(&ctx.alice_token),
-        &json!({"domain": "gettest.example.com", "severity": "silence"}),
-    ).await.json().await.unwrap();
+    let block: Value = ctx
+        .api
+        .post_json(
+            "/api/v1/admin/domain_blocks",
+            Some(&ctx.alice_token),
+            &json!({"domain": "gettest.example.com", "severity": "silence"}),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
     let block_id = block["id"].as_str().unwrap();
 
-    let resp = ctx.api.get(
-        &format!("/api/v1/admin/domain_blocks/{block_id}"),
-        Some(&ctx.alice_token),
-    ).await;
+    let resp = ctx
+        .api
+        .get(
+            &format!("/api/v1/admin/domain_blocks/{block_id}"),
+            Some(&ctx.alice_token),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let fetched: Value = resp.json().await.unwrap();
     assert_eq!(fetched["id"].as_str(), Some(block_id));
     assert_eq!(fetched["domain"].as_str(), Some("gettest.example.com"));
 
-    ctx.api.delete(&format!("/api/v1/admin/domain_blocks/{block_id}"), &ctx.alice_token).await;
+    ctx.api
+        .delete(
+            &format!("/api/v1/admin/domain_blocks/{block_id}"),
+            &ctx.alice_token,
+        )
+        .await;
 }
 
 /// PATCH /api/v1/admin/domain_blocks/:id updates an existing block.
@@ -734,11 +1035,17 @@ async fn test_admin_update_domain_block() {
     let ctx = TestContext::new("admin-dblock-upd").await;
     make_admin(&ctx).await;
 
-    let block: Value = ctx.api.post_json(
-        "/api/v1/admin/domain_blocks",
-        Some(&ctx.alice_token),
-        &json!({"domain": "patchtest.example.com", "severity": "silence"}),
-    ).await.json().await.unwrap();
+    let block: Value = ctx
+        .api
+        .post_json(
+            "/api/v1/admin/domain_blocks",
+            Some(&ctx.alice_token),
+            &json!({"domain": "patchtest.example.com", "severity": "silence"}),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
     let block_id = block["id"].as_str().unwrap();
 
     let resp = ctx.api.patch_json(
@@ -751,7 +1058,12 @@ async fn test_admin_update_domain_block() {
     assert_eq!(updated["severity"].as_str(), Some("suspend"));
     assert_eq!(updated["reject_media"].as_bool(), Some(true));
 
-    ctx.api.delete(&format!("/api/v1/admin/domain_blocks/{block_id}"), &ctx.alice_token).await;
+    ctx.api
+        .delete(
+            &format!("/api/v1/admin/domain_blocks/{block_id}"),
+            &ctx.alice_token,
+        )
+        .await;
 }
 
 /// GET /api/v1/admin/tags returns a JSON array.
@@ -760,14 +1072,24 @@ async fn test_admin_list_tags() {
     let ctx = TestContext::new("admin-tags-list").await;
     make_admin(&ctx).await;
 
-    ctx.api.post_status(&ctx.alice_token, "Post with #admintag1", "public").await;
+    ctx.api
+        .post_status(&ctx.alice_token, "Post with #admintag1", "public")
+        .await;
 
-    let resp = ctx.api.get("/api/v1/admin/tags?name=admintag1", Some(&ctx.alice_token)).await;
+    let resp = ctx
+        .api
+        .get("/api/v1/admin/tags?name=admintag1", Some(&ctx.alice_token))
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let tags: Vec<Value> = resp.json().await.unwrap();
-    assert!(tags.iter().any(|t| t["name"].as_str() == Some("admintag1")),
-        "created tag should appear in admin tags list: {tags:?}");
-    let tag = tags.iter().find(|t| t["name"].as_str() == Some("admintag1")).unwrap();
+    assert!(
+        tags.iter().any(|t| t["name"].as_str() == Some("admintag1")),
+        "created tag should appear in admin tags list: {tags:?}"
+    );
+    let tag = tags
+        .iter()
+        .find(|t| t["name"].as_str() == Some("admintag1"))
+        .unwrap();
     assert!(tag["id"].as_str().is_some());
     assert!(tag["trendable"].as_bool().is_some());
     assert!(tag["usable"].as_bool().is_some());
@@ -781,19 +1103,34 @@ async fn test_admin_update_tag() {
     let ctx = TestContext::new("admin-tags-upd").await;
     make_admin(&ctx).await;
 
-    ctx.api.post_status(&ctx.alice_token, "Post with #updatabletag", "public").await;
+    ctx.api
+        .post_status(&ctx.alice_token, "Post with #updatabletag", "public")
+        .await;
 
-    let tags: Vec<Value> = ctx.api.get("/api/v1/admin/tags?name=updatabletag", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
-    let tag = tags.iter().find(|t| t["name"].as_str() == Some("updatabletag"))
+    let tags: Vec<Value> = ctx
+        .api
+        .get(
+            "/api/v1/admin/tags?name=updatabletag",
+            Some(&ctx.alice_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    let tag = tags
+        .iter()
+        .find(|t| t["name"].as_str() == Some("updatabletag"))
         .expect("tag not found in admin list");
     let tag_id = tag["id"].as_str().unwrap();
 
-    let resp = ctx.api.patch_json(
-        &format!("/api/v1/admin/tags/{tag_id}"),
-        Some(&ctx.alice_token),
-        &json!({"trendable": true, "usable": true, "listable": true}),
-    ).await;
+    let resp = ctx
+        .api
+        .patch_json(
+            &format!("/api/v1/admin/tags/{tag_id}"),
+            Some(&ctx.alice_token),
+            &json!({"trendable": true, "usable": true, "listable": true}),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let updated: Value = resp.json().await.unwrap();
     assert_eq!(updated["trendable"].as_bool(), Some(true));
@@ -809,7 +1146,10 @@ async fn test_admin_v2_accounts_list() {
     let ctx = TestContext::new("adm-v2-list").await;
     make_admin(&ctx).await;
 
-    let resp = ctx.api.get("/api/v2/admin/accounts", Some(&ctx.alice_token)).await;
+    let resp = ctx
+        .api
+        .get("/api/v2/admin/accounts", Some(&ctx.alice_token))
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let accounts: Vec<Value> = resp.json().await.unwrap();
     assert!(!accounts.is_empty(), "should return at least alice and bob");
@@ -826,14 +1166,26 @@ async fn test_admin_v2_accounts_filter_origin_local() {
     let ctx = TestContext::new("adm-v2-local").await;
     make_admin(&ctx).await;
 
-    let resp = ctx.api.get("/api/v2/admin/accounts?origin=local", Some(&ctx.alice_token)).await;
+    let resp = ctx
+        .api
+        .get(
+            "/api/v2/admin/accounts?origin=local",
+            Some(&ctx.alice_token),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let accounts: Vec<Value> = resp.json().await.unwrap();
     // All returned accounts should be local (no domain)
     for a in &accounts {
-        assert!(a["domain"].is_null(), "expected local account, got domain={:?}", a["domain"]);
+        assert!(
+            a["domain"].is_null(),
+            "expected local account, got domain={:?}",
+            a["domain"]
+        );
     }
-    assert!(accounts.iter().any(|a| a["username"].as_str() == Some("alice")));
+    assert!(accounts
+        .iter()
+        .any(|a| a["username"].as_str() == Some("alice")));
 }
 
 /// origin=remote returns zero accounts when no remote accounts exist.
@@ -842,11 +1194,20 @@ async fn test_admin_v2_accounts_filter_origin_remote() {
     let ctx = TestContext::new("adm-v2-remote").await;
     make_admin(&ctx).await;
 
-    let resp = ctx.api.get("/api/v2/admin/accounts?origin=remote", Some(&ctx.alice_token)).await;
+    let resp = ctx
+        .api
+        .get(
+            "/api/v2/admin/accounts?origin=remote",
+            Some(&ctx.alice_token),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let accounts: Vec<Value> = resp.json().await.unwrap();
     // No remote accounts seeded in test context
-    assert!(accounts.is_empty(), "no remote accounts expected in test instance");
+    assert!(
+        accounts.is_empty(),
+        "no remote accounts expected in test instance"
+    );
 }
 
 /// display_name filter narrows results.
@@ -856,16 +1217,21 @@ async fn test_admin_v2_accounts_filter_display_name() {
     make_admin(&ctx).await;
 
     // Update alice's display_name
-    ctx.api.patch_multipart(
-        "/api/v1/accounts/update_credentials",
-        &ctx.alice_token,
-        &[("display_name", "UniqueDisplayNameXYZ")],
-    ).await;
+    ctx.api
+        .patch_multipart(
+            "/api/v1/accounts/update_credentials",
+            &ctx.alice_token,
+            &[("display_name", "UniqueDisplayNameXYZ")],
+        )
+        .await;
 
-    let resp = ctx.api.get(
-        "/api/v2/admin/accounts?display_name=UniqueDisplayNameXYZ",
-        Some(&ctx.alice_token),
-    ).await;
+    let resp = ctx
+        .api
+        .get(
+            "/api/v2/admin/accounts?display_name=UniqueDisplayNameXYZ",
+            Some(&ctx.alice_token),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let accounts: Vec<Value> = resp.json().await.unwrap();
     assert_eq!(accounts.len(), 1);

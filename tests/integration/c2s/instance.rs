@@ -35,7 +35,10 @@ async fn test_instance_v2() {
 async fn test_instance_extended_description() {
     let ctx = TestContext::new("inst-ext").await;
 
-    let resp = ctx.api.get("/api/v1/instance/extended_description", None).await;
+    let resp = ctx
+        .api
+        .get("/api/v1/instance/extended_description", None)
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
 }
 
@@ -63,7 +66,10 @@ async fn test_instance_privacy_policy() {
 async fn test_instance_translation_languages() {
     let ctx = TestContext::new("inst-trans").await;
 
-    let resp = ctx.api.get("/api/v1/instance/translation_languages", None).await;
+    let resp = ctx
+        .api
+        .get("/api/v1/instance/translation_languages", None)
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
 }
 
@@ -72,20 +78,26 @@ async fn test_instance_translation_languages() {
 async fn test_register_app() {
     let ctx = TestContext::new("oauth-app").await;
 
-    let resp = ctx.api.post_json(
-        "/api/v1/apps",
-        None,
-        &json!({
-            "client_name": "Test App",
-            "redirect_uris": "urn:ietf:wg:oauth:2.0:oob",
-            "scopes": "read write"
-        }),
-    ).await;
+    let resp = ctx
+        .api
+        .post_json(
+            "/api/v1/apps",
+            None,
+            &json!({
+                "client_name": "Test App",
+                "redirect_uris": "urn:ietf:wg:oauth:2.0:oob",
+                "scopes": "read write"
+            }),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let body: Value = resp.json().await.unwrap();
 
     assert!(body["client_id"].as_str().is_some(), "client_id missing");
-    assert!(body["client_secret"].as_str().is_some(), "client_secret missing");
+    assert!(
+        body["client_secret"].as_str().is_some(),
+        "client_secret missing"
+    );
     assert_eq!(body["name"].as_str(), Some("Test App"));
 }
 
@@ -94,7 +106,10 @@ async fn test_register_app() {
 async fn test_get_announcements() {
     let ctx = TestContext::new("announce").await;
 
-    let resp = ctx.api.get("/api/v1/announcements", Some(&ctx.alice_token)).await;
+    let resp = ctx
+        .api
+        .get("/api/v1/announcements", Some(&ctx.alice_token))
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let _: Vec<Value> = resp.json().await.unwrap();
 }
@@ -144,11 +159,14 @@ async fn test_trending_links() {
 async fn test_email_confirmations_endpoint() {
     let ctx = TestContext::new("email-confirm").await;
 
-    let resp = ctx.api.post_json(
-        "/api/v1/emails/confirmations",
-        Some(&ctx.alice_token),
-        &json!({}),
-    ).await;
+    let resp = ctx
+        .api
+        .post_json(
+            "/api/v1/emails/confirmations",
+            Some(&ctx.alice_token),
+            &json!({}),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
 }
 
@@ -170,26 +188,54 @@ async fn test_announcement_dismiss() {
     .unwrap();
 
     // Get announcements — should appear as unread.
-    let before: Vec<Value> = ctx.api.get("/api/v1/announcements", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
-    let ann = before.iter().find(|a| a["id"].as_str().and_then(|s| s.parse::<i64>().ok()) == Some(ann_id));
+    let before: Vec<Value> = ctx
+        .api
+        .get("/api/v1/announcements", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+    let ann = before
+        .iter()
+        .find(|a| a["id"].as_str().and_then(|s| s.parse::<i64>().ok()) == Some(ann_id));
     assert!(ann.is_some(), "announcement should appear in list");
-    assert_eq!(ann.unwrap()["read"].as_bool(), Some(false), "should be unread initially");
+    assert_eq!(
+        ann.unwrap()["read"].as_bool(),
+        Some(false),
+        "should be unread initially"
+    );
 
     // Dismiss it.
-    let dismiss_resp = ctx.api.post_json(
-        &format!("/api/v1/announcements/{ann_id}/dismiss"),
-        Some(&ctx.alice_token),
-        &json!({}),
-    ).await;
+    let dismiss_resp = ctx
+        .api
+        .post_json(
+            &format!("/api/v1/announcements/{ann_id}/dismiss"),
+            Some(&ctx.alice_token),
+            &json!({}),
+        )
+        .await;
     assert_eq!(dismiss_resp.status(), StatusCode::OK);
 
     // After dismissal it should appear as read.
-    let after: Vec<Value> = ctx.api.get("/api/v1/announcements", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
-    let ann2 = after.iter().find(|a| a["id"].as_str().and_then(|s| s.parse::<i64>().ok()) == Some(ann_id));
-    assert!(ann2.is_some(), "announcement should still appear after dismiss");
-    assert_eq!(ann2.unwrap()["read"].as_bool(), Some(true), "should be read after dismiss");
+    let after: Vec<Value> = ctx
+        .api
+        .get("/api/v1/announcements", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+    let ann2 = after
+        .iter()
+        .find(|a| a["id"].as_str().and_then(|s| s.parse::<i64>().ok()) == Some(ann_id));
+    assert!(
+        ann2.is_some(),
+        "announcement should still appear after dismiss"
+    );
+    assert_eq!(
+        ann2.unwrap()["read"].as_bool(),
+        Some(true),
+        "should be read after dismiss"
+    );
 }
 
 /// GET /api/v1/instance/activity returns an array of weekly stats.
@@ -198,7 +244,9 @@ async fn test_instance_activity_returns_array() {
     let ctx = TestContext::new("inst-activity").await;
 
     // Post a status so there's activity to count
-    ctx.api.post_status(&ctx.alice_token, "some activity", "public").await;
+    ctx.api
+        .post_status(&ctx.alice_token, "some activity", "public")
+        .await;
 
     let resp = ctx.api.get("/api/v1/instance/activity", None).await;
     assert_eq!(resp.status(), StatusCode::OK);
@@ -208,13 +256,18 @@ async fn test_instance_activity_returns_array() {
 
     // Each entry should have the required fields as strings
     if let Some(entry) = body.as_array().and_then(|a| a.first()) {
-        assert!(entry["week"].is_string(), "week should be a string timestamp");
+        assert!(
+            entry["week"].is_string(),
+            "week should be a string timestamp"
+        );
         assert!(entry["statuses"].is_string(), "statuses should be a string");
         assert!(entry["logins"].is_string(), "logins should be a string");
-        assert!(entry["registrations"].is_string(), "registrations should be a string");
+        assert!(
+            entry["registrations"].is_string(),
+            "registrations should be a string"
+        );
     }
 }
-
 
 /// GET /api/v1/instance/rules returns an array (may be empty).
 #[tokio::test]
@@ -225,7 +278,10 @@ async fn test_instance_rules_returns_array() {
     assert_eq!(resp.status(), StatusCode::OK);
 
     let body: serde_json::Value = resp.json().await.unwrap();
-    assert!(body.is_array(), "instance/rules should return an array, got: {body:?}");
+    assert!(
+        body.is_array(),
+        "instance/rules should return an array, got: {body:?}"
+    );
 }
 
 /// GET /api/v1/peers/search?q= returns matching peer domains.

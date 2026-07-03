@@ -8,13 +8,13 @@ use serde::Deserialize;
 
 use super::extractors::FormOrJson;
 
+use super::types::{AppCredentials, CredentialApplication, Token};
 use crate::{
     db::models::OauthApplication,
     error::{AppError, AppResult},
     middleware::ResolvedInstance,
     state::AppState,
 };
-use super::types::{AppCredentials, CredentialApplication, Token};
 
 // ── GET /api/v1/apps/verify_credentials ───────────────────────────────────
 
@@ -42,12 +42,18 @@ pub async fn verify_app_credentials(
     .ok_or(AppError::Unauthorized)?;
 
     let uris: Vec<String> = row.redirect_uri.lines().map(str::to_owned).collect();
-    let redirect_uri = uris.first().cloned().unwrap_or_else(|| row.redirect_uri.clone());
+    let redirect_uri = uris
+        .first()
+        .cloned()
+        .unwrap_or_else(|| row.redirect_uri.clone());
     Ok(Json(AppCredentials {
         id: row.id.to_string(),
         name: row.name,
         website: row.website,
-        scopes: normalize_scopes(&row.scopes).split_whitespace().map(str::to_owned).collect(),
+        scopes: normalize_scopes(&row.scopes)
+            .split_whitespace()
+            .map(str::to_owned)
+            .collect(),
         redirect_uri,
         redirect_uris: uris,
         vapid_key: Some(instance.vapid_public_key.clone()),
@@ -71,7 +77,9 @@ pub async fn register_app(
 ) -> AppResult<Json<CredentialApplication>> {
     let client_id = generate_token(32);
     let client_secret = generate_token(64);
-    let redirect_uris = form.redirect_uris.unwrap_or_else(|| "urn:ietf:wg:oauth:2.0:oob".into());
+    let redirect_uris = form
+        .redirect_uris
+        .unwrap_or_else(|| "urn:ietf:wg:oauth:2.0:oob".into());
     let scopes = normalize_scopes(&form.scopes.unwrap_or_else(|| "read".into()));
     validate_oauth_scopes(&scopes)?;
 
@@ -96,12 +104,18 @@ pub async fn register_app(
 
 fn app_to_credential(app: &OauthApplication, vapid_key: &str) -> CredentialApplication {
     let uris: Vec<String> = app.redirect_uri.lines().map(str::to_owned).collect();
-    let redirect_uri = uris.first().cloned().unwrap_or_else(|| app.redirect_uri.clone());
+    let redirect_uri = uris
+        .first()
+        .cloned()
+        .unwrap_or_else(|| app.redirect_uri.clone());
     CredentialApplication {
         id: app.id.to_string(),
         name: app.name.clone(),
         website: app.website.clone(),
-        scopes: normalize_scopes(app.scopes.as_deref().unwrap_or("read")).split_whitespace().map(str::to_owned).collect(),
+        scopes: normalize_scopes(app.scopes.as_deref().unwrap_or("read"))
+            .split_whitespace()
+            .map(str::to_owned)
+            .collect(),
         redirect_uri,
         redirect_uris: uris,
         client_id: app.uid.clone(),
@@ -155,10 +169,16 @@ pub async fn issue_token(
     }
 
     let (user_id, scopes) = match form.grant_type.as_str() {
-        "client_credentials" => (None, app.scopes.clone().unwrap_or_else(|| "read".to_string())),
+        "client_credentials" => (
+            None,
+            app.scopes.clone().unwrap_or_else(|| "read".to_string()),
+        ),
 
         "authorization_code" => {
-            let code_str = form.code.as_deref().ok_or(AppError::Unprocessable("missing code".into()))?;
+            let code_str = form
+                .code
+                .as_deref()
+                .ok_or(AppError::Unprocessable("missing code".into()))?;
             let code = sqlx::query!(
                 r#"DELETE FROM oauth_access_grants
                    WHERE token = $1 AND application_id = $2
@@ -185,12 +205,21 @@ pub async fn issue_token(
             .fetch_optional(&state.db)
             .await?
             .ok_or(AppError::Unauthorized)?;
-            (Some(code.resource_owner_id), code.scopes.unwrap_or_else(|| "read".to_string()))
+            (
+                Some(code.resource_owner_id),
+                code.scopes.unwrap_or_else(|| "read".to_string()),
+            )
         }
 
         "password" => {
-            let username = form.username.as_deref().ok_or(AppError::Unprocessable("missing username".into()))?;
-            let password = form.password.as_deref().ok_or(AppError::Unprocessable("missing password".into()))?;
+            let username = form
+                .username
+                .as_deref()
+                .ok_or(AppError::Unprocessable("missing username".into()))?;
+            let password = form
+                .password
+                .as_deref()
+                .ok_or(AppError::Unprocessable("missing password".into()))?;
             let user = sqlx::query!(
                 r#"SELECT u.id, u.encrypted_password, u.account_id
                    FROM users u
@@ -216,7 +245,15 @@ pub async fn issue_token(
             .execute(&state.db)
             .await?;
 
-            (Some(user.id), normalize_scopes(form.scope.as_deref().or(app.scopes.as_deref()).unwrap_or("read")))
+            (
+                Some(user.id),
+                normalize_scopes(
+                    form.scope
+                        .as_deref()
+                        .or(app.scopes.as_deref())
+                        .unwrap_or("read"),
+                ),
+            )
         }
 
         _ => return Err(AppError::Unprocessable("unsupported grant_type".into())),
@@ -280,20 +317,53 @@ fn normalize_scopes(s: &str) -> String {
 /// registration with any scope outside this set is rejected
 /// (`enforce_configured_scopes`).
 const VALID_OAUTH_SCOPES: &[&str] = &[
-    "read", "write", "follow", "push", "profile",
-    "read:accounts", "read:blocks", "read:bookmarks", "read:collections",
-    "read:favourites", "read:filters", "read:follows", "read:lists", "read:mutes",
-    "read:notifications", "read:search", "read:statuses",
-    "write:accounts", "write:blocks", "write:bookmarks", "write:collections",
-    "write:conversations", "write:favourites", "write:filters", "write:follows",
-    "write:lists", "write:media", "write:mutes", "write:notifications",
-    "write:reports", "write:statuses",
-    "admin:read", "admin:read:accounts", "admin:read:reports",
-    "admin:read:domain_allows", "admin:read:domain_blocks", "admin:read:ip_blocks",
-    "admin:read:email_domain_blocks", "admin:read:canonical_email_blocks",
-    "admin:write", "admin:write:accounts", "admin:write:reports",
-    "admin:write:domain_allows", "admin:write:domain_blocks", "admin:write:ip_blocks",
-    "admin:write:email_domain_blocks", "admin:write:canonical_email_blocks",
+    "read",
+    "write",
+    "follow",
+    "push",
+    "profile",
+    "read:accounts",
+    "read:blocks",
+    "read:bookmarks",
+    "read:collections",
+    "read:favourites",
+    "read:filters",
+    "read:follows",
+    "read:lists",
+    "read:mutes",
+    "read:notifications",
+    "read:search",
+    "read:statuses",
+    "write:accounts",
+    "write:blocks",
+    "write:bookmarks",
+    "write:collections",
+    "write:conversations",
+    "write:favourites",
+    "write:filters",
+    "write:follows",
+    "write:lists",
+    "write:media",
+    "write:mutes",
+    "write:notifications",
+    "write:reports",
+    "write:statuses",
+    "admin:read",
+    "admin:read:accounts",
+    "admin:read:reports",
+    "admin:read:domain_allows",
+    "admin:read:domain_blocks",
+    "admin:read:ip_blocks",
+    "admin:read:email_domain_blocks",
+    "admin:read:canonical_email_blocks",
+    "admin:write",
+    "admin:write:accounts",
+    "admin:write:reports",
+    "admin:write:domain_allows",
+    "admin:write:domain_blocks",
+    "admin:write:ip_blocks",
+    "admin:write:email_domain_blocks",
+    "admin:write:canonical_email_blocks",
 ];
 
 /// Reject app registration requesting a scope Mastodon wouldn't configure.
@@ -356,7 +426,12 @@ pub struct ElkLoginBody {
 /// This matches Elk's `getRedirectURI(origin, server)` in server/utils/shared.ts.
 fn elk_redirect_uri(origin: &str, server: &str) -> String {
     let origin = origin.trim_end_matches('/');
-    format!("{}/api/{}/oauth/{}", origin, server, urlencoding::encode(origin))
+    format!(
+        "{}/api/{}/oauth/{}",
+        origin,
+        server,
+        urlencoding::encode(origin)
+    )
 }
 
 pub async fn elk_login(
@@ -387,7 +462,10 @@ pub async fn elk_login(
             )
             .execute(&state.db)
             .await?;
-            OauthApplication { redirect_uri: redirect_uri.clone(), ..a }
+            OauthApplication {
+                redirect_uri: redirect_uri.clone(),
+                ..a
+            }
         }
         None => {
             let client_id = generate_token(32);
@@ -464,7 +542,10 @@ pub async fn elk_oauth_callback(
     {
         Some(a) => a,
         None => {
-            tracing::warn!("elk_oauth_callback: no Elk app found for {}", instance.domain);
+            tracing::warn!(
+                "elk_oauth_callback: no Elk app found for {}",
+                instance.domain
+            );
             return Redirect::to(&format!("{}/signin/callback?error=no_app", origin))
                 .into_response();
         }
@@ -519,8 +600,7 @@ pub async fn elk_oauth_callback(
 
     if !db_ok {
         tracing::error!("elk_oauth_callback: failed to insert access token");
-        return Redirect::to(&format!("{}/signin/callback?error=db_error", origin))
-            .into_response();
+        return Redirect::to(&format!("{}/signin/callback?error=db_error", origin)).into_response();
     }
 
     tracing::info!(
@@ -577,31 +657,34 @@ pub async fn authorize_form(
         )
             .into_response();
     }
-    let (toggle_en_url, toggle_ko_url) = authorize_toggle_urls(
-        &params.client_id, &params.redirect_uri, scope,
-    );
+    let (toggle_en_url, toggle_ko_url) =
+        authorize_toggle_urls(&params.client_id, &params.redirect_uri, scope);
     let signup_url = format!("/auth/signup?lang={}", locale.as_str());
-    let html = crate::templates::render("authorize.html", minijinja::context! {
-        domain => instance.domain,
-        app_name => app.name,
-        client_id => params.client_id,
-        redirect_uri => params.redirect_uri,
-        scope => scope,
-        error => "",
-        lang => locale.as_str(),
-        toggle_en_url => toggle_en_url,
-        toggle_ko_url => toggle_ko_url,
-        registrations_open => instance.registrations_open,
-        signup_url => signup_url,
-        t_sign_in_to => locale.t("sign_in_to"),
-        t_authorize => locale.t("authorize"),
-        t_email => locale.t("email"),
-        t_password => locale.t("password"),
-        t_sign_in => locale.t("sign_in"),
-        t_no_account => locale.t("no_account"),
-        t_sign_up => locale.t("sign_up"),
-    });
-    Html(html).into_response()}
+    let html = crate::templates::render(
+        "authorize.html",
+        minijinja::context! {
+            domain => instance.domain,
+            app_name => app.name,
+            client_id => params.client_id,
+            redirect_uri => params.redirect_uri,
+            scope => scope,
+            error => "",
+            lang => locale.as_str(),
+            toggle_en_url => toggle_en_url,
+            toggle_ko_url => toggle_ko_url,
+            registrations_open => instance.registrations_open,
+            signup_url => signup_url,
+            t_sign_in_to => locale.t("sign_in_to"),
+            t_authorize => locale.t("authorize"),
+            t_email => locale.t("email"),
+            t_password => locale.t("password"),
+            t_sign_in => locale.t("sign_in"),
+            t_no_account => locale.t("no_account"),
+            t_sign_up => locale.t("sign_up"),
+        },
+    );
+    Html(html).into_response()
+}
 
 fn authorize_toggle_urls(client_id: &str, redirect_uri: &str, scope: &str) -> (String, String) {
     let enc_redirect = urlencoding::encode(redirect_uri);
@@ -612,7 +695,6 @@ fn authorize_toggle_urls(client_id: &str, redirect_uri: &str, scope: &str) -> (S
     );
     (format!("{}&lang=en", base), format!("{}&lang=ko", base))
 }
-
 
 // ── POST /oauth/authorize ──────────────────────────────────────────────────
 
@@ -646,39 +728,38 @@ pub async fn authorize_submit(
         Ok(redirect_url) => Redirect::to(&redirect_url).into_response(),
         Err(_) => {
             let scope = form.scope.as_deref().unwrap_or("read");
-            let (toggle_en_url, toggle_ko_url) = authorize_toggle_urls(
-                &form.client_id, &form.redirect_uri, scope,
-            );
+            let (toggle_en_url, toggle_ko_url) =
+                authorize_toggle_urls(&form.client_id, &form.redirect_uri, scope);
             let signup_url = format!("/auth/signup?lang={}", locale.as_str());
-            let html = crate::templates::render("authorize.html", minijinja::context! {
-                domain => instance.domain,
-                app_name => app_name,
-                client_id => form.client_id,
-                redirect_uri => form.redirect_uri,
-                scope => scope,
-                error => locale.t("invalid_credentials"),
-                lang => locale.as_str(),
-                toggle_en_url => toggle_en_url,
-                toggle_ko_url => toggle_ko_url,
-                registrations_open => instance.registrations_open,
-                signup_url => signup_url,
-                t_sign_in_to => locale.t("sign_in_to"),
-                t_authorize => locale.t("authorize"),
-                t_email => locale.t("email"),
-                t_password => locale.t("password"),
-                t_sign_in => locale.t("sign_in"),
-                t_no_account => locale.t("no_account"),
-                t_sign_up => locale.t("sign_up"),
-            });
+            let html = crate::templates::render(
+                "authorize.html",
+                minijinja::context! {
+                    domain => instance.domain,
+                    app_name => app_name,
+                    client_id => form.client_id,
+                    redirect_uri => form.redirect_uri,
+                    scope => scope,
+                    error => locale.t("invalid_credentials"),
+                    lang => locale.as_str(),
+                    toggle_en_url => toggle_en_url,
+                    toggle_ko_url => toggle_ko_url,
+                    registrations_open => instance.registrations_open,
+                    signup_url => signup_url,
+                    t_sign_in_to => locale.t("sign_in_to"),
+                    t_authorize => locale.t("authorize"),
+                    t_email => locale.t("email"),
+                    t_password => locale.t("password"),
+                    t_sign_in => locale.t("sign_in"),
+                    t_no_account => locale.t("no_account"),
+                    t_sign_up => locale.t("sign_up"),
+                },
+            );
             Html(html).into_response()
         }
     }
 }
 
-async fn do_authorize(
-    state: &AppState,
-    form: &AuthorizeForm,
-) -> Result<String, String> {
+async fn do_authorize(state: &AppState, form: &AuthorizeForm) -> Result<String, String> {
     let app = sqlx::query_as!(
         OauthApplication,
         "SELECT * FROM oauth_applications WHERE uid = $1",
@@ -705,7 +786,10 @@ async fn do_authorize(
     verify_password(&form.password, &user.encrypted_password)
         .map_err(|_| "Invalid email or password".to_string())?;
 
-    let scopes = form.scope.clone().unwrap_or_else(|| app.scopes.clone().unwrap_or_else(|| "read".to_string()));
+    let scopes = form
+        .scope
+        .clone()
+        .unwrap_or_else(|| app.scopes.clone().unwrap_or_else(|| "read".to_string()));
     // The granted scope must stay within the app's registered scopes.
     if !scope_is_subset(&scopes, app.scopes.as_deref().unwrap_or("read")) {
         return Err("invalid_scope".to_string());
@@ -726,6 +810,10 @@ async fn do_authorize(
     .await
     .map_err(|_| "Database error".to_string())?;
 
-    let sep = if form.redirect_uri.contains('?') { '&' } else { '?' };
+    let sep = if form.redirect_uri.contains('?') {
+        '&'
+    } else {
+        '?'
+    };
     Ok(format!("{}{}code={}", form.redirect_uri, sep, code))
 }

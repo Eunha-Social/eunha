@@ -4,15 +4,19 @@ use axum::{
 };
 use serde::Deserialize;
 
+use super::{
+    accounts::{
+        batch_account_emojis, batch_account_roles, batch_reblog_data, batch_status_cards,
+        batch_status_emojis, batch_status_media, batch_status_mentions, batch_status_polls,
+        batch_statuses_tags,
+    },
+    convert::status_from_db,
+    types::{Status, Tag},
+};
 use crate::{
     error::AppResult,
     middleware::{AuthenticatedUser, ResolvedInstance},
     state::AppState,
-};
-use super::{
-    accounts::{batch_account_emojis, batch_account_roles, batch_reblog_data, batch_status_cards, batch_status_emojis, batch_status_media, batch_status_mentions, batch_status_polls, batch_statuses_tags},
-    convert::status_from_db,
-    types::{Status, Tag},
 };
 
 #[derive(Debug, Deserialize)]
@@ -46,7 +50,8 @@ pub async fn trending_tags(
            GROUP BY t.id, t.name
            ORDER BY uses DESC, t.name ASC
            LIMIT $1 OFFSET $2"#,
-        limit, offset,
+        limit,
+        offset,
     )
     .fetch_all(&state.db)
     .await?;
@@ -54,31 +59,32 @@ pub async fn trending_tags(
     let tag_ids: Vec<i64> = rows.iter().map(|r| r.id).collect();
     let histories = super::tags::fetch_tags_histories(&state.db, &tag_ids).await;
 
-    let (following_set, featuring_set) = if let Some(vid) = viewer_id {
-        let followed: std::collections::HashSet<i64> = sqlx::query_scalar!(
+    let (following_set, featuring_set) =
+        if let Some(vid) = viewer_id {
+            let followed: std::collections::HashSet<i64> = sqlx::query_scalar!(
             "SELECT tag_id FROM tag_follows WHERE account_id = $1 AND tag_id = ANY($2::bigint[])",
             vid, &tag_ids,
         )
-        .fetch_all(&state.db)
-        .await
-        .unwrap_or_default()
-        .into_iter()
-        .collect();
+            .fetch_all(&state.db)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
 
-        let featured: std::collections::HashSet<i64> = sqlx::query_scalar!(
+            let featured: std::collections::HashSet<i64> = sqlx::query_scalar!(
             "SELECT tag_id FROM featured_tags WHERE account_id = $1 AND tag_id = ANY($2::bigint[])",
             vid, &tag_ids,
         )
-        .fetch_all(&state.db)
-        .await
-        .unwrap_or_default()
-        .into_iter()
-        .collect();
+            .fetch_all(&state.db)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
 
-        (Some(followed), Some(featured))
-    } else {
-        (None, None)
-    };
+            (Some(followed), Some(featured))
+        } else {
+            (None, None)
+        };
 
     let tags: Vec<Tag> = rows
         .into_iter()
@@ -90,7 +96,11 @@ pub async fn trending_tags(
                 id: r.id.to_string(),
                 history: histories.get(&r.id).cloned().unwrap_or_default(),
                 name: r.name,
-                url: format!("https://{}/tags/{}", domain, urlencoding::encode(&name_lower)),
+                url: format!(
+                    "https://{}/tags/{}",
+                    domain,
+                    urlencoding::encode(&name_lower)
+                ),
                 following,
                 featuring,
             }
@@ -152,7 +162,9 @@ pub async fn trending_statuses(
     enrich_ids.extend_from_slice(&reblog_ids);
     let tags_map = batch_statuses_tags(&state, &enrich_ids).await?;
     let mentions_map = batch_status_mentions(&state, &enrich_ids).await?;
-    let all_statuses_for_emoji: Vec<crate::db::models::Status> = rows.iter().cloned()
+    let all_statuses_for_emoji: Vec<crate::db::models::Status> = rows
+        .iter()
+        .cloned()
         .chain(reblog_map.values().map(|(rs, _, _)| rs.clone()))
         .collect();
     let emojis_map = batch_status_emojis(&state, &all_statuses_for_emoji).await?;
@@ -164,8 +176,12 @@ pub async fn trending_statuses(
         std::collections::HashMap::new()
     };
 
-    let account_ids: Vec<i64> = rows.iter().map(|s| s.account_id)
-        .collect::<std::collections::HashSet<_>>().into_iter().collect();
+    let account_ids: Vec<i64> = rows
+        .iter()
+        .map(|s| s.account_id)
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
     let accounts: Vec<crate::db::models::Account> = sqlx::query_as!(
         crate::db::models::Account,
         "SELECT * FROM accounts WHERE id = ANY($1::bigint[])",
@@ -179,7 +195,8 @@ pub async fn trending_statuses(
     // Batch-fetch profile emojis for all accounts
     let all_accounts_for_emoji: Vec<crate::db::models::Account> = {
         let mut seen = std::collections::HashSet::new();
-        account_map.values()
+        account_map
+            .values()
             .chain(reblog_map.values().map(|(_, ra, _)| ra))
             .filter(|a| seen.insert(a.id))
             .cloned()
@@ -190,18 +207,27 @@ pub async fn trending_statuses(
 
     let mut result = Vec::with_capacity(rows.len());
     for s in &rows {
-        let Some(account) = account_map.get(&s.account_id) else { continue };
+        let Some(account) = account_map.get(&s.account_id) else {
+            continue;
+        };
         let media = media_map.get(&s.id).cloned().unwrap_or_default();
         let reblog = reblog_map.get(&s.id).cloned();
         let mentions = mentions_map.get(&s.id).cloned().unwrap_or_default();
-        let rb_mentions = reblog.as_ref()
+        let rb_mentions = reblog
+            .as_ref()
             .and_then(|(rs, _, _)| mentions_map.get(&rs.id))
             .cloned()
             .unwrap_or_default();
         let ctx = ctxs.get(&s.id).cloned();
         let mut api = status_from_db(s, account, media, reblog, ctx, &mentions, &rb_mentions);
-        api.account.emojis = account_emojis_map.get(&account.id).cloned().unwrap_or_default();
-        api.account.roles = account_roles_map.get(&account.id).cloned().unwrap_or_default();
+        api.account.emojis = account_emojis_map
+            .get(&account.id)
+            .cloned()
+            .unwrap_or_default();
+        api.account.roles = account_roles_map
+            .get(&account.id)
+            .cloned()
+            .unwrap_or_default();
         api.tags = tags_map.get(&s.id).cloned().unwrap_or_default();
         api.mentions = mentions;
         api.emojis = emojis_map.get(&s.id).cloned().unwrap_or_default();
@@ -255,28 +281,31 @@ pub async fn trending_links(
     .fetch_all(&state.db)
     .await?;
 
-    let cards = rows.into_iter().map(|r| super::types::PreviewCard {
-        url: r.url,
-        title: r.title,
-        description: r.description,
-        card_type: r.card_type,
-        author_name: r.author_name,
-        author_url: r.author_url,
-        provider_name: r.provider_name,
-        provider_url: r.provider_url,
-        html: r.html,
-        width: r.width,
-        height: r.height,
-        image: r.image_url,
-        embed_url: r.embed_url,
-        blurhash: r.blurhash,
-        language: None,
-        published_at: None,
-        authors: vec![],
-        image_description: String::new(),
-        missing_attribution: None,
-        history: Some(vec![]),
-    }).collect();
+    let cards = rows
+        .into_iter()
+        .map(|r| super::types::PreviewCard {
+            url: r.url,
+            title: r.title,
+            description: r.description,
+            card_type: r.card_type,
+            author_name: r.author_name,
+            author_url: r.author_url,
+            provider_name: r.provider_name,
+            provider_url: r.provider_url,
+            html: r.html,
+            width: r.width,
+            height: r.height,
+            image: r.image_url,
+            embed_url: r.embed_url,
+            blurhash: r.blurhash,
+            language: None,
+            published_at: None,
+            authors: vec![],
+            image_description: String::new(),
+            missing_attribution: None,
+            history: Some(vec![]),
+        })
+        .collect();
 
     Ok(Json(cards))
 }

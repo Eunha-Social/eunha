@@ -22,18 +22,25 @@ use std::sync::Arc;
 #[derive(Parser, Debug)]
 struct Args {
     /// Path to the server config TOML file (media_storage is used).
-    #[arg(long)] config: Option<String>,
-    #[arg(long)] media_dir: String,
+    #[arg(long)]
+    config: Option<String>,
+    #[arg(long)]
+    media_dir: String,
     /// S3 bucket name (overrides config media_storage.bucket).
-    #[arg(long)] bucket: Option<String>,
+    #[arg(long)]
+    bucket: Option<String>,
     /// S3 endpoint URL (overrides config media_storage.endpoint).
-    #[arg(long)] endpoint: Option<String>,
+    #[arg(long)]
+    endpoint: Option<String>,
     /// S3 access key ID (overrides config media_storage.access_key_id).
-    #[arg(long)] access_key_id: Option<String>,
+    #[arg(long)]
+    access_key_id: Option<String>,
     /// S3 secret access key (overrides config media_storage.secret_access_key).
-    #[arg(long)] secret_access_key: Option<String>,
+    #[arg(long)]
+    secret_access_key: Option<String>,
     /// Number of concurrent S3 uploads (default: 32).
-    #[arg(long, default_value_t = 32)] concurrency: usize,
+    #[arg(long, default_value_t = 32)]
+    concurrency: usize,
 }
 
 #[tokio::main]
@@ -41,24 +48,36 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
     let args = Args::parse();
 
-    let cfg = args.config.as_deref().map(eunha::config::Config::from_file).transpose()?;
+    let cfg = args
+        .config
+        .as_deref()
+        .map(eunha::config::Config::from_file)
+        .transpose()?;
     let ms = cfg.as_ref().map(|c| &c.media_storage);
 
-    let bucket_val = args.bucket
+    let bucket_val = args
+        .bucket
         .or_else(|| ms.map(|m| m.bucket.clone()))
         .context("--bucket or --config with media_storage.bucket")?;
-    let endpoint_val = args.endpoint
+    let endpoint_val = args
+        .endpoint
         .or_else(|| ms.and_then(|m| m.endpoint.clone()))
         .context("--endpoint or --config with media_storage.endpoint")?;
-    let access_key_id_val = args.access_key_id
+    let access_key_id_val = args
+        .access_key_id
         .or_else(|| ms.map(|m| m.access_key_id.clone()))
         .context("--access-key-id or --config with media_storage.access_key_id")?;
-    let secret_access_key_val = args.secret_access_key
+    let secret_access_key_val = args
+        .secret_access_key
         .or_else(|| ms.map(|m| m.secret_access_key.clone()))
         .context("--secret-access-key or --config with media_storage.secret_access_key")?;
 
     let creds = aws_sdk_s3::config::Credentials::new(
-        &access_key_id_val, &secret_access_key_val, None, None, "static",
+        &access_key_id_val,
+        &secret_access_key_val,
+        None,
+        None,
+        "static",
     );
     let s3_conf = aws_sdk_s3::config::Builder::new()
         .region(aws_sdk_s3::config::Region::new("auto".to_string()))
@@ -69,7 +88,11 @@ async fn main() -> Result<()> {
     let client = aws_sdk_s3::Client::from_conf(s3_conf);
     let media_dir = PathBuf::from(&args.media_dir);
 
-    tracing::info!("uploading files from {} (concurrency={})...", media_dir.display(), args.concurrency);
+    tracing::info!(
+        "uploading files from {} (concurrency={})...",
+        media_dir.display(),
+        args.concurrency
+    );
     let files = collect_files(&media_dir)?;
     let total = files.len();
     tracing::info!("{} files to upload", total);
@@ -94,7 +117,12 @@ fn collect_files_inner(dir: &Path, out: &mut Vec<PathBuf>) -> Result<()> {
         let path = entry?.path();
         if path.is_dir() {
             collect_files_inner(&path, out)?;
-        } else if path.file_name().and_then(|n| n.to_str()).map(|n| !n.starts_with('.')).unwrap_or(false) {
+        } else if path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .map(|n| !n.starts_with('.'))
+            .unwrap_or(false)
+        {
             out.push(path);
         }
     }
@@ -120,10 +148,14 @@ async fn upload_parallel(
             async move {
                 let rel = path.strip_prefix(root.as_ref()).unwrap();
                 let key = rel.to_string_lossy().replace('\\', "/");
-                let data = tokio::fs::read(&path).await
+                let data = tokio::fs::read(&path)
+                    .await
                     .with_context(|| format!("reading {}", path.display()))?;
-                let ct = mime_guess::from_path(&path).first_or_octet_stream().to_string();
-                client.put_object()
+                let ct = mime_guess::from_path(&path)
+                    .first_or_octet_stream()
+                    .to_string();
+                client
+                    .put_object()
                     .bucket(bucket.as_ref())
                     .key(&key)
                     .body(ByteStream::from(data))

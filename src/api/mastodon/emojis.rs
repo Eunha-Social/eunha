@@ -1,9 +1,6 @@
-use axum::{extract::State, response::Json};
-use crate::{
-    error::AppResult,
-    state::AppState,
-};
 use super::types::CustomEmoji;
+use crate::{error::AppResult, state::AppState};
+use axum::{extract::State, response::Json};
 
 pub async fn list_custom_emojis(
     State(state): State<AppState>,

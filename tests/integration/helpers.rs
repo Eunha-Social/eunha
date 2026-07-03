@@ -1,12 +1,12 @@
 use std::net::SocketAddr;
 use std::str::FromStr;
 
-use argon2::{Argon2, PasswordHasher};
 use argon2::password_hash::{rand_core::OsRng, SaltString};
+use argon2::{Argon2, PasswordHasher};
 use axum::http::StatusCode as AxumStatus;
 use reqwest::Client;
 use sqlx::postgres::PgConnectOptions;
-use sqlx::{PgPool, postgres::PgPoolOptions};
+use sqlx::{postgres::PgPoolOptions, PgPool};
 use uuid::Uuid;
 
 /// Swap the database name in a Postgres connection URL, preserving any query.
@@ -32,8 +32,8 @@ fn replace_db_name(url: &str, db: &str) -> String {
 /// Spawns a minimal HTTP server that accepts all S3-style PUT/DELETE requests
 /// and returns success responses. Returns the base URL of the server.
 pub async fn spawn_fake_s3() -> String {
-    use axum::{Router, routing::any, response::Response, body::Body};
     use axum::http::Request;
+    use axum::{body::Body, response::Response, routing::any, Router};
 
     let app = Router::new().fallback(any(|req: Request<Body>| async move {
         match req.method().as_str() {
@@ -397,8 +397,8 @@ impl TestContext {
         let uid = &Uuid::new_v4().to_string()[..8];
         let domain = format!("{}-{}.c2s-test.invalid", label, uid);
 
-        let admin_url = std::env::var("DATABASE_URL")
-            .expect("DATABASE_URL must be set for integration tests");
+        let admin_url =
+            std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for integration tests");
 
         // Each test runs against its own freshly-migrated database. Local
         // accounts have a NULL domain, so the global (username, domain)
@@ -432,10 +432,8 @@ impl TestContext {
 
         let db_url = replace_db_name(&admin_url, &test_db_name);
 
-        let (alice_id, alice_token) =
-            seed_user(&db, &domain, "alice", "alice@test.invalid").await;
-        let (bob_id, bob_token) =
-            seed_user(&db, &domain, "bob", "bob@test.invalid").await;
+        let (alice_id, alice_token) = seed_user(&db, &domain, "alice", "alice@test.invalid").await;
+        let (bob_id, bob_token) = seed_user(&db, &domain, "bob", "bob@test.invalid").await;
 
         // Keep a separate pool for test-side operations (seeding scoped tokens etc.)
         // since `db` is moved into AppState below.
@@ -445,8 +443,8 @@ impl TestContext {
             .await
             .expect("failed to connect to test database (test_db)");
 
-        let redis_url = std::env::var("REDIS_URL")
-            .unwrap_or_else(|_| "redis://127.0.0.1:6379".into());
+        let redis_url =
+            std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".into());
         let fake_s3 = spawn_fake_s3().await;
         let (vapid_private_key, vapid_public_key) =
             eunha::push::generate_vapid_keypair().expect("generate test VAPID keypair");
@@ -482,14 +480,13 @@ impl TestContext {
                 terms_of_service: String::new(),
             },
         };
-        let state = eunha::state::AppState::new(db, config).await
+        let state = eunha::state::AppState::new(db, config)
+            .await
             .expect("failed to initialize AppState");
         let state_clone = state.clone();
         let app = eunha::build_app(state);
 
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .unwrap();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr: SocketAddr = listener.local_addr().unwrap();
         let server = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
@@ -516,12 +513,7 @@ impl TestContext {
 
 // ── database seeding helpers ────────────────────────────────────────────────
 
-pub async fn seed_user(
-    db: &PgPool,
-    domain: &str,
-    username: &str,
-    email: &str,
-) -> (i64, String) {
+pub async fn seed_user(db: &PgPool, domain: &str, username: &str, email: &str) -> (i64, String) {
     seed_account_and_token(db, domain, username, email).await
 }
 
@@ -605,9 +597,8 @@ pub fn tiny_png() -> Vec<u8> {
         0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, // width=1, height=1
         0x08, 0x02, 0x00, 0x00, 0x00, 0x90, 0x77, 0x53, // bit depth, color, crc
         0xde, 0x00, 0x00, 0x00, 0x0c, 0x49, 0x44, 0x41, // IDAT chunk
-        0x54, 0x08, 0xd7, 0x63, 0xf8, 0xcf, 0xc0, 0x00,
-        0x00, 0x00, 0x02, 0x00, 0x01, 0xe2, 0x21, 0xbc,
-        0x33, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, // IEND chunk
+        0x54, 0x08, 0xd7, 0x63, 0xf8, 0xcf, 0xc0, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01, 0xe2, 0x21,
+        0xbc, 0x33, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, // IEND chunk
         0x44, 0xae, 0x42, 0x60, 0x82,
     ]
 }

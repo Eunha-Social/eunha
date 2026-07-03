@@ -23,11 +23,16 @@ async fn test_announcements_list() {
     let ctx = TestContext::new("ann-list").await;
     seed_announcement(&ctx.db, "Hello everyone!").await;
 
-    let resp = ctx.api.get("/api/v1/announcements", Some(&ctx.alice_token)).await;
+    let resp = ctx
+        .api
+        .get("/api/v1/announcements", Some(&ctx.alice_token))
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let body: Vec<Value> = resp.json().await.unwrap();
     assert!(!body.is_empty(), "should return at least one announcement");
-    assert!(body.iter().any(|a| a["content"].as_str() == Some("<p>Hello everyone!</p>")));
+    assert!(body
+        .iter()
+        .any(|a| a["content"].as_str() == Some("<p>Hello everyone!</p>")));
 }
 
 /// GET /api/v1/announcements works without authentication (returns published ones).
@@ -48,9 +53,17 @@ async fn test_announcement_shape() {
     let ctx = TestContext::new("ann-shape").await;
     seed_announcement(&ctx.db, "Field check announcement").await;
 
-    let body: Vec<Value> = ctx.api.get("/api/v1/announcements", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
-    let ann = body.iter().find(|a| a["content"].as_str() == Some("<p>Field check announcement</p>")).unwrap();
+    let body: Vec<Value> = ctx
+        .api
+        .get("/api/v1/announcements", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+    let ann = body
+        .iter()
+        .find(|a| a["content"].as_str() == Some("<p>Field check announcement</p>"))
+        .unwrap();
 
     assert!(ann["id"].as_str().is_some(), "id missing");
     assert!(ann["content"].as_str().is_some(), "content missing");
@@ -63,11 +76,14 @@ async fn test_announcement_dismiss() {
     let ctx = TestContext::new("ann-dismiss").await;
     let ann_id = seed_announcement(&ctx.db, "Dismiss me").await;
 
-    let resp = ctx.api.post_json(
-        &format!("/api/v1/announcements/{}/dismiss", ann_id),
-        Some(&ctx.alice_token),
-        &serde_json::json!({}),
-    ).await;
+    let resp = ctx
+        .api
+        .post_json(
+            &format!("/api/v1/announcements/{}/dismiss", ann_id),
+            Some(&ctx.alice_token),
+            &serde_json::json!({}),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::OK, "dismiss should return 200");
 
     // After dismissing, dismissed announcements should not appear when with_dismissed=false (default).
@@ -89,11 +105,14 @@ async fn test_announcement_dismiss() {
 async fn test_announcement_dismiss_not_found() {
     let ctx = TestContext::new("ann-dismiss-404").await;
 
-    let resp = ctx.api.post_json(
-        "/api/v1/announcements/999999/dismiss",
-        Some(&ctx.alice_token),
-        &serde_json::json!({}),
-    ).await;
+    let resp = ctx
+        .api
+        .post_json(
+            "/api/v1/announcements/999999/dismiss",
+            Some(&ctx.alice_token),
+            &serde_json::json!({}),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
@@ -103,20 +122,37 @@ async fn test_announcement_reaction_add() {
     let ctx = TestContext::new("ann-react-add").await;
     let ann_id = seed_announcement(&ctx.db, "React to me").await;
 
-    let resp = ctx.api.put_json(
-        &format!("/api/v1/announcements/{}/reactions/👍", ann_id),
-        Some(&ctx.alice_token),
-        &serde_json::json!({}),
-    ).await;
-    assert_eq!(resp.status(), StatusCode::OK, "adding reaction should return 200");
+    let resp = ctx
+        .api
+        .put_json(
+            &format!("/api/v1/announcements/{}/reactions/👍", ann_id),
+            Some(&ctx.alice_token),
+            &serde_json::json!({}),
+        )
+        .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "adding reaction should return 200"
+    );
 
     // Reaction should appear in the announcement's reactions list.
-    let anns: Vec<Value> = ctx.api.get("/api/v1/announcements", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
-    let ann = anns.iter().find(|a| a["id"].as_str().map(|s| s.parse::<i64>().ok()) == Some(Some(ann_id))).unwrap();
+    let anns: Vec<Value> = ctx
+        .api
+        .get("/api/v1/announcements", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+    let ann = anns
+        .iter()
+        .find(|a| a["id"].as_str().map(|s| s.parse::<i64>().ok()) == Some(Some(ann_id)))
+        .unwrap();
     let reactions = ann["reactions"].as_array().unwrap();
     assert!(
-        reactions.iter().any(|r| r["name"].as_str() == Some("👍") && r["me"].as_bool() == Some(true)),
+        reactions
+            .iter()
+            .any(|r| r["name"].as_str() == Some("👍") && r["me"].as_bool() == Some(true)),
         "thumbs-up reaction with me=true should appear"
     );
 }
@@ -182,17 +218,22 @@ async fn test_announcement_reaction_remove() {
     let ann_id = seed_announcement(&ctx.db, "React then remove").await;
 
     // Add it.
-    ctx.api.put_json(
-        &format!("/api/v1/announcements/{}/reactions/❤️", ann_id),
-        Some(&ctx.alice_token),
-        &serde_json::json!({}),
-    ).await;
+    ctx.api
+        .put_json(
+            &format!("/api/v1/announcements/{}/reactions/❤️", ann_id),
+            Some(&ctx.alice_token),
+            &serde_json::json!({}),
+        )
+        .await;
 
     // Remove it.
-    let resp = ctx.api.delete(
-        &format!("/api/v1/announcements/{}/reactions/❤️", ann_id),
-        &ctx.alice_token,
-    ).await;
+    let resp = ctx
+        .api
+        .delete(
+            &format!("/api/v1/announcements/{}/reactions/❤️", ann_id),
+            &ctx.alice_token,
+        )
+        .await;
     // 200 or 404 are acceptable; the important thing is it doesn't 500.
     assert!(
         resp.status().is_success() || resp.status() == StatusCode::NOT_FOUND,

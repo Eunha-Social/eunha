@@ -1,15 +1,15 @@
+use super::{convert::media_from_db, types::MediaAttachment};
+use crate::{
+    error::{AppError, AppResult},
+    middleware::AuthenticatedUser,
+    state::AppState,
+};
 use axum::{
     extract::{Extension, Multipart, Path, State},
     Json,
 };
 use image::imageops::FilterType;
 use img_parts::ImageEXIF;
-use crate::{
-    error::{AppError, AppResult},
-    middleware::AuthenticatedUser,
-    state::AppState,
-};
-use super::{convert::media_from_db, types::MediaAttachment};
 
 // Mastodon's small thumbnail pixel limit (≈640×360 at 16:9)
 const SMALL_PIXELS: u32 = 230_400;
@@ -27,24 +27,38 @@ pub async fn upload_media(
     let mut file_field: Option<(String, String, Vec<u8>)> = None;
     let mut description: Option<String> = None;
 
-    while let Some(field) = multipart.next_field().await.map_err(|e| AppError::Unprocessable(e.to_string()))? {
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::Unprocessable(e.to_string()))?
+    {
         let name = field.name().unwrap_or("").to_string();
         match name.as_str() {
             "file" => {
                 let filename = field.file_name().unwrap_or("upload").to_string();
-                let content_type = field.content_type().unwrap_or("application/octet-stream").to_string();
-                let data = field.bytes().await.map_err(|e| AppError::Unprocessable(e.to_string()))?;
+                let content_type = field
+                    .content_type()
+                    .unwrap_or("application/octet-stream")
+                    .to_string();
+                let data = field
+                    .bytes()
+                    .await
+                    .map_err(|e| AppError::Unprocessable(e.to_string()))?;
                 file_field = Some((filename, content_type, data.to_vec()));
             }
             "description" => {
-                let text = field.text().await.map_err(|e| AppError::Unprocessable(e.to_string()))?;
+                let text = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::Unprocessable(e.to_string()))?;
                 description = Some(text);
             }
             _ => {}
         }
     }
 
-    let (_, content_type, data) = file_field.ok_or_else(|| AppError::Unprocessable("missing file field".into()))?;
+    let (_, content_type, data) =
+        file_field.ok_or_else(|| AppError::Unprocessable("missing file field".into()))?;
     validate_media_description(description.as_deref())?;
     let media_type = classify_media_type(&content_type);
     let media_id = crate::snowflake::next_id();
@@ -61,7 +75,10 @@ pub async fn upload_media(
             crate::media::int_to_path(media_id),
             src_ext
         );
-        state.storage.store(&data, &source_key, &content_type).await?;
+        state
+            .storage
+            .store(&data, &source_key, &content_type)
+            .await?;
 
         let attachment = sqlx::query_as!(
             crate::db::models::MediaAttachment,
@@ -95,7 +112,11 @@ pub async fn upload_media(
     // Images: process synchronously and return 200.
     let file_ext = crate::media::ext_for_content_type(&content_type);
     let file_filename = format!("original.{}", file_ext);
-    let file_key = format!("media_attachments/files/{}/original/{}", crate::media::int_to_path(media_id), file_filename);
+    let file_key = format!(
+        "media_attachments/files/{}/original/{}",
+        crate::media::int_to_path(media_id),
+        file_filename
+    );
 
     let data = strip_exif(&data, &content_type);
     state.storage.store(&data, &file_key, &content_type).await?;
@@ -103,8 +124,15 @@ pub async fn upload_media(
     let (file_meta, blurhash, thumbnail_file_name) = match process_image(&data, &content_type) {
         Some((orig_dim, small_bytes, small_dim, bh)) => {
             let small_filename = format!("small.{}", file_ext);
-            let small_key = format!("media_attachments/files/{}/small/{}", crate::media::int_to_path(media_id), small_filename);
-            state.storage.store(&small_bytes, &small_key, &content_type).await?;
+            let small_key = format!(
+                "media_attachments/files/{}/small/{}",
+                crate::media::int_to_path(media_id),
+                small_filename
+            );
+            state
+                .storage
+                .store(&small_bytes, &small_key, &content_type)
+                .await?;
             let meta = serde_json::json!({ "original": orig_dim, "small": small_dim });
             (Some(meta), Some(bh), Some(small_filename))
         }
@@ -207,7 +235,10 @@ async fn process_media(
 
 /// Decode image, compute original + small dimensions and blurhash.
 /// Returns (orig_dim, small_jpeg_bytes, small_dim, blurhash).
-fn process_image(data: &[u8], _content_type: &str) -> Option<(serde_json::Value, Vec<u8>, serde_json::Value, String)> {
+fn process_image(
+    data: &[u8],
+    _content_type: &str,
+) -> Option<(serde_json::Value, Vec<u8>, serde_json::Value, String)> {
     let img = image::load_from_memory(data).ok()?;
     let (ow, oh) = (img.width(), img.height());
     let orig_dim = image_dim_json(ow, oh);
@@ -231,7 +262,10 @@ fn process_image(data: &[u8], _content_type: &str) -> Option<(serde_json::Value,
     // Encode small as JPEG
     let mut small_bytes = Vec::new();
     small_img
-        .write_to(&mut std::io::Cursor::new(&mut small_bytes), image::ImageFormat::Jpeg)
+        .write_to(
+            &mut std::io::Cursor::new(&mut small_bytes),
+            image::ImageFormat::Jpeg,
+        )
         .ok()?;
 
     Some((orig_dim, small_bytes, small_dim, bh))
@@ -410,7 +444,8 @@ pub async fn get_media(
     let attachment = sqlx::query_as!(
         crate::db::models::MediaAttachment,
         "SELECT * FROM media_attachments WHERE id = $1 AND account_id = $2 AND status_id IS NULL",
-        id, auth.account_id,
+        id,
+        auth.account_id,
     )
     .fetch_optional(&state.db)
     .await?
@@ -432,7 +467,8 @@ pub async fn update_media(
     // when the body format is unexpected.
     sqlx::query!(
         "SELECT id FROM media_attachments WHERE id = $1 AND account_id = $2 AND status_id IS NULL",
-        id, auth.account_id,
+        id,
+        auth.account_id,
     )
     .fetch_optional(&state.db)
     .await?
@@ -453,14 +489,28 @@ pub async fn update_media(
         let mut multipart = Multipart::from_request(request, &state)
             .await
             .map_err(|e| AppError::Unprocessable(e.to_string()))?;
-        while let Some(field) = multipart.next_field().await.map_err(|e| AppError::Unprocessable(e.to_string()))? {
+        while let Some(field) = multipart
+            .next_field()
+            .await
+            .map_err(|e| AppError::Unprocessable(e.to_string()))?
+        {
             let name = field.name().unwrap_or("").to_string();
             match name.as_str() {
                 "description" => {
-                    description = Some(field.text().await.map_err(|e| AppError::Unprocessable(e.to_string()))?);
+                    description = Some(
+                        field
+                            .text()
+                            .await
+                            .map_err(|e| AppError::Unprocessable(e.to_string()))?,
+                    );
                 }
                 "focus" => {
-                    focus = Some(field.text().await.map_err(|e| AppError::Unprocessable(e.to_string()))?);
+                    focus = Some(
+                        field
+                            .text()
+                            .await
+                            .map_err(|e| AppError::Unprocessable(e.to_string()))?,
+                    );
                 }
                 _ => {}
             }
@@ -469,16 +519,24 @@ pub async fn update_media(
         let bytes = axum::body::to_bytes(request.into_body(), 64 * 1024)
             .await
             .map_err(|e| AppError::Unprocessable(e.to_string()))?;
-        let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap_or_else(|_| serde_json::json!({}));
-        description = body.get("description").and_then(|v| v.as_str()).map(str::to_owned);
-        focus = body.get("focus").and_then(|v| v.as_str()).map(str::to_owned);
+        let body: serde_json::Value =
+            serde_json::from_slice(&bytes).unwrap_or_else(|_| serde_json::json!({}));
+        description = body
+            .get("description")
+            .and_then(|v| v.as_str())
+            .map(str::to_owned);
+        focus = body
+            .get("focus")
+            .and_then(|v| v.as_str())
+            .map(str::to_owned);
     }
 
     validate_media_description(description.as_deref())?;
     if let Some(ref desc) = description {
         sqlx::query!(
             "UPDATE media_attachments SET description = $1 WHERE id = $2",
-            desc, id,
+            desc,
+            id,
         )
         .execute(&state.db)
         .await?;
@@ -500,7 +558,8 @@ pub async fn update_media(
                 }
                 sqlx::query!(
                     "UPDATE media_attachments SET file_meta = $1 WHERE id = $2",
-                    meta, id,
+                    meta,
+                    id,
                 )
                 .execute(&state.db)
                 .await?;
@@ -530,27 +589,31 @@ pub async fn delete_media(
     let attachment = sqlx::query_as!(
         crate::db::models::MediaAttachment,
         "SELECT * FROM media_attachments WHERE id = $1 AND account_id = $2",
-        id, auth.account_id,
+        id,
+        auth.account_id,
     )
     .fetch_optional(&state.db)
     .await?
     .ok_or(AppError::NotFound)?;
 
     if attachment.status_id.is_some() {
-        return Err(AppError::Unprocessable("Media attachment is currently used by a status".into()));
+        return Err(AppError::Unprocessable(
+            "Media attachment is currently used by a status".into(),
+        ));
     }
 
-    sqlx::query!(
-        "DELETE FROM media_attachments WHERE id = $1",
-        id,
-    )
-    .execute(&state.db)
-    .await?;
+    sqlx::query!("DELETE FROM media_attachments WHERE id = $1", id,)
+        .execute(&state.db)
+        .await?;
 
     // Delete file from S3 using computed key from file_file_name
     if let Some(filename) = &attachment.file_file_name {
         if !filename.is_empty() {
-            let key = format!("media_attachments/files/{}/original/{}", crate::media::int_to_path(attachment.id), filename);
+            let key = format!(
+                "media_attachments/files/{}/original/{}",
+                crate::media::int_to_path(attachment.id),
+                filename
+            );
             let _ = state.storage.delete(&key).await;
         }
     }
@@ -585,7 +648,13 @@ fn classify_media_type(content_type: &str) -> &'static str {
 }
 
 fn media_type_int(mt: &str) -> i32 {
-    match mt { "image" => 0, "gifv" => 1, "video" => 2, "audio" => 3, _ => 4 }
+    match mt {
+        "image" => 0,
+        "gifv" => 1,
+        "video" => 2,
+        "audio" => 3,
+        _ => 4,
+    }
 }
 
 pub fn media_type_str(type_int: Option<i32>) -> &'static str {

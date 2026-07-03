@@ -116,7 +116,10 @@ fn safe_redirect_policy() -> reqwest::redirect::Policy {
         }
         // Inspect the target before consuming `attempt`.
         let scheme = attempt.url().scheme().to_owned();
-        let literal_ip = attempt.url().host_str().and_then(|h| h.parse::<IpAddr>().ok());
+        let literal_ip = attempt
+            .url()
+            .host_str()
+            .and_then(|h| h.parse::<IpAddr>().ok());
         if scheme != "https" && scheme != "http" {
             return attempt.error(anyhow::anyhow!("redirect to non-HTTP(S) scheme {scheme:?}"));
         }
@@ -132,7 +135,11 @@ fn safe_redirect_policy() -> reqwest::redirect::Policy {
 /// Build the dedicated HTTP client for fetching untrusted remote content.
 pub fn build_client() -> reqwest::Client {
     reqwest::Client::builder()
-        .user_agent(concat!("eunha/", env!("CARGO_PKG_VERSION"), " (ActivityPub)"))
+        .user_agent(concat!(
+            "eunha/",
+            env!("CARGO_PKG_VERSION"),
+            " (ActivityPub)"
+        ))
         .timeout(std::time::Duration::from_secs(30))
         .redirect(safe_redirect_policy())
         .dns_resolver(Arc::new(PublicOnlyResolver))
@@ -172,12 +179,12 @@ mod tests {
     #[test]
     fn rejects_private_and_special_v6() {
         for ip in [
-            "::1",               // loopback
-            "::",                // unspecified
-            "fc00::1",           // unique local
-            "fe80::1",           // link-local
-            "2001:db8::1",       // documentation
-            "::ffff:10.0.0.1",   // v4-mapped private
+            "::1",             // loopback
+            "::",              // unspecified
+            "fc00::1",         // unique local
+            "fe80::1",         // link-local
+            "2001:db8::1",     // documentation
+            "::ffff:10.0.0.1", // v4-mapped private
             "::ffff:169.254.0.1",
             "ff02::1", // multicast
         ] {

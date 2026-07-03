@@ -7,12 +7,6 @@ use axum::{
 use chrono::{Datelike, TimeZone, Utc};
 use serde::Serialize;
 
-use crate::{
-    db::models::{Account as DbAccount, Status as DbStatus},
-    error::{AppError, AppResult},
-    middleware::AuthenticatedUser,
-    state::AppState,
-};
 use super::{
     accounts::{
         batch_account_emojis, batch_account_roles, batch_quote_data, batch_reblog_data,
@@ -21,6 +15,12 @@ use super::{
     },
     convert::{account_from_db, status_from_db},
     types::{Account as ApiAccount, Status as ApiStatus},
+};
+use crate::{
+    db::models::{Account as DbAccount, Status as DbStatus},
+    error::{AppError, AppResult},
+    middleware::AuthenticatedUser,
+    state::AppState,
 };
 
 const SCHEMA_VERSION: i32 = 1;
@@ -51,8 +51,14 @@ async fn generate_report_data(
     account_id: i64,
     year: i32,
 ) -> AppResult<serde_json::Value> {
-    let start = Utc.with_ymd_and_hms(year, 1, 1, 0, 0, 0).unwrap().naive_utc();
-    let end = Utc.with_ymd_and_hms(year + 1, 1, 1, 0, 0, 0).unwrap().naive_utc();
+    let start = Utc
+        .with_ymd_and_hms(year, 1, 1, 0, 0, 0)
+        .unwrap()
+        .naive_utc();
+    let end = Utc
+        .with_ymd_and_hms(year + 1, 1, 1, 0, 0, 0)
+        .unwrap()
+        .naive_utc();
 
     // Count different post types for archetype
     let reblog_count = sqlx::query_scalar!(
@@ -60,8 +66,13 @@ async fn generate_report_data(
          WHERE account_id = $1 AND deleted_at IS NULL
            AND reblog_of_id IS NOT NULL
            AND created_at >= $2 AND created_at < $3",
-        account_id, start, end,
-    ).fetch_one(&state.db).await?.unwrap_or(0);
+        account_id,
+        start,
+        end,
+    )
+    .fetch_one(&state.db)
+    .await?
+    .unwrap_or(0);
 
     let reply_count = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM statuses
@@ -70,8 +81,13 @@ async fn generate_report_data(
            AND in_reply_to_account_id != $1
            AND reblog_of_id IS NULL
            AND created_at >= $2 AND created_at < $3",
-        account_id, start, end,
-    ).fetch_one(&state.db).await?.unwrap_or(0);
+        account_id,
+        start,
+        end,
+    )
+    .fetch_one(&state.db)
+    .await?
+    .unwrap_or(0);
 
     let standalone_count = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM statuses
@@ -79,16 +95,26 @@ async fn generate_report_data(
            AND reblog_of_id IS NULL
            AND (in_reply_to_id IS NULL OR in_reply_to_account_id = $1)
            AND created_at >= $2 AND created_at < $3",
-        account_id, start, end,
-    ).fetch_one(&state.db).await?.unwrap_or(0);
+        account_id,
+        start,
+        end,
+    )
+    .fetch_one(&state.db)
+    .await?
+    .unwrap_or(0);
 
     let poll_count = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM statuses s
          JOIN polls p ON p.status_id = s.id
          WHERE s.account_id = $1 AND s.deleted_at IS NULL
            AND s.created_at >= $2 AND s.created_at < $3",
-        account_id, start, end,
-    ).fetch_one(&state.db).await?.unwrap_or(0);
+        account_id,
+        start,
+        end,
+    )
+    .fetch_one(&state.db)
+    .await?
+    .unwrap_or(0);
 
     let total = reblog_count + reply_count + standalone_count;
 
@@ -113,8 +139,12 @@ async fn generate_report_data(
              AND s.visibility IN (0, 1) /* vis::PUBLIC, vis::UNLISTED */
              AND s.created_at >= $2 AND s.created_at < $3
            ORDER BY COALESCE(ss.reblogs_count, 0) DESC LIMIT 1"#,
-        account_id, start, end,
-    ).fetch_optional(&state.db).await?;
+        account_id,
+        start,
+        end,
+    )
+    .fetch_optional(&state.db)
+    .await?;
 
     let top_by_favourites: Option<i64> = sqlx::query_scalar!(
         r#"SELECT s.id FROM statuses s
@@ -125,9 +155,13 @@ async fn generate_report_data(
              AND ($4::bigint IS NULL OR s.id != $4)
              AND s.created_at >= $2 AND s.created_at < $3
            ORDER BY COALESCE(ss.favourites_count, 0) DESC LIMIT 1"#,
-        account_id, start, end,
+        account_id,
+        start,
+        end,
         top_by_reblogs,
-    ).fetch_optional(&state.db).await?;
+    )
+    .fetch_optional(&state.db)
+    .await?;
 
     let top_by_replies: Option<i64> = sqlx::query_scalar!(
         r#"SELECT s.id FROM statuses s
@@ -139,24 +173,39 @@ async fn generate_report_data(
              AND ($5::bigint IS NULL OR s.id != $5)
              AND s.created_at >= $2 AND s.created_at < $3
            ORDER BY COALESCE(ss.replies_count, 0) DESC LIMIT 1"#,
-        account_id, start, end,
-        top_by_reblogs, top_by_favourites,
-    ).fetch_optional(&state.db).await?;
+        account_id,
+        start,
+        end,
+        top_by_reblogs,
+        top_by_favourites,
+    )
+    .fetch_optional(&state.db)
+    .await?;
 
     // Time series: total statuses and new followers for the year
     let statuses_in_year: i64 = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM statuses
          WHERE account_id = $1 AND deleted_at IS NULL
            AND created_at >= $2 AND created_at < $3",
-        account_id, start, end,
-    ).fetch_one(&state.db).await?.unwrap_or(0);
+        account_id,
+        start,
+        end,
+    )
+    .fetch_one(&state.db)
+    .await?
+    .unwrap_or(0);
 
     let followers_in_year: i64 = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM follows
          WHERE target_account_id = $1
            AND created_at >= $2 AND created_at < $3",
-        account_id, start, end,
-    ).fetch_one(&state.db).await?.unwrap_or(0);
+        account_id,
+        start,
+        end,
+    )
+    .fetch_one(&state.db)
+    .await?
+    .unwrap_or(0);
 
     // Top hashtag
     let top_hashtag = sqlx::query!(
@@ -168,8 +217,12 @@ async fn generate_report_data(
            AND s.created_at >= $2 AND s.created_at < $3
          GROUP BY t.name
          ORDER BY count DESC LIMIT 1",
-        account_id, start, end,
-    ).fetch_optional(&state.db).await?;
+        account_id,
+        start,
+        end,
+    )
+    .fetch_optional(&state.db)
+    .await?;
 
     let top_hashtags: Vec<serde_json::Value> = top_hashtag
         .into_iter()
@@ -193,14 +246,25 @@ async fn generate_report_data(
 }
 
 async fn is_eligible(state: &AppState, account_id: i64, year: i32) -> AppResult<bool> {
-    let start = Utc.with_ymd_and_hms(year, 1, 1, 0, 0, 0).unwrap().naive_utc();
-    let end = Utc.with_ymd_and_hms(year + 1, 1, 1, 0, 0, 0).unwrap().naive_utc();
+    let start = Utc
+        .with_ymd_and_hms(year, 1, 1, 0, 0, 0)
+        .unwrap()
+        .naive_utc();
+    let end = Utc
+        .with_ymd_and_hms(year + 1, 1, 1, 0, 0, 0)
+        .unwrap()
+        .naive_utc();
     let count: i64 = sqlx::query_scalar!(
         "SELECT COUNT(*) FROM statuses
          WHERE account_id = $1 AND deleted_at IS NULL
            AND created_at >= $2 AND created_at < $3",
-        account_id, start, end,
-    ).fetch_one(&state.db).await?.unwrap_or(0);
+        account_id,
+        start,
+        end,
+    )
+    .fetch_one(&state.db)
+    .await?
+    .unwrap_or(0);
     Ok(count > 0)
 }
 
@@ -237,7 +301,9 @@ async fn build_response(
             DbStatus,
             "SELECT * FROM statuses WHERE id = ANY($1) AND deleted_at IS NULL",
             &top_status_ids,
-        ).fetch_all(&state.db).await?;
+        )
+        .fetch_all(&state.db)
+        .await?;
 
         let all_ids: Vec<i64> = statuses.iter().map(|s| s.id).collect();
         let media_map = batch_status_media(state, &all_ids).await?;
@@ -248,7 +314,9 @@ async fn build_response(
         enrich_ids.extend_from_slice(&reblog_ids);
         let tags_map = batch_statuses_tags(state, &enrich_ids).await?;
         let mentions_map = batch_status_mentions(state, &enrich_ids).await?;
-        let all_for_emoji: Vec<DbStatus> = statuses.iter().cloned()
+        let all_for_emoji: Vec<DbStatus> = statuses
+            .iter()
+            .cloned()
             .chain(reblog_map.values().map(|(rs, _, _)| rs.clone()))
             .collect();
         let emojis_map = batch_status_emojis(state, &all_for_emoji).await?;
@@ -270,13 +338,20 @@ async fn build_response(
             let reblog = reblog_map.get(&s.id).cloned();
             let ctx = ctxs.get(&s.id).cloned();
             let mentions = mentions_map.get(&s.id).cloned().unwrap_or_default();
-            let rb_mentions = reblog.as_ref()
+            let rb_mentions = reblog
+                .as_ref()
                 .and_then(|(rs, _, _)| mentions_map.get(&rs.id))
                 .cloned()
                 .unwrap_or_default();
             let mut api = status_from_db(s, account, media, reblog, ctx, &mentions, &rb_mentions);
-            api.account.emojis = account_emojis_map.get(&account.id).cloned().unwrap_or_default();
-            api.account.roles = account_roles_map.get(&account.id).cloned().unwrap_or_default();
+            api.account.emojis = account_emojis_map
+                .get(&account.id)
+                .cloned()
+                .unwrap_or_default();
+            api.account.roles = account_roles_map
+                .get(&account.id)
+                .cloned()
+                .unwrap_or_default();
             api.tags = tags_map.get(&s.id).cloned().unwrap_or_default();
             api.mentions = mentions;
             api.emojis = emojis_map.get(&s.id).cloned().unwrap_or_default();
@@ -341,7 +416,9 @@ pub async fn list_annual_reports(
         DbAccount,
         "SELECT * FROM accounts WHERE id = $1",
         auth.account_id,
-    ).fetch_one(&state.db).await?;
+    )
+    .fetch_one(&state.db)
+    .await?;
 
     let rows = sqlx::query!(
         "SELECT id, account_id, year, data, schema_version
@@ -349,11 +426,14 @@ pub async fn list_annual_reports(
          WHERE account_id = $1 AND viewed_at IS NULL
          ORDER BY year DESC",
         auth.account_id,
-    ).fetch_all(&state.db).await?;
+    )
+    .fetch_all(&state.db)
+    .await?;
 
-    let reports: Vec<AnnualReport> = rows.into_iter().map(|r| {
-        db_row_to_report(r.id, r.account_id, r.year, Some(r.data), r.schema_version)
-    }).collect();
+    let reports: Vec<AnnualReport> = rows
+        .into_iter()
+        .map(|r| db_row_to_report(r.id, r.account_id, r.year, Some(r.data), r.schema_version))
+        .collect();
 
     let resp = build_response(&state, reports, &account, auth.account_id).await?;
     Ok(Json(resp))
@@ -372,17 +452,28 @@ pub async fn get_annual_report(
         DbAccount,
         "SELECT * FROM accounts WHERE id = $1",
         auth.account_id,
-    ).fetch_one(&state.db).await?;
+    )
+    .fetch_one(&state.db)
+    .await?;
 
     let row = sqlx::query!(
         "SELECT id, account_id, year, data, schema_version
          FROM generated_annual_reports
          WHERE account_id = $1 AND year = $2",
-        auth.account_id, year,
-    ).fetch_optional(&state.db).await?
-        .ok_or(AppError::NotFound)?;
+        auth.account_id,
+        year,
+    )
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
 
-    let report = db_row_to_report(row.id, row.account_id, row.year, Some(row.data), row.schema_version);
+    let report = db_row_to_report(
+        row.id,
+        row.account_id,
+        row.year,
+        Some(row.data),
+        row.schema_version,
+    );
     let resp = build_response(&state, vec![report], &account, auth.account_id).await?;
     Ok(Json(resp))
 }
@@ -400,8 +491,11 @@ pub async fn read_annual_report(
         "UPDATE generated_annual_reports SET viewed_at = NOW(), updated_at = NOW()
          WHERE account_id = $1 AND year = $2
          RETURNING id",
-        auth.account_id, year,
-    ).fetch_optional(&state.db).await?;
+        auth.account_id,
+        year,
+    )
+    .fetch_optional(&state.db)
+    .await?;
 
     if updated.is_none() {
         return Err(AppError::NotFound);
@@ -422,9 +516,12 @@ pub async fn generate_annual_report(
     let current_year = Utc::now().year();
     // Only allow generating for completed years (not the current year)
     if year >= current_year {
-        return Ok((StatusCode::UNPROCESSABLE_ENTITY, Json(serde_json::json!({
-            "error": "Report can only be generated for completed years"
-        }))));
+        return Ok((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(serde_json::json!({
+                "error": "Report can only be generated for completed years"
+            })),
+        ));
     }
 
     // If already generated, return immediately
@@ -438,9 +535,12 @@ pub async fn generate_annual_report(
     }
 
     if !is_eligible(&state, auth.account_id, year).await? {
-        return Ok((StatusCode::UNPROCESSABLE_ENTITY, Json(serde_json::json!({
-            "error": "Not eligible for this year"
-        }))));
+        return Ok((
+            StatusCode::UNPROCESSABLE_ENTITY,
+            Json(serde_json::json!({
+                "error": "Not eligible for this year"
+            })),
+        ));
     }
 
     let data = generate_report_data(&state, auth.account_id, year).await?;
@@ -468,8 +568,11 @@ pub async fn get_annual_report_state(
 
     let row = sqlx::query!(
         "SELECT data FROM generated_annual_reports WHERE account_id = $1 AND year = $2",
-        auth.account_id, year,
-    ).fetch_optional(&state.db).await?;
+        auth.account_id,
+        year,
+    )
+    .fetch_optional(&state.db)
+    .await?;
 
     let state_str = if let Some(r) = row {
         if r.data.as_object().map(|o| !o.is_empty()).unwrap_or(false) {

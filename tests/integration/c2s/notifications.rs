@@ -10,7 +10,10 @@ async fn test_follow_creates_notification() {
 
     ctx.api.follow(&ctx.alice_token, &ctx.bob_id).await;
 
-    let resp = ctx.api.get("/api/v1/notifications", Some(&ctx.bob_token)).await;
+    let resp = ctx
+        .api
+        .get("/api/v1/notifications", Some(&ctx.bob_token))
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let notifs: Vec<Value> = resp.json().await.unwrap();
 
@@ -27,18 +30,30 @@ async fn test_follow_creates_notification() {
 async fn test_favourite_creates_notification() {
     let ctx = TestContext::new("notif-fav").await;
 
-    let status = ctx.api.post_status(&ctx.alice_token, "faveable notification test", "public").await;
+    let status = ctx
+        .api
+        .post_status(&ctx.alice_token, "faveable notification test", "public")
+        .await;
     let id = status["id"].as_str().unwrap();
 
-    ctx.api.post_json(
-        &format!("/api/v1/statuses/{id}/favourite"),
-        Some(&ctx.bob_token),
-        &json!({}),
-    ).await;
+    ctx.api
+        .post_json(
+            &format!("/api/v1/statuses/{id}/favourite"),
+            Some(&ctx.bob_token),
+            &json!({}),
+        )
+        .await;
 
-    let notifs: Vec<Value> = ctx.api.get("/api/v1/notifications", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
-    let fav_notif = notifs.iter().find(|n| n["type"].as_str() == Some("favourite"));
+    let notifs: Vec<Value> = ctx
+        .api
+        .get("/api/v1/notifications", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+    let fav_notif = notifs
+        .iter()
+        .find(|n| n["type"].as_str() == Some("favourite"));
     assert!(fav_notif.is_some(), "no favourite notification found");
     assert_eq!(
         fav_notif.unwrap()["account"]["id"].as_str(),
@@ -51,22 +66,34 @@ async fn test_favourite_creates_notification() {
 async fn test_reply_creates_mention_notification() {
     let ctx = TestContext::new("notif-mention").await;
 
-    let parent = ctx.api.post_status(&ctx.alice_token, "parent for mention", "public").await;
+    let parent = ctx
+        .api
+        .post_status(&ctx.alice_token, "parent for mention", "public")
+        .await;
     let parent_id = parent["id"].as_str().unwrap();
 
-    ctx.api.post_json(
-        "/api/v1/statuses",
-        Some(&ctx.bob_token),
-        &json!({
-            "status": format!("@alice reply here"),
-            "in_reply_to_id": parent_id,
-            "visibility": "public"
-        }),
-    ).await;
+    ctx.api
+        .post_json(
+            "/api/v1/statuses",
+            Some(&ctx.bob_token),
+            &json!({
+                "status": format!("@alice reply here"),
+                "in_reply_to_id": parent_id,
+                "visibility": "public"
+            }),
+        )
+        .await;
 
-    let notifs: Vec<Value> = ctx.api.get("/api/v1/notifications", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
-    let mention_notif = notifs.iter().find(|n| n["type"].as_str() == Some("mention"));
+    let notifs: Vec<Value> = ctx
+        .api
+        .get("/api/v1/notifications", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+    let mention_notif = notifs
+        .iter()
+        .find(|n| n["type"].as_str() == Some("mention"));
     assert!(mention_notif.is_some(), "no mention notification found");
 }
 
@@ -77,20 +104,33 @@ async fn test_dismiss_notification() {
 
     ctx.api.follow(&ctx.alice_token, &ctx.bob_id).await;
 
-    let notifs: Vec<Value> = ctx.api.get("/api/v1/notifications", Some(&ctx.bob_token))
-        .await.json().await.unwrap();
+    let notifs: Vec<Value> = ctx
+        .api
+        .get("/api/v1/notifications", Some(&ctx.bob_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(!notifs.is_empty(), "no notifications to dismiss");
     let notif_id = notifs[0]["id"].as_str().unwrap();
 
-    let dismiss_resp = ctx.api.post_json(
-        &format!("/api/v1/notifications/{notif_id}/dismiss"),
-        Some(&ctx.bob_token),
-        &json!({}),
-    ).await;
+    let dismiss_resp = ctx
+        .api
+        .post_json(
+            &format!("/api/v1/notifications/{notif_id}/dismiss"),
+            Some(&ctx.bob_token),
+            &json!({}),
+        )
+        .await;
     assert_eq!(dismiss_resp.status(), StatusCode::OK);
 
-    let after: Vec<Value> = ctx.api.get("/api/v1/notifications", Some(&ctx.bob_token))
-        .await.json().await.unwrap();
+    let after: Vec<Value> = ctx
+        .api
+        .get("/api/v1/notifications", Some(&ctx.bob_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(
         !after.iter().any(|n| n["id"].as_str() == Some(notif_id)),
         "dismissed notification still appears",
@@ -104,15 +144,23 @@ async fn test_clear_notifications() {
 
     ctx.api.follow(&ctx.alice_token, &ctx.bob_id).await;
 
-    let clear_resp = ctx.api.post_json(
-        "/api/v1/notifications/clear",
-        Some(&ctx.bob_token),
-        &json!({}),
-    ).await;
+    let clear_resp = ctx
+        .api
+        .post_json(
+            "/api/v1/notifications/clear",
+            Some(&ctx.bob_token),
+            &json!({}),
+        )
+        .await;
     assert_eq!(clear_resp.status(), StatusCode::OK);
 
-    let after: Vec<Value> = ctx.api.get("/api/v1/notifications", Some(&ctx.bob_token))
-        .await.json().await.unwrap();
+    let after: Vec<Value> = ctx
+        .api
+        .get("/api/v1/notifications", Some(&ctx.bob_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(after.is_empty(), "notifications not cleared");
 }
 
@@ -121,17 +169,27 @@ async fn test_clear_notifications() {
 async fn test_reblog_creates_notification() {
     let ctx = TestContext::new("notif-reblog").await;
 
-    let status = ctx.api.post_status(&ctx.alice_token, "reblog notify me", "public").await;
+    let status = ctx
+        .api
+        .post_status(&ctx.alice_token, "reblog notify me", "public")
+        .await;
     let id = status["id"].as_str().unwrap();
 
-    ctx.api.post_json(
-        &format!("/api/v1/statuses/{id}/reblog"),
-        Some(&ctx.bob_token),
-        &json!({}),
-    ).await;
+    ctx.api
+        .post_json(
+            &format!("/api/v1/statuses/{id}/reblog"),
+            Some(&ctx.bob_token),
+            &json!({}),
+        )
+        .await;
 
-    let notifs: Vec<Value> = ctx.api.get("/api/v1/notifications", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
+    let notifs: Vec<Value> = ctx
+        .api
+        .get("/api/v1/notifications", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     let reblog_notif = notifs.iter().find(|n| n["type"].as_str() == Some("reblog"));
     assert!(reblog_notif.is_some(), "no reblog notification found");
     assert_eq!(
@@ -147,21 +205,32 @@ async fn test_notification_filter_types() {
 
     ctx.api.follow(&ctx.alice_token, &ctx.bob_id).await;
 
-    let status = ctx.api.post_status(&ctx.bob_token, "filterable", "public").await;
+    let status = ctx
+        .api
+        .post_status(&ctx.bob_token, "filterable", "public")
+        .await;
     let id = status["id"].as_str().unwrap();
-    ctx.api.post_json(
-        &format!("/api/v1/statuses/{id}/favourite"),
-        Some(&ctx.alice_token),
-        &json!({}),
-    ).await;
+    ctx.api
+        .post_json(
+            &format!("/api/v1/statuses/{id}/favourite"),
+            Some(&ctx.alice_token),
+            &json!({}),
+        )
+        .await;
 
-    let notifs: Vec<Value> = ctx.api.get(
-        "/api/v1/notifications?types[]=follow",
-        Some(&ctx.bob_token),
-    ).await.json().await.unwrap();
+    let notifs: Vec<Value> = ctx
+        .api
+        .get("/api/v1/notifications?types[]=follow", Some(&ctx.bob_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     for n in &notifs {
-        assert_eq!(n["type"].as_str(), Some("follow"),
-            "non-follow notification returned when filtering for follow");
+        assert_eq!(
+            n["type"].as_str(),
+            Some("follow"),
+            "non-follow notification returned when filtering for follow"
+        );
     }
 }
 
@@ -172,10 +241,16 @@ async fn test_notification_exclude_types() {
 
     ctx.api.follow(&ctx.alice_token, &ctx.bob_id).await;
 
-    let notifs: Vec<Value> = ctx.api.get(
-        "/api/v1/notifications?exclude_types[]=follow",
-        Some(&ctx.bob_token),
-    ).await.json().await.unwrap();
+    let notifs: Vec<Value> = ctx
+        .api
+        .get(
+            "/api/v1/notifications?exclude_types[]=follow",
+            Some(&ctx.bob_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(
         !notifs.iter().any(|n| n["type"].as_str() == Some("follow")),
         "follow notification appeared despite exclusion",
@@ -188,24 +263,38 @@ async fn test_notifications_limit_param_respected() {
     let ctx = TestContext::new("notif-limit").await;
 
     // Default limit should be 40 (not some lower number).
-    let resp = ctx.api.get("/api/v1/notifications", Some(&ctx.bob_token)).await;
+    let resp = ctx
+        .api
+        .get("/api/v1/notifications", Some(&ctx.bob_token))
+        .await;
     assert_eq!(resp.status(), reqwest::StatusCode::OK);
 
     // limit=1 should return at most 1.
     ctx.api.follow(&ctx.alice_token, &ctx.bob_id).await;
-    let status = ctx.api.post_status(&ctx.alice_token, "notif limit test", "public").await;
+    let status = ctx
+        .api
+        .post_status(&ctx.alice_token, "notif limit test", "public")
+        .await;
     let sid = status["id"].as_str().unwrap();
-    ctx.api.post_json(
-        &format!("/api/v1/statuses/{sid}/favourite"),
-        Some(&ctx.bob_token),
-        &serde_json::json!({}),
-    ).await;
+    ctx.api
+        .post_json(
+            &format!("/api/v1/statuses/{sid}/favourite"),
+            Some(&ctx.bob_token),
+            &serde_json::json!({}),
+        )
+        .await;
 
-    let notifs: Vec<serde_json::Value> = ctx.api.get(
-        "/api/v1/notifications?limit=1",
-        Some(&ctx.bob_token),
-    ).await.json().await.unwrap();
-    assert!(notifs.len() <= 1, "limit=1 should return at most 1 notification");
+    let notifs: Vec<serde_json::Value> = ctx
+        .api
+        .get("/api/v1/notifications?limit=1", Some(&ctx.bob_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        notifs.len() <= 1,
+        "limit=1 should return at most 1 notification"
+    );
 }
 
 /// GET /api/v1/notifications/:id returns the notification for the authenticated user.
@@ -215,15 +304,23 @@ async fn test_get_notification_by_id() {
 
     ctx.api.follow(&ctx.alice_token, &ctx.bob_id).await;
 
-    let notifs: Vec<Value> = ctx.api.get("/api/v1/notifications", Some(&ctx.bob_token))
-        .await.json().await.unwrap();
+    let notifs: Vec<Value> = ctx
+        .api
+        .get("/api/v1/notifications", Some(&ctx.bob_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(!notifs.is_empty(), "expected a follow notification");
     let notif_id = notifs[0]["id"].as_str().unwrap();
 
-    let resp = ctx.api.get(
-        &format!("/api/v1/notifications/{notif_id}"),
-        Some(&ctx.bob_token),
-    ).await;
+    let resp = ctx
+        .api
+        .get(
+            &format!("/api/v1/notifications/{notif_id}"),
+            Some(&ctx.bob_token),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let body: Value = resp.json().await.unwrap();
     assert_eq!(body["id"].as_str(), Some(notif_id));
@@ -236,15 +333,23 @@ async fn test_get_notification_other_users_is_404() {
 
     ctx.api.follow(&ctx.alice_token, &ctx.bob_id).await;
 
-    let bob_notifs: Vec<Value> = ctx.api.get("/api/v1/notifications", Some(&ctx.bob_token))
-        .await.json().await.unwrap();
+    let bob_notifs: Vec<Value> = ctx
+        .api
+        .get("/api/v1/notifications", Some(&ctx.bob_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(!bob_notifs.is_empty());
     let bob_notif_id = bob_notifs[0]["id"].as_str().unwrap();
 
-    let resp = ctx.api.get(
-        &format!("/api/v1/notifications/{bob_notif_id}"),
-        Some(&ctx.alice_token),
-    ).await;
+    let resp = ctx
+        .api
+        .get(
+            &format!("/api/v1/notifications/{bob_notif_id}"),
+            Some(&ctx.alice_token),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
@@ -255,16 +360,24 @@ async fn test_dismiss_notification_other_users_is_404() {
 
     ctx.api.follow(&ctx.alice_token, &ctx.bob_id).await;
 
-    let bob_notifs: Vec<Value> = ctx.api.get("/api/v1/notifications", Some(&ctx.bob_token))
-        .await.json().await.unwrap();
+    let bob_notifs: Vec<Value> = ctx
+        .api
+        .get("/api/v1/notifications", Some(&ctx.bob_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(!bob_notifs.is_empty());
     let bob_notif_id = bob_notifs[0]["id"].as_str().unwrap();
 
-    let resp = ctx.api.post_json(
-        &format!("/api/v1/notifications/{bob_notif_id}/dismiss"),
-        Some(&ctx.alice_token),
-        &json!({}),
-    ).await;
+    let resp = ctx
+        .api
+        .post_json(
+            &format!("/api/v1/notifications/{bob_notif_id}/dismiss"),
+            Some(&ctx.alice_token),
+            &json!({}),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
@@ -277,21 +390,35 @@ async fn test_notification_filter_by_account_id() {
     ctx.api.follow(&ctx.alice_token, &ctx.bob_id).await;
 
     // Also generate a favourite notification for Bob from Alice.
-    let status = ctx.api.post_status(&ctx.bob_token, "bob filterable", "public").await;
+    let status = ctx
+        .api
+        .post_status(&ctx.bob_token, "bob filterable", "public")
+        .await;
     let sid = status["id"].as_str().unwrap();
-    ctx.api.post_json(
-        &format!("/api/v1/statuses/{sid}/favourite"),
-        Some(&ctx.alice_token),
-        &json!({}),
-    ).await;
+    ctx.api
+        .post_json(
+            &format!("/api/v1/statuses/{sid}/favourite"),
+            Some(&ctx.alice_token),
+            &json!({}),
+        )
+        .await;
 
     // Filter by alice's id: all notifications should be from alice.
-    let notifs: Vec<Value> = ctx.api.get(
-        &format!("/api/v1/notifications?account_id={}", ctx.alice_id),
-        Some(&ctx.bob_token),
-    ).await.json().await.unwrap();
+    let notifs: Vec<Value> = ctx
+        .api
+        .get(
+            &format!("/api/v1/notifications?account_id={}", ctx.alice_id),
+            Some(&ctx.bob_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
 
-    assert!(!notifs.is_empty(), "expected at least one notification from alice");
+    assert!(
+        !notifs.is_empty(),
+        "expected at least one notification from alice"
+    );
     for n in &notifs {
         assert_eq!(
             n["account"]["id"].as_str(),
@@ -308,7 +435,10 @@ async fn test_notification_filter_by_account_id() {
 async fn test_notification_policy_defaults() {
     let ctx = TestContext::new("notif-policy-defaults").await;
 
-    let resp = ctx.api.get("/api/v2/notifications/policy", Some(&ctx.alice_token)).await;
+    let resp = ctx
+        .api
+        .get("/api/v2/notifications/policy", Some(&ctx.alice_token))
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let policy: Value = resp.json().await.unwrap();
 
@@ -325,15 +455,20 @@ async fn test_notification_policy_defaults() {
 async fn test_notification_policy_update() {
     let ctx = TestContext::new("notif-policy-update").await;
 
-    let resp = ctx.api.post_json(
-        "/api/v2/notifications/policy",
-        Some(&ctx.alice_token),
-        &json!({"filter_not_following": true}),
-    ).await;
+    let resp = ctx
+        .api
+        .post_json(
+            "/api/v2/notifications/policy",
+            Some(&ctx.alice_token),
+            &json!({"filter_not_following": true}),
+        )
+        .await;
     // PATCH endpoint but we use post_json — need to use the HTTP client directly.
     drop(resp);
 
-    let patch_resp = ctx.api.http
+    let patch_resp = ctx
+        .api
+        .http
         .patch(ctx.api.url("/api/v2/notifications/policy"))
         .header("host", &ctx.api.host)
         .bearer_auth(&ctx.alice_token)
@@ -344,7 +479,11 @@ async fn test_notification_policy_update() {
     assert_eq!(patch_resp.status(), StatusCode::OK);
     let policy: Value = patch_resp.json().await.unwrap();
     assert_eq!(policy["for_not_following"].as_str(), Some("filter"));
-    assert_eq!(policy["for_not_followers"].as_str(), Some("accept"), "unchanged field should stay accept");
+    assert_eq!(
+        policy["for_not_followers"].as_str(),
+        Some("accept"),
+        "unchanged field should stay accept"
+    );
 }
 
 /// GET /api/v1/notifications/policy returns boolean-format policy (Mastodon v1 contract).
@@ -352,14 +491,21 @@ async fn test_notification_policy_update() {
 async fn test_notification_policy_v1_get() {
     let ctx = TestContext::new("notif-policy-v1-get").await;
 
-    let resp = ctx.api.get("/api/v1/notifications/policy", Some(&ctx.alice_token)).await;
+    let resp = ctx
+        .api
+        .get("/api/v1/notifications/policy", Some(&ctx.alice_token))
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let policy: Value = resp.json().await.unwrap();
 
     assert_eq!(policy["filter_not_following"].as_bool(), Some(false));
     assert_eq!(policy["filter_not_followers"].as_bool(), Some(false));
     assert_eq!(policy["filter_new_accounts"].as_bool(), Some(false));
-    assert_eq!(policy["filter_private_mentions"].as_bool(), Some(true), "filter_private_mentions defaults to true per Mastodon contract");
+    assert_eq!(
+        policy["filter_private_mentions"].as_bool(),
+        Some(true),
+        "filter_private_mentions defaults to true per Mastodon contract"
+    );
     assert!(policy["summary"].is_object(), "summary field missing");
     assert!(policy["summary"]["pending_requests_count"].is_number());
     assert!(policy["summary"]["pending_notifications_count"].is_number());
@@ -370,16 +516,26 @@ async fn test_notification_policy_v1_get() {
 async fn test_notification_policy_v1_patch() {
     let ctx = TestContext::new("notif-policy-v1-patch").await;
 
-    let resp = ctx.api.patch_json(
-        "/api/v1/notifications/policy",
-        Some(&ctx.alice_token),
-        &serde_json::json!({"filter_not_following": true}),
-    ).await;
+    let resp = ctx
+        .api
+        .patch_json(
+            "/api/v1/notifications/policy",
+            Some(&ctx.alice_token),
+            &serde_json::json!({"filter_not_following": true}),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let policy: Value = resp.json().await.unwrap();
     assert_eq!(policy["filter_not_following"].as_bool(), Some(true));
-    assert_eq!(policy["filter_not_followers"].as_bool(), Some(false), "unchanged field stays false");
-    assert!(policy.get("filter_limited_accounts").is_none(), "v1 policy must not expose filter_limited_accounts");
+    assert_eq!(
+        policy["filter_not_followers"].as_bool(),
+        Some(false),
+        "unchanged field stays false"
+    );
+    assert!(
+        policy.get("filter_limited_accounts").is_none(),
+        "v1 policy must not expose filter_limited_accounts"
+    );
 }
 
 /// GET /api/v1/notifications/requests returns an empty list initially.
@@ -387,7 +543,10 @@ async fn test_notification_policy_v1_patch() {
 async fn test_notification_requests_empty_by_default() {
     let ctx = TestContext::new("notif-req-empty").await;
 
-    let resp = ctx.api.get("/api/v1/notifications/requests", Some(&ctx.alice_token)).await;
+    let resp = ctx
+        .api
+        .get("/api/v1/notifications/requests", Some(&ctx.alice_token))
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let list: Vec<Value> = resp.json().await.unwrap();
     assert!(list.is_empty(), "expected empty notification requests");
@@ -400,7 +559,8 @@ async fn test_notification_request_dismiss_and_accept() {
     let ctx = TestContext::new("notif-req-dismiss").await;
 
     // Alice sets filter_not_following=true so bob's actions route to requests.
-    ctx.api.http
+    ctx.api
+        .http
         .patch(ctx.api.url("/api/v2/notifications/policy"))
         .header("host", &ctx.api.host)
         .bearer_auth(&ctx.alice_token)
@@ -412,9 +572,17 @@ async fn test_notification_request_dismiss_and_accept() {
     // Bob follows alice → should create a notification request (not a notification).
     ctx.api.follow(&ctx.bob_token, &ctx.alice_id).await;
 
-    let requests: Vec<Value> = ctx.api.get("/api/v1/notifications/requests", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
-    assert!(!requests.is_empty(), "expected a notification request from bob");
+    let requests: Vec<Value> = ctx
+        .api
+        .get("/api/v1/notifications/requests", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        !requests.is_empty(),
+        "expected a notification request from bob"
+    );
     let req_id = requests[0]["id"].as_str().unwrap();
     assert_eq!(
         requests[0]["account"]["id"].as_str(),
@@ -423,26 +591,39 @@ async fn test_notification_request_dismiss_and_accept() {
     );
 
     // GET /api/v1/notifications/requests/:id returns the single request.
-    let single_resp = ctx.api.get(
-        &format!("/api/v1/notifications/requests/{req_id}"),
-        Some(&ctx.alice_token),
-    ).await;
+    let single_resp = ctx
+        .api
+        .get(
+            &format!("/api/v1/notifications/requests/{req_id}"),
+            Some(&ctx.alice_token),
+        )
+        .await;
     assert_eq!(single_resp.status(), StatusCode::OK);
     let single: Value = single_resp.json().await.unwrap();
     assert_eq!(single["id"].as_str(), Some(req_id));
 
     // Dismiss the request — it should disappear from the list.
-    let dismiss_resp = ctx.api.post_json(
-        &format!("/api/v1/notifications/requests/{req_id}/dismiss"),
-        Some(&ctx.alice_token),
-        &json!({}),
-    ).await;
+    let dismiss_resp = ctx
+        .api
+        .post_json(
+            &format!("/api/v1/notifications/requests/{req_id}/dismiss"),
+            Some(&ctx.alice_token),
+            &json!({}),
+        )
+        .await;
     assert_eq!(dismiss_resp.status(), StatusCode::OK);
 
-    let after_dismiss: Vec<Value> = ctx.api.get("/api/v1/notifications/requests", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
+    let after_dismiss: Vec<Value> = ctx
+        .api
+        .get("/api/v1/notifications/requests", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(
-        !after_dismiss.iter().any(|r| r["id"].as_str() == Some(req_id)),
+        !after_dismiss
+            .iter()
+            .any(|r| r["id"].as_str() == Some(req_id)),
         "dismissed request still appears in list",
     );
 }
@@ -452,7 +633,8 @@ async fn test_notification_request_dismiss_and_accept() {
 async fn test_notification_request_accept_removes_from_list() {
     let ctx = TestContext::new("notif-req-accept").await;
 
-    ctx.api.http
+    ctx.api
+        .http
         .patch(ctx.api.url("/api/v2/notifications/policy"))
         .header("host", &ctx.api.host)
         .bearer_auth(&ctx.alice_token)
@@ -463,23 +645,38 @@ async fn test_notification_request_accept_removes_from_list() {
 
     ctx.api.follow(&ctx.bob_token, &ctx.alice_id).await;
 
-    let requests: Vec<Value> = ctx.api.get("/api/v1/notifications/requests", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
+    let requests: Vec<Value> = ctx
+        .api
+        .get("/api/v1/notifications/requests", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(!requests.is_empty(), "expected a notification request");
     let req_id = requests[0]["id"].as_str().unwrap();
 
-    let accept_resp = ctx.api.post_json(
-        &format!("/api/v1/notifications/requests/{req_id}/accept"),
-        Some(&ctx.alice_token),
-        &json!({}),
-    ).await;
+    let accept_resp = ctx
+        .api
+        .post_json(
+            &format!("/api/v1/notifications/requests/{req_id}/accept"),
+            Some(&ctx.alice_token),
+            &json!({}),
+        )
+        .await;
     assert_eq!(accept_resp.status(), StatusCode::OK);
 
     // Accepting removes the request from the list.
-    let after_accept: Vec<Value> = ctx.api.get("/api/v1/notifications/requests", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
+    let after_accept: Vec<Value> = ctx
+        .api
+        .get("/api/v1/notifications/requests", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(
-        !after_accept.iter().any(|r| r["id"].as_str() == Some(req_id)),
+        !after_accept
+            .iter()
+            .any(|r| r["id"].as_str() == Some(req_id)),
         "accepted request should be removed from list",
     );
 }
@@ -490,7 +687,8 @@ async fn test_notification_requests_dismiss_bulk() {
     let ctx = TestContext::new("notif-req-dismiss-bulk").await;
 
     // Enable filter so bob's follow creates a request.
-    ctx.api.http
+    ctx.api
+        .http
         .patch(ctx.api.url("/api/v2/notifications/policy"))
         .header("host", &ctx.api.host)
         .bearer_auth(&ctx.alice_token)
@@ -502,22 +700,41 @@ async fn test_notification_requests_dismiss_bulk() {
     ctx.api.follow(&ctx.bob_token, &ctx.alice_id).await;
 
     // Verify a request exists.
-    let requests: Vec<Value> = ctx.api.get("/api/v1/notifications/requests", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
-    assert!(!requests.is_empty(), "expected a request before bulk dismiss");
+    let requests: Vec<Value> = ctx
+        .api
+        .get("/api/v1/notifications/requests", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        !requests.is_empty(),
+        "expected a request before bulk dismiss"
+    );
 
     // Dismiss all via the Mastodon-compatible path.
-    let resp = ctx.api.post_json(
-        "/api/v1/notifications/requests/dismiss",
-        Some(&ctx.alice_token),
-        &json!({}),
-    ).await;
+    let resp = ctx
+        .api
+        .post_json(
+            "/api/v1/notifications/requests/dismiss",
+            Some(&ctx.alice_token),
+            &json!({}),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
 
     // Requests should now be empty (dismissed).
-    let after: Vec<Value> = ctx.api.get("/api/v1/notifications/requests", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
-    assert!(after.is_empty(), "bulk dismiss should hide all notification requests");
+    let after: Vec<Value> = ctx
+        .api
+        .get("/api/v1/notifications/requests", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        after.is_empty(),
+        "bulk dismiss should hide all notification requests"
+    );
 }
 
 /// POST /api/v1/notifications/requests/accept (bulk) removes all pending notification requests.
@@ -525,7 +742,8 @@ async fn test_notification_requests_dismiss_bulk() {
 async fn test_notification_requests_accept_bulk() {
     let ctx = TestContext::new("notif-req-accept-bulk").await;
 
-    ctx.api.http
+    ctx.api
+        .http
         .patch(ctx.api.url("/api/v2/notifications/policy"))
         .header("host", &ctx.api.host)
         .bearer_auth(&ctx.alice_token)
@@ -536,21 +754,40 @@ async fn test_notification_requests_accept_bulk() {
 
     ctx.api.follow(&ctx.bob_token, &ctx.alice_id).await;
 
-    let requests: Vec<Value> = ctx.api.get("/api/v1/notifications/requests", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
-    assert!(!requests.is_empty(), "expected a request before bulk accept");
+    let requests: Vec<Value> = ctx
+        .api
+        .get("/api/v1/notifications/requests", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        !requests.is_empty(),
+        "expected a request before bulk accept"
+    );
 
     // Accept all via the Mastodon-compatible path.
-    let accept_resp = ctx.api.post_json(
-        "/api/v1/notifications/requests/accept",
-        Some(&ctx.alice_token),
-        &json!({}),
-    ).await;
+    let accept_resp = ctx
+        .api
+        .post_json(
+            "/api/v1/notifications/requests/accept",
+            Some(&ctx.alice_token),
+            &json!({}),
+        )
+        .await;
     assert_eq!(accept_resp.status(), StatusCode::OK);
 
-    let after_accept: Vec<Value> = ctx.api.get("/api/v1/notifications/requests", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
-    assert!(after_accept.is_empty(), "bulk accept should remove all pending notification requests");
+    let after_accept: Vec<Value> = ctx
+        .api
+        .get("/api/v1/notifications/requests", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        after_accept.is_empty(),
+        "bulk accept should remove all pending notification requests"
+    );
 }
 
 /// GET /api/v2/notifications returns notification groups with accounts and statuses sideloaded.
@@ -561,16 +798,25 @@ async fn test_get_notifications_v2() {
     // Alice follows Bob → Bob gets a follow notification.
     ctx.api.follow(&ctx.alice_token, &ctx.bob_id).await;
 
-    let resp = ctx.api.get("/api/v2/notifications", Some(&ctx.bob_token)).await;
+    let resp = ctx
+        .api
+        .get("/api/v2/notifications", Some(&ctx.bob_token))
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let body: Value = resp.json().await.unwrap();
 
-    assert!(body["notification_groups"].is_array(), "notification_groups missing");
+    assert!(
+        body["notification_groups"].is_array(),
+        "notification_groups missing"
+    );
     assert!(body["accounts"].is_array(), "accounts missing");
     assert!(body["statuses"].is_array(), "statuses missing");
 
     let groups = body["notification_groups"].as_array().unwrap();
-    assert!(!groups.is_empty(), "expected at least one notification group");
+    assert!(
+        !groups.is_empty(),
+        "expected at least one notification group"
+    );
 
     // NotificationGroup serializes as "type" (serde rename), not "notification_type"
     let follow_group = groups.iter().find(|g| g["type"].as_str() == Some("follow"));
@@ -583,48 +829,118 @@ async fn test_get_notifications_v2() {
 async fn test_v2_notifications_group_favourites() {
     let ctx = TestContext::new("notif-v2-group").await;
 
-    let (_carol_id, carol_token) =
-        crate::helpers::seed_user(&ctx.db, &ctx.domain, "carolgroup", "carolgroup@test.invalid").await;
+    let (_carol_id, carol_token) = crate::helpers::seed_user(
+        &ctx.db,
+        &ctx.domain,
+        "carolgroup",
+        "carolgroup@test.invalid",
+    )
+    .await;
 
     // Bob posts; Alice and Carol both favourite it.
-    let status = ctx.api.post_status(&ctx.bob_token, "group me", "public").await;
+    let status = ctx
+        .api
+        .post_status(&ctx.bob_token, "group me", "public")
+        .await;
     let sid = status["id"].as_str().unwrap();
-    ctx.api.post_json(&format!("/api/v1/statuses/{sid}/favourite"), Some(&ctx.alice_token), &json!({})).await;
-    ctx.api.post_json(&format!("/api/v1/statuses/{sid}/favourite"), Some(&carol_token), &json!({})).await;
+    ctx.api
+        .post_json(
+            &format!("/api/v1/statuses/{sid}/favourite"),
+            Some(&ctx.alice_token),
+            &json!({}),
+        )
+        .await;
+    ctx.api
+        .post_json(
+            &format!("/api/v1/statuses/{sid}/favourite"),
+            Some(&carol_token),
+            &json!({}),
+        )
+        .await;
 
-    let body: Value = ctx.api.get("/api/v2/notifications", Some(&ctx.bob_token))
-        .await.json().await.unwrap();
+    let body: Value = ctx
+        .api
+        .get("/api/v2/notifications", Some(&ctx.bob_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     let groups = body["notification_groups"].as_array().unwrap();
 
-    let fav_group = groups.iter()
+    let fav_group = groups
+        .iter()
         .find(|g| g["type"].as_str() == Some("favourite"))
         .expect("no favourite group");
-    assert_eq!(fav_group["notifications_count"].as_i64(), Some(2), "two favourites should be one group of 2");
+    assert_eq!(
+        fav_group["notifications_count"].as_i64(),
+        Some(2),
+        "two favourites should be one group of 2"
+    );
     assert_eq!(
         fav_group["sample_account_ids"].as_array().map(|a| a.len()),
         Some(2),
         "group should sample both favouriting accounts",
     );
     let group_key = fav_group["group_key"].as_str().unwrap();
-    assert_eq!(group_key, format!("favourite-{sid}"), "group key should be favourite-<status_id>");
+    assert_eq!(
+        group_key,
+        format!("favourite-{sid}"),
+        "group key should be favourite-<status_id>"
+    );
 
     // The group_key resolves via the single-group endpoint.
-    let single: Value = ctx.api.get(&format!("/api/v2/notifications/{group_key}"), Some(&ctx.bob_token))
-        .await.json().await.unwrap();
+    let single: Value = ctx
+        .api
+        .get(
+            &format!("/api/v2/notifications/{group_key}"),
+            Some(&ctx.bob_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
     assert_eq!(single["notifications_count"].as_i64(), Some(2));
 
     // And its accounts endpoint returns both.
-    let accts: Vec<Value> = ctx.api.get(&format!("/api/v2/notifications/{group_key}/accounts"), Some(&ctx.bob_token))
-        .await.json().await.unwrap();
-    assert_eq!(accts.len(), 2, "group accounts endpoint should list both favouriters");
+    let accts: Vec<Value> = ctx
+        .api
+        .get(
+            &format!("/api/v2/notifications/{group_key}/accounts"),
+            Some(&ctx.bob_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        accts.len(),
+        2,
+        "group accounts endpoint should list both favouriters"
+    );
 
     // Dismissing the group removes both underlying notifications.
-    let dismiss = ctx.api.post_json(&format!("/api/v2/notifications/{group_key}/dismiss"), Some(&ctx.bob_token), &json!({})).await;
+    let dismiss = ctx
+        .api
+        .post_json(
+            &format!("/api/v2/notifications/{group_key}/dismiss"),
+            Some(&ctx.bob_token),
+            &json!({}),
+        )
+        .await;
     assert_eq!(dismiss.status(), StatusCode::OK);
-    let after: Value = ctx.api.get("/api/v2/notifications", Some(&ctx.bob_token))
-        .await.json().await.unwrap();
+    let after: Value = ctx
+        .api
+        .get("/api/v2/notifications", Some(&ctx.bob_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(
-        !after["notification_groups"].as_array().unwrap().iter().any(|g| g["type"].as_str() == Some("favourite")),
+        !after["notification_groups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|g| g["type"].as_str() == Some("favourite")),
         "favourite group should be gone after dismiss",
     );
 }
@@ -637,36 +953,67 @@ async fn test_notifications_since_id_pagination() {
     // First notification: alice follows bob.
     ctx.api.follow(&ctx.alice_token, &ctx.bob_id).await;
 
-    let first_notifs: Vec<Value> = ctx.api.get("/api/v1/notifications", Some(&ctx.bob_token))
-        .await.json().await.unwrap();
+    let first_notifs: Vec<Value> = ctx
+        .api
+        .get("/api/v1/notifications", Some(&ctx.bob_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(!first_notifs.is_empty(), "expected a follow notification");
-    let first_id = first_notifs.last().unwrap()["id"].as_str().unwrap().to_string();
+    let first_id = first_notifs.last().unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     // Second notification: alice favourites bob's status.
-    let status = ctx.api.post_status(&ctx.bob_token, "since_id target", "public").await;
+    let status = ctx
+        .api
+        .post_status(&ctx.bob_token, "since_id target", "public")
+        .await;
     let sid = status["id"].as_str().unwrap();
-    ctx.api.post_json(
-        &format!("/api/v1/statuses/{sid}/favourite"),
-        Some(&ctx.alice_token),
-        &json!({}),
-    ).await;
+    ctx.api
+        .post_json(
+            &format!("/api/v1/statuses/{sid}/favourite"),
+            Some(&ctx.alice_token),
+            &json!({}),
+        )
+        .await;
 
-    let all_notifs: Vec<Value> = ctx.api.get("/api/v1/notifications", Some(&ctx.bob_token))
-        .await.json().await.unwrap();
-    assert!(all_notifs.len() >= 2, "expected at least 2 notifications total");
+    let all_notifs: Vec<Value> = ctx
+        .api
+        .get("/api/v1/notifications", Some(&ctx.bob_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        all_notifs.len() >= 2,
+        "expected at least 2 notifications total"
+    );
 
     // since_id should return only notifications newer than first_id.
-    let since_notifs: Vec<Value> = ctx.api.get(
-        &format!("/api/v1/notifications?since_id={first_id}"),
-        Some(&ctx.bob_token),
-    ).await.json().await.unwrap();
+    let since_notifs: Vec<Value> = ctx
+        .api
+        .get(
+            &format!("/api/v1/notifications?since_id={first_id}"),
+            Some(&ctx.bob_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
 
     assert!(
-        !since_notifs.iter().any(|n| n["id"].as_str() == Some(&first_id)),
+        !since_notifs
+            .iter()
+            .any(|n| n["id"].as_str() == Some(&first_id)),
         "since_id notification itself should be excluded",
     );
     assert!(
-        since_notifs.iter().any(|n| n["type"].as_str() == Some("favourite")),
+        since_notifs
+            .iter()
+            .any(|n| n["type"].as_str() == Some("favourite")),
         "favourite notification (newer) should appear with since_id filter",
     );
 }
@@ -680,27 +1027,45 @@ async fn test_notifications_max_id_pagination() {
     ctx.api.follow(&ctx.alice_token, &ctx.bob_id).await;
 
     // Second notification: alice favourites bob's status.
-    let status = ctx.api.post_status(&ctx.bob_token, "max_id target", "public").await;
+    let status = ctx
+        .api
+        .post_status(&ctx.bob_token, "max_id target", "public")
+        .await;
     let sid = status["id"].as_str().unwrap();
-    ctx.api.post_json(
-        &format!("/api/v1/statuses/{sid}/favourite"),
-        Some(&ctx.alice_token),
-        &json!({}),
-    ).await;
+    ctx.api
+        .post_json(
+            &format!("/api/v1/statuses/{sid}/favourite"),
+            Some(&ctx.alice_token),
+            &json!({}),
+        )
+        .await;
 
-    let all_notifs: Vec<Value> = ctx.api.get("/api/v1/notifications", Some(&ctx.bob_token))
-        .await.json().await.unwrap();
+    let all_notifs: Vec<Value> = ctx
+        .api
+        .get("/api/v1/notifications", Some(&ctx.bob_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(all_notifs.len() >= 2, "expected at least 2 notifications");
     // Notifications are newest-first; take the newest id as the max_id.
     let newest_id = all_notifs[0]["id"].as_str().unwrap().to_string();
 
-    let max_id_notifs: Vec<Value> = ctx.api.get(
-        &format!("/api/v1/notifications?max_id={newest_id}"),
-        Some(&ctx.bob_token),
-    ).await.json().await.unwrap();
+    let max_id_notifs: Vec<Value> = ctx
+        .api
+        .get(
+            &format!("/api/v1/notifications?max_id={newest_id}"),
+            Some(&ctx.bob_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
 
     assert!(
-        !max_id_notifs.iter().any(|n| n["id"].as_str() == Some(&newest_id)),
+        !max_id_notifs
+            .iter()
+            .any(|n| n["id"].as_str() == Some(&newest_id)),
         "max_id notification itself should be excluded",
     );
 }
@@ -713,31 +1078,54 @@ async fn test_notifications_min_id_pagination() {
     // First notification: alice follows bob.
     ctx.api.follow(&ctx.alice_token, &ctx.bob_id).await;
 
-    let first_notifs: Vec<Value> = ctx.api.get("/api/v1/notifications", Some(&ctx.bob_token))
-        .await.json().await.unwrap();
+    let first_notifs: Vec<Value> = ctx
+        .api
+        .get("/api/v1/notifications", Some(&ctx.bob_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(!first_notifs.is_empty(), "expected a follow notification");
-    let anchor_id = first_notifs.last().unwrap()["id"].as_str().unwrap().to_string();
+    let anchor_id = first_notifs.last().unwrap()["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     // Second notification: alice favourites bob's status.
-    let status = ctx.api.post_status(&ctx.bob_token, "min_id notif target", "public").await;
+    let status = ctx
+        .api
+        .post_status(&ctx.bob_token, "min_id notif target", "public")
+        .await;
     let sid = status["id"].as_str().unwrap();
-    ctx.api.post_json(
-        &format!("/api/v1/statuses/{sid}/favourite"),
-        Some(&ctx.alice_token),
-        &json!({}),
-    ).await;
+    ctx.api
+        .post_json(
+            &format!("/api/v1/statuses/{sid}/favourite"),
+            Some(&ctx.alice_token),
+            &json!({}),
+        )
+        .await;
 
-    let min_id_notifs: Vec<Value> = ctx.api.get(
-        &format!("/api/v1/notifications?min_id={anchor_id}"),
-        Some(&ctx.bob_token),
-    ).await.json().await.unwrap();
+    let min_id_notifs: Vec<Value> = ctx
+        .api
+        .get(
+            &format!("/api/v1/notifications?min_id={anchor_id}"),
+            Some(&ctx.bob_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
 
     assert!(
-        !min_id_notifs.iter().any(|n| n["id"].as_str() == Some(&anchor_id)),
+        !min_id_notifs
+            .iter()
+            .any(|n| n["id"].as_str() == Some(&anchor_id)),
         "min_id anchor should be excluded",
     );
     assert!(
-        min_id_notifs.iter().any(|n| n["type"].as_str() == Some("favourite")),
+        min_id_notifs
+            .iter()
+            .any(|n| n["type"].as_str() == Some("favourite")),
         "favourite notification (newer) should appear with min_id filter",
     );
 }
@@ -747,11 +1135,25 @@ async fn test_notifications_min_id_pagination() {
 async fn test_notifications_limit_80_is_accepted() {
     let ctx = TestContext::new("notif-limit-80").await;
 
-    let resp = ctx.api.get("/api/v1/notifications?limit=80", Some(&ctx.alice_token)).await;
-    assert_eq!(resp.status(), reqwest::StatusCode::OK, "limit=80 should be accepted");
+    let resp = ctx
+        .api
+        .get("/api/v1/notifications?limit=80", Some(&ctx.alice_token))
+        .await;
+    assert_eq!(
+        resp.status(),
+        reqwest::StatusCode::OK,
+        "limit=80 should be accepted"
+    );
     // limit=81 should be clamped to 80 and still return 200.
-    let resp2 = ctx.api.get("/api/v1/notifications?limit=81", Some(&ctx.alice_token)).await;
-    assert_eq!(resp2.status(), reqwest::StatusCode::OK, "limit=81 should be clamped, not rejected");
+    let resp2 = ctx
+        .api
+        .get("/api/v1/notifications?limit=81", Some(&ctx.alice_token))
+        .await;
+    assert_eq!(
+        resp2.status(),
+        reqwest::StatusCode::OK,
+        "limit=81 should be clamped, not rejected"
+    );
 }
 
 /// Following with notify=true creates a "status" notification when the followed account posts.
@@ -760,18 +1162,27 @@ async fn test_notify_follow_creates_status_notification() {
     let ctx = TestContext::new("notif-status-type").await;
 
     // Alice follows Bob with notify=true.
-    ctx.api.post_json(
-        &format!("/api/v1/accounts/{}/follow", ctx.bob_id),
-        Some(&ctx.alice_token),
-        &serde_json::json!({"notify": true}),
-    ).await;
+    ctx.api
+        .post_json(
+            &format!("/api/v1/accounts/{}/follow", ctx.bob_id),
+            Some(&ctx.alice_token),
+            &serde_json::json!({"notify": true}),
+        )
+        .await;
 
     // Bob posts a public status.
-    ctx.api.post_status(&ctx.bob_token, "hello notifiers", "public").await;
+    ctx.api
+        .post_status(&ctx.bob_token, "hello notifiers", "public")
+        .await;
 
     // Alice should have a "status" notification.
-    let body: Value = ctx.api.get("/api/v1/notifications", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
+    let body: Value = ctx
+        .api
+        .get("/api/v1/notifications", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     let notifs = body.as_array().unwrap();
     assert!(
         notifs.iter().any(|n| n["type"].as_str() == Some("status")),
@@ -787,15 +1198,21 @@ async fn test_notify_follow_skips_reply_to_others() {
 
     // Carol is a third account; Alice bells Bob.
     let (_carol_id, carol_token) =
-        crate::helpers::seed_user(&ctx.db, &ctx.domain, "carolbell", "carolbell@test.invalid").await;
-    ctx.api.post_json(
-        &format!("/api/v1/accounts/{}/follow", ctx.bob_id),
-        Some(&ctx.alice_token),
-        &json!({ "notify": true }),
-    ).await;
+        crate::helpers::seed_user(&ctx.db, &ctx.domain, "carolbell", "carolbell@test.invalid")
+            .await;
+    ctx.api
+        .post_json(
+            &format!("/api/v1/accounts/{}/follow", ctx.bob_id),
+            Some(&ctx.alice_token),
+            &json!({ "notify": true }),
+        )
+        .await;
 
     // Bob replies to Carol — this should NOT bell Alice.
-    let carol_status = ctx.api.post_status(&carol_token, "carol root", "public").await;
+    let carol_status = ctx
+        .api
+        .post_status(&carol_token, "carol root", "public")
+        .await;
     let carol_status_id = carol_status["id"].as_str().unwrap();
     ctx.api.post_json(
         "/api/v1/statuses",
@@ -803,8 +1220,13 @@ async fn test_notify_follow_skips_reply_to_others() {
         &json!({ "status": "bob to carol", "in_reply_to_id": carol_status_id, "visibility": "public" }),
     ).await;
 
-    let notifs: Vec<Value> = ctx.api.get("/api/v1/notifications", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
+    let notifs: Vec<Value> = ctx
+        .api
+        .get("/api/v1/notifications", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(
         !notifs.iter().any(|n| n["type"].as_str() == Some("status")),
         "a reply to another account should not trigger the bell",
@@ -819,32 +1241,58 @@ async fn test_notifications_v2_since_id_pagination() {
     // First event: alice follows bob.
     ctx.api.follow(&ctx.alice_token, &ctx.bob_id).await;
 
-    let first_body: Value = ctx.api.get("/api/v2/notifications", Some(&ctx.bob_token))
-        .await.json().await.unwrap();
+    let first_body: Value = ctx
+        .api
+        .get("/api/v2/notifications", Some(&ctx.bob_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     let first_groups = first_body["notification_groups"].as_array().unwrap();
-    assert!(!first_groups.is_empty(), "expected a follow notification group");
+    assert!(
+        !first_groups.is_empty(),
+        "expected a follow notification group"
+    );
 
     // Capture the oldest group id from this batch.
     let oldest_id = first_groups.last().unwrap()["page_min_id"]
         .as_str()
-        .unwrap_or_else(|| first_groups.last().unwrap()["latest_page_notification_at"].as_str().unwrap_or("1"))
+        .unwrap_or_else(|| {
+            first_groups.last().unwrap()["latest_page_notification_at"]
+                .as_str()
+                .unwrap_or("1")
+        })
         .to_string();
 
     // Second event: alice favourites bob's status.
-    let status = ctx.api.post_status(&ctx.bob_token, "v2 since notif", "public").await;
+    let status = ctx
+        .api
+        .post_status(&ctx.bob_token, "v2 since notif", "public")
+        .await;
     let sid = status["id"].as_str().unwrap();
-    ctx.api.post_json(
-        &format!("/api/v1/statuses/{sid}/favourite"),
-        Some(&ctx.alice_token),
-        &json!({}),
-    ).await;
+    ctx.api
+        .post_json(
+            &format!("/api/v1/statuses/{sid}/favourite"),
+            Some(&ctx.alice_token),
+            &json!({}),
+        )
+        .await;
 
     // since_id=oldest_id should return only newer groups.
-    let since_body: Value = ctx.api.get(
-        &format!("/api/v2/notifications?since_id={oldest_id}"),
-        Some(&ctx.bob_token),
-    ).await.json().await.unwrap();
-    assert!(since_body["notification_groups"].is_array(), "notification_groups should be present");
+    let since_body: Value = ctx
+        .api
+        .get(
+            &format!("/api/v2/notifications?since_id={oldest_id}"),
+            Some(&ctx.bob_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        since_body["notification_groups"].is_array(),
+        "notification_groups should be present"
+    );
 }
 
 /// Muting an account with hide_notifications=true suppresses their notifications.
@@ -853,18 +1301,25 @@ async fn test_mute_hides_notifications_when_flag_true() {
     let ctx = TestContext::new("notif-mute-hide").await;
 
     // Alice mutes Bob with notifications=true (default).
-    ctx.api.post_json(
-        &format!("/api/v1/accounts/{}/mute", ctx.bob_id),
-        Some(&ctx.alice_token),
-        &json!({}),
-    ).await;
+    ctx.api
+        .post_json(
+            &format!("/api/v1/accounts/{}/mute", ctx.bob_id),
+            Some(&ctx.alice_token),
+            &json!({}),
+        )
+        .await;
 
     // Bob follows Alice — this creates a "follow" notification.
     ctx.api.follow(&ctx.bob_token, &ctx.alice_id).await;
 
     // Alice's notifications should NOT include the follow from Bob.
-    let body: Value = ctx.api.get("/api/v1/notifications", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
+    let body: Value = ctx
+        .api
+        .get("/api/v1/notifications", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     let notifs = body.as_array().unwrap();
     assert!(
         !notifs.iter().any(|n| n["type"].as_str() == Some("follow")
@@ -879,18 +1334,25 @@ async fn test_mute_with_notifications_false_shows_notifications() {
     let ctx = TestContext::new("notif-mute-show").await;
 
     // Alice mutes Bob with notifications=false (explicit).
-    ctx.api.post_json(
-        &format!("/api/v1/accounts/{}/mute", ctx.bob_id),
-        Some(&ctx.alice_token),
-        &json!({"notifications": false}),
-    ).await;
+    ctx.api
+        .post_json(
+            &format!("/api/v1/accounts/{}/mute", ctx.bob_id),
+            Some(&ctx.alice_token),
+            &json!({"notifications": false}),
+        )
+        .await;
 
     // Bob follows Alice.
     ctx.api.follow(&ctx.bob_token, &ctx.alice_id).await;
 
     // Alice's notifications SHOULD include Bob's follow (notifications not hidden).
-    let body: Value = ctx.api.get("/api/v1/notifications", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
+    let body: Value = ctx
+        .api
+        .get("/api/v1/notifications", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     let notifs = body.as_array().unwrap();
     assert!(
         notifs.iter().any(|n| n["type"].as_str() == Some("follow")
@@ -908,20 +1370,36 @@ async fn test_edit_creates_update_notification() {
     let ctx = TestContext::new("notif-edit-update").await;
 
     // Alice posts a status; Bob reblogs it.
-    let status = ctx.api.post_status(&ctx.alice_token, "editable status", "public").await;
+    let status = ctx
+        .api
+        .post_status(&ctx.alice_token, "editable status", "public")
+        .await;
     let sid = status["id"].as_str().unwrap();
-    ctx.api.post_json(&format!("/api/v1/statuses/{sid}/reblog"), Some(&ctx.bob_token), &json!({})).await;
+    ctx.api
+        .post_json(
+            &format!("/api/v1/statuses/{sid}/reblog"),
+            Some(&ctx.bob_token),
+            &json!({}),
+        )
+        .await;
 
     // Alice edits the status.
-    ctx.api.put_json(
-        &format!("/api/v1/statuses/{sid}"),
-        Some(&ctx.alice_token),
-        &json!({"status": "edited!", "visibility": "public"}),
-    ).await;
+    ctx.api
+        .put_json(
+            &format!("/api/v1/statuses/{sid}"),
+            Some(&ctx.alice_token),
+            &json!({"status": "edited!", "visibility": "public"}),
+        )
+        .await;
 
     // Bob should receive an "update" notification.
-    let notifs: Vec<Value> = ctx.api.get("/api/v1/notifications", Some(&ctx.bob_token))
-        .await.json().await.unwrap();
+    let notifs: Vec<Value> = ctx
+        .api
+        .get("/api/v1/notifications", Some(&ctx.bob_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(
         notifs.iter().any(|n| n["type"].as_str() == Some("update")),
         "no update notification found: {notifs:?}",
@@ -934,18 +1412,31 @@ async fn test_notifications_unread_count() {
     let ctx = TestContext::new("notif-unread-count").await;
 
     // Initially no notifications
-    let body: Value = ctx.api.get("/api/v1/notifications/unread_count", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
+    let body: Value = ctx
+        .api
+        .get("/api/v1/notifications/unread_count", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     let initial = body["count"].as_i64().unwrap_or(-1);
     assert!(initial >= 0, "unread count should be a non-negative number");
 
     // Bob follows Alice → generates a follow notification
     ctx.api.follow(&ctx.bob_token, &ctx.alice_id).await;
 
-    let body2: Value = ctx.api.get("/api/v1/notifications/unread_count", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
+    let body2: Value = ctx
+        .api
+        .get("/api/v1/notifications/unread_count", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     let after = body2["count"].as_i64().unwrap_or(-1);
-    assert!(after > initial, "unread count should increase after a new notification");
+    assert!(
+        after > initial,
+        "unread count should increase after a new notification"
+    );
 }
 
 /// Replies in a muted thread do not create notifications for the muter.
@@ -954,32 +1445,46 @@ async fn test_muted_thread_suppresses_notifications() {
     let ctx = TestContext::new("notif-muted-thread").await;
 
     // Alice posts a root status.
-    let root = ctx.api.post_status(&ctx.alice_token, "thread root", "public").await;
+    let root = ctx
+        .api
+        .post_status(&ctx.alice_token, "thread root", "public")
+        .await;
     let root_id = root["id"].as_str().unwrap();
 
     // Alice mutes the thread.
-    ctx.api.post_json(
-        &format!("/api/v1/statuses/{root_id}/mute"),
-        Some(&ctx.alice_token),
-        &json!({}),
-    ).await;
+    ctx.api
+        .post_json(
+            &format!("/api/v1/statuses/{root_id}/mute"),
+            Some(&ctx.alice_token),
+            &json!({}),
+        )
+        .await;
 
     // Bob replies to Alice's root status — this would normally create a mention notification.
-    ctx.api.post_json(
-        "/api/v1/statuses",
-        Some(&ctx.bob_token),
-        &json!({"status": "@alice reply!", "visibility": "public", "in_reply_to_id": root_id}),
-    ).await;
+    ctx.api
+        .post_json(
+            "/api/v1/statuses",
+            Some(&ctx.bob_token),
+            &json!({"status": "@alice reply!", "visibility": "public", "in_reply_to_id": root_id}),
+        )
+        .await;
 
     // Alice should NOT have a mention notification from Bob.
-    let notifs: Vec<Value> = ctx.api.get("/api/v1/notifications", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
+    let notifs: Vec<Value> = ctx
+        .api
+        .get("/api/v1/notifications", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     let mention_from_bob = notifs.iter().find(|n| {
         n["type"].as_str() == Some("mention")
-        && n["account"]["id"].as_str() == Some(ctx.bob_id.as_str())
+            && n["account"]["id"].as_str() == Some(ctx.bob_id.as_str())
     });
-    assert!(mention_from_bob.is_none(),
-        "mention in muted thread should not create a notification");
+    assert!(
+        mention_from_bob.is_none(),
+        "mention in muted thread should not create a notification"
+    );
 }
 
 /// Mention from a blocked account does not create a notification for the blocker.
@@ -988,29 +1493,40 @@ async fn test_blocked_account_mention_does_not_create_notification() {
     let ctx = TestContext::new("notif-blocked-mention").await;
 
     // Alice blocks Bob.
-    ctx.api.post_json(
-        &format!("/api/v1/accounts/{}/block", ctx.bob_id),
-        Some(&ctx.alice_token),
-        &json!({}),
-    ).await;
+    ctx.api
+        .post_json(
+            &format!("/api/v1/accounts/{}/block", ctx.bob_id),
+            Some(&ctx.alice_token),
+            &json!({}),
+        )
+        .await;
 
     // Bob creates a status mentioning Alice (the status is created from Bob's perspective,
     // but Alice should not receive a mention notification since Bob is blocked).
-    ctx.api.post_json(
-        "/api/v1/statuses",
-        Some(&ctx.bob_token),
-        &json!({"status": "@alice hey!", "visibility": "public"}),
-    ).await;
+    ctx.api
+        .post_json(
+            "/api/v1/statuses",
+            Some(&ctx.bob_token),
+            &json!({"status": "@alice hey!", "visibility": "public"}),
+        )
+        .await;
 
-    let notifs: Vec<Value> = ctx.api.get("/api/v1/notifications", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
+    let notifs: Vec<Value> = ctx
+        .api
+        .get("/api/v1/notifications", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
 
     let bob_mention = notifs.iter().find(|n| {
         n["type"].as_str() == Some("mention")
-        && n["account"]["id"].as_str() == Some(ctx.bob_id.as_str())
+            && n["account"]["id"].as_str() == Some(ctx.bob_id.as_str())
     });
-    assert!(bob_mention.is_none(),
-        "mention from blocked account should not appear as notification for the blocker");
+    assert!(
+        bob_mention.is_none(),
+        "mention from blocked account should not appear as notification for the blocker"
+    );
 }
 
 /// Notification request response includes a non-null updated_at field distinct from created_at bugs.
@@ -1018,7 +1534,8 @@ async fn test_blocked_account_mention_does_not_create_notification() {
 async fn test_notification_request_has_updated_at() {
     let ctx = TestContext::new("notif-req-updated-at").await;
 
-    ctx.api.http
+    ctx.api
+        .http
         .patch(ctx.api.url("/api/v2/notifications/policy"))
         .header("host", &ctx.api.host)
         .bearer_auth(&ctx.alice_token)
@@ -1029,13 +1546,24 @@ async fn test_notification_request_has_updated_at() {
 
     ctx.api.follow(&ctx.bob_token, &ctx.alice_id).await;
 
-    let requests: Vec<Value> = ctx.api.get("/api/v1/notifications/requests", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
+    let requests: Vec<Value> = ctx
+        .api
+        .get("/api/v1/notifications/requests", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(!requests.is_empty(), "expected a notification request");
 
     let req = &requests[0];
-    assert!(req["updated_at"].as_str().is_some(), "notification request must have updated_at");
-    assert!(req["created_at"].as_str().is_some(), "notification request must have created_at");
+    assert!(
+        req["updated_at"].as_str().is_some(),
+        "notification request must have updated_at"
+    );
+    assert!(
+        req["created_at"].as_str().is_some(),
+        "notification request must have created_at"
+    );
 }
 
 /// GET /api/v1/notifications/requests/merged returns { merged: true }.
@@ -1043,10 +1571,19 @@ async fn test_notification_request_has_updated_at() {
 async fn test_notification_requests_merged() {
     let ctx = TestContext::new("notif-req-merged").await;
 
-    let resp = ctx.api.get("/api/v1/notifications/requests/merged", Some(&ctx.alice_token)).await;
+    let resp = ctx
+        .api
+        .get(
+            "/api/v1/notifications/requests/merged",
+            Some(&ctx.alice_token),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let body: Value = resp.json().await.unwrap();
-    assert!(body["merged"].is_boolean(), "merged field should be boolean");
+    assert!(
+        body["merged"].is_boolean(),
+        "merged field should be boolean"
+    );
 }
 
 /// GET /api/v2/notifications/:group_key returns 404 for unknown group_key.
@@ -1054,7 +1591,13 @@ async fn test_notification_requests_merged() {
 async fn test_notification_group_not_found() {
     let ctx = TestContext::new("notif-group-404").await;
 
-    let resp = ctx.api.get("/api/v2/notifications/ungrouped-999999999999", Some(&ctx.alice_token)).await;
+    let resp = ctx
+        .api
+        .get(
+            "/api/v2/notifications/ungrouped-999999999999",
+            Some(&ctx.alice_token),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
@@ -1067,16 +1610,30 @@ async fn test_notification_group_get() {
     ctx.api.follow(&ctx.bob_token, &ctx.alice_id).await;
 
     // Alice fetches her v2 notifications to get a group_key.
-    let resp = ctx.api.get("/api/v2/notifications", Some(&ctx.alice_token)).await;
+    let resp = ctx
+        .api
+        .get("/api/v2/notifications", Some(&ctx.alice_token))
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let body: Value = resp.json().await.unwrap();
-    let groups = body["notification_groups"].as_array().expect("notification_groups missing");
-    assert!(!groups.is_empty(), "expected at least one notification group");
+    let groups = body["notification_groups"]
+        .as_array()
+        .expect("notification_groups missing");
+    assert!(
+        !groups.is_empty(),
+        "expected at least one notification group"
+    );
 
     let group_key = groups[0]["group_key"].as_str().unwrap();
 
     // Fetch the group directly.
-    let resp2 = ctx.api.get(&format!("/api/v2/notifications/{group_key}"), Some(&ctx.alice_token)).await;
+    let resp2 = ctx
+        .api
+        .get(
+            &format!("/api/v2/notifications/{group_key}"),
+            Some(&ctx.alice_token),
+        )
+        .await;
     assert_eq!(resp2.status(), StatusCode::OK);
     let group: Value = resp2.json().await.unwrap();
     assert_eq!(group["group_key"].as_str(), Some(group_key));
@@ -1090,38 +1647,58 @@ async fn test_notification_filtered_field_set_when_keyword_matches() {
     let ctx = TestContext::new("notif-filtered-field").await;
 
     // Alice creates a "notifications" context filter for the word "filtertest".
-    ctx.api.post_json(
-        "/api/v2/filters",
-        Some(&ctx.alice_token),
-        &serde_json::json!({
-            "title": "Notification keyword filter",
-            "context": ["notifications"],
-            "filter_action": "warn",
-            "keywords_attributes": [{"keyword": "filtertest", "whole_word": false}]
-        }),
-    ).await;
+    ctx.api
+        .post_json(
+            "/api/v2/filters",
+            Some(&ctx.alice_token),
+            &serde_json::json!({
+                "title": "Notification keyword filter",
+                "context": ["notifications"],
+                "filter_action": "warn",
+                "keywords_attributes": [{"keyword": "filtertest", "whole_word": false}]
+            }),
+        )
+        .await;
 
     // Bob posts a status containing the filtered word and mentions Alice.
-    ctx.api.post_json(
-        "/api/v1/statuses",
-        Some(&ctx.bob_token),
-        &serde_json::json!({
-            "status": "@alice filtertest mention",
-            "visibility": "public"
-        }),
-    ).await;
+    ctx.api
+        .post_json(
+            "/api/v1/statuses",
+            Some(&ctx.bob_token),
+            &serde_json::json!({
+                "status": "@alice filtertest mention",
+                "visibility": "public"
+            }),
+        )
+        .await;
 
     // Alice should have a mention notification with a non-empty `filtered` array.
-    let notifs: Vec<serde_json::Value> = ctx.api.get("/api/v1/notifications", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
+    let notifs: Vec<serde_json::Value> = ctx
+        .api
+        .get("/api/v1/notifications", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
 
-    let mention = notifs.iter().find(|n| n["type"].as_str() == Some("mention"));
-    assert!(mention.is_some(), "alice should have a mention notification");
+    let mention = notifs
+        .iter()
+        .find(|n| n["type"].as_str() == Some("mention"));
+    assert!(
+        mention.is_some(),
+        "alice should have a mention notification"
+    );
 
     // The embedded status carries the `filtered` array for the notifications context.
     let filtered = mention.unwrap()["status"]["filtered"].as_array();
-    assert!(filtered.is_some(), "mention notification's status must have a `filtered` array");
-    assert!(!filtered.unwrap().is_empty(), "`filtered` must be non-empty when keyword matches");
+    assert!(
+        filtered.is_some(),
+        "mention notification's status must have a `filtered` array"
+    );
+    assert!(
+        !filtered.unwrap().is_empty(),
+        "`filtered` must be non-empty when keyword matches"
+    );
 }
 
 /// GET /api/v2/notifications/:group_key/accounts returns accounts for the group.
@@ -1131,11 +1708,23 @@ async fn test_notification_group_accounts() {
 
     ctx.api.follow(&ctx.bob_token, &ctx.alice_id).await;
 
-    let resp = ctx.api.get("/api/v2/notifications", Some(&ctx.alice_token)).await;
+    let resp = ctx
+        .api
+        .get("/api/v2/notifications", Some(&ctx.alice_token))
+        .await;
     let body: Value = resp.json().await.unwrap();
-    let group_key = body["notification_groups"].as_array().unwrap()[0]["group_key"].as_str().unwrap().to_string();
+    let group_key = body["notification_groups"].as_array().unwrap()[0]["group_key"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
-    let resp2 = ctx.api.get(&format!("/api/v2/notifications/{group_key}/accounts"), Some(&ctx.alice_token)).await;
+    let resp2 = ctx
+        .api
+        .get(
+            &format!("/api/v2/notifications/{group_key}/accounts"),
+            Some(&ctx.alice_token),
+        )
+        .await;
     assert_eq!(resp2.status(), StatusCode::OK);
     let accounts: Vec<Value> = resp2.json().await.unwrap();
     assert!(!accounts.is_empty(), "expected at least one account");
@@ -1149,22 +1738,36 @@ async fn test_notification_group_dismiss() {
 
     ctx.api.follow(&ctx.bob_token, &ctx.alice_id).await;
 
-    let resp = ctx.api.get("/api/v2/notifications", Some(&ctx.alice_token)).await;
+    let resp = ctx
+        .api
+        .get("/api/v2/notifications", Some(&ctx.alice_token))
+        .await;
     let body: Value = resp.json().await.unwrap();
-    let group_key = body["notification_groups"].as_array().unwrap()[0]["group_key"].as_str().unwrap().to_string();
+    let group_key = body["notification_groups"].as_array().unwrap()[0]["group_key"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
-    let dismiss = ctx.api.post_json(
-        &format!("/api/v2/notifications/{group_key}/dismiss"),
-        Some(&ctx.alice_token),
-        &serde_json::json!({}),
-    ).await;
+    let dismiss = ctx
+        .api
+        .post_json(
+            &format!("/api/v2/notifications/{group_key}/dismiss"),
+            Some(&ctx.alice_token),
+            &serde_json::json!({}),
+        )
+        .await;
     assert_eq!(dismiss.status(), StatusCode::OK);
 
     // The notification is gone from the list now.
-    let resp3 = ctx.api.get("/api/v2/notifications", Some(&ctx.alice_token)).await;
+    let resp3 = ctx
+        .api
+        .get("/api/v2/notifications", Some(&ctx.alice_token))
+        .await;
     let body3: Value = resp3.json().await.unwrap();
     let remaining = body3["notification_groups"].as_array().unwrap();
-    assert!(!remaining.iter().any(|g| g["group_key"].as_str() == Some(&group_key)));
+    assert!(!remaining
+        .iter()
+        .any(|g| g["group_key"].as_str() == Some(&group_key)));
 }
 
 /// Timestamps in notification responses must use the Mastodon-standard Z suffix, not +00:00.
@@ -1174,11 +1777,18 @@ async fn test_notification_timestamps_use_z_suffix() {
 
     ctx.api.follow(&ctx.alice_token, &ctx.bob_id).await;
 
-    let notifs: Vec<Value> = ctx.api.get("/api/v1/notifications", Some(&ctx.bob_token))
-        .await.json().await.unwrap();
+    let notifs: Vec<Value> = ctx
+        .api
+        .get("/api/v1/notifications", Some(&ctx.bob_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(!notifs.is_empty(), "expected at least one notification");
 
-    let created_at = notifs[0]["created_at"].as_str().expect("notification must have created_at");
+    let created_at = notifs[0]["created_at"]
+        .as_str()
+        .expect("notification must have created_at");
     assert!(
         created_at.ends_with('Z'),
         "notification created_at should use Z suffix, got: {created_at}"
@@ -1196,17 +1806,27 @@ async fn test_v2_clear_notifications() {
 
     ctx.api.follow(&ctx.alice_token, &ctx.bob_id).await;
 
-    let clear_resp = ctx.api.post_json(
-        "/api/v2/notifications/clear",
-        Some(&ctx.bob_token),
-        &json!({}),
-    ).await;
+    let clear_resp = ctx
+        .api
+        .post_json(
+            "/api/v2/notifications/clear",
+            Some(&ctx.bob_token),
+            &json!({}),
+        )
+        .await;
     assert_eq!(clear_resp.status(), StatusCode::OK);
 
-    let after: Value = ctx.api.get("/api/v2/notifications", Some(&ctx.bob_token))
-        .await.json().await.unwrap();
+    let after: Value = ctx
+        .api
+        .get("/api/v2/notifications", Some(&ctx.bob_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(
-        after["notification_groups"].as_array().map_or(true, |g| g.is_empty()),
+        after["notification_groups"]
+            .as_array()
+            .map_or(true, |g| g.is_empty()),
         "notifications not cleared after POST /api/v2/notifications/clear",
     );
 }
@@ -1217,15 +1837,29 @@ async fn test_v2_notifications_unread_count() {
     let ctx = TestContext::new("notif-v2-unread").await;
 
     // No notifications yet — count should be 0.
-    let body: Value = ctx.api.get("/api/v2/notifications/unread_count", Some(&ctx.bob_token))
-        .await.json().await.unwrap();
-    assert_eq!(body["count"].as_i64(), Some(0), "unread count should start at 0");
+    let body: Value = ctx
+        .api
+        .get("/api/v2/notifications/unread_count", Some(&ctx.bob_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        body["count"].as_i64(),
+        Some(0),
+        "unread count should start at 0"
+    );
 
     // Alice follows Bob → creates a notification.
     ctx.api.follow(&ctx.alice_token, &ctx.bob_id).await;
 
-    let body2: Value = ctx.api.get("/api/v2/notifications/unread_count", Some(&ctx.bob_token))
-        .await.json().await.unwrap();
+    let body2: Value = ctx
+        .api
+        .get("/api/v2/notifications/unread_count", Some(&ctx.bob_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(
         body2["count"].as_i64().unwrap_or(0) > 0,
         "unread count should be > 0 after receiving a notification",

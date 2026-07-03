@@ -1,3 +1,9 @@
+use super::types::{Tag, TagHistory};
+use crate::{
+    error::{AppError, AppResult},
+    middleware::{AuthenticatedUser, ResolvedInstance},
+    state::AppState,
+};
 use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderMap, Uri},
@@ -5,12 +11,6 @@ use axum::{
     Extension,
 };
 use std::collections::HashMap;
-use crate::{
-    error::{AppError, AppResult},
-    middleware::{AuthenticatedUser, ResolvedInstance},
-    state::AppState,
-};
-use super::types::{Tag, TagHistory};
 
 // ── Tag history helpers ────────────────────────────────────────────────────
 
@@ -46,10 +46,9 @@ pub(super) async fn fetch_tags_histories(
     let mut raw: HashMap<i64, HashMap<chrono::NaiveDate, (i64, i64)>> = HashMap::new();
     for r in rows {
         if let Some(day) = r.day {
-            raw.entry(r.tag_id).or_default().insert(
-                day,
-                (r.uses.unwrap_or(0), r.accounts.unwrap_or(0)),
-            );
+            raw.entry(r.tag_id)
+                .or_default()
+                .insert(day, (r.uses.unwrap_or(0), r.accounts.unwrap_or(0)));
         }
     }
 
@@ -68,7 +67,11 @@ pub(super) async fn fetch_tags_histories(
                         .and_utc()
                         .timestamp()
                         .to_string();
-                    TagHistory { day: ts, uses: uses.to_string(), accounts: accounts.to_string() }
+                    TagHistory {
+                        day: ts,
+                        uses: uses.to_string(),
+                        accounts: accounts.to_string(),
+                    }
                 })
                 .collect();
             (tid, history)
@@ -76,10 +79,7 @@ pub(super) async fn fetch_tags_histories(
         .collect()
 }
 
-pub(super) async fn fetch_tag_history(
-    db: &sqlx::PgPool,
-    tag_id: i64,
-) -> Vec<TagHistory> {
+pub(super) async fn fetch_tag_history(db: &sqlx::PgPool, tag_id: i64) -> Vec<TagHistory> {
     fetch_tags_histories(db, &[tag_id])
         .await
         .remove(&tag_id)
@@ -103,13 +103,10 @@ pub async fn get_tag(
 
     // Mastodon's TagsController#show uses Tag.find_normalized! which raises
     // RecordNotFound (→ 404) for hashtags that do not exist.
-    let tag = sqlx::query!(
-        "SELECT id FROM tags WHERE name = $1",
-        name,
-    )
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or(AppError::NotFound)?;
+    let tag = sqlx::query!("SELECT id FROM tags WHERE name = $1", name,)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or(AppError::NotFound)?;
 
     let (following, featuring, history, id_str) = {
         let t = &tag;
@@ -173,7 +170,10 @@ pub async fn list_followed_tags(
     let domain = &instance.domain;
     let limit = params.limit.unwrap_or(100).clamp(1, 200);
     let max_id = params.max_id.as_deref().and_then(|s| s.parse::<i64>().ok());
-    let since_id = params.since_id.as_deref().and_then(|s| s.parse::<i64>().ok());
+    let since_id = params
+        .since_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
     let min_id = params.min_id.as_deref().and_then(|s| s.parse::<i64>().ok());
 
     let rows = sqlx::query!(
@@ -214,10 +214,12 @@ pub async fn list_followed_tags(
         })
         .collect();
 
-    let link = first_follow_id.zip(last_follow_id).map(|(newest_fid, oldest_fid)| {
-        let extra = super::non_pagination_query(uri.query());
-        super::link_header(&req_headers, uri.path(), &extra, &newest_fid, &oldest_fid)
-    });
+    let link = first_follow_id
+        .zip(last_follow_id)
+        .map(|(newest_fid, oldest_fid)| {
+            let extra = super::non_pagination_query(uri.query());
+            super::link_header(&req_headers, uri.path(), &extra, &newest_fid, &oldest_fid)
+        });
     let mut resp_headers = HeaderMap::new();
     if let Some(v) = link {
         if let Ok(val) = v.parse() {
@@ -259,7 +261,8 @@ pub async fn follow_tag(
 
     let featuring = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM featured_tags WHERE account_id = $1 AND tag_id = $2)",
-        auth.account_id, tag_id,
+        auth.account_id,
+        tag_id,
     )
     .fetch_one(&state.db)
     .await?
@@ -285,12 +288,9 @@ pub async fn unfollow_tag(
     let domain = &instance.domain;
     let name = name.to_lowercase();
 
-    let tag = sqlx::query!(
-        "SELECT id FROM tags WHERE name = $1",
-        name,
-    )
-    .fetch_optional(&state.db)
-    .await?;
+    let tag = sqlx::query!("SELECT id FROM tags WHERE name = $1", name,)
+        .fetch_optional(&state.db)
+        .await?;
 
     // If tag doesn't exist there's nothing to unfollow; return empty-id tag (matches Mastodon).
     let Some(tag) = tag else {
@@ -316,7 +316,8 @@ pub async fn unfollow_tag(
 
     let featuring = sqlx::query_scalar!(
         "SELECT EXISTS(SELECT 1 FROM featured_tags WHERE account_id = $1 AND tag_id = $2)",
-        auth.account_id, tag.id,
+        auth.account_id,
+        tag.id,
     )
     .fetch_one(&state.db)
     .await?

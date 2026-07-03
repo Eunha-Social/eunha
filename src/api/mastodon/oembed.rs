@@ -41,8 +41,7 @@ pub async fn get_oembed(
     Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
     Query(params): Query<OEmbedParams>,
 ) -> AppResult<Json<OEmbedResponse>> {
-    let status_id = parse_status_id_from_url(&params.url)
-        .ok_or(AppError::NotFound)?;
+    let status_id = parse_status_id_from_url(&params.url).ok_or(AppError::NotFound)?;
 
     let row = sqlx::query!(
         r#"SELECT s.id, s.account_id,
@@ -53,12 +52,19 @@ pub async fn get_oembed(
              AND s.deleted_at IS NULL
              AND s.visibility IN (0, 1)"#,
         status_id,
-    ).fetch_optional(&state.db).await?.ok_or(AppError::NotFound)?;
+    )
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
 
     let base_url = format!("https://{}", instance.domain);
     let author_url = format!("{base_url}/@{}", row.username);
     let status_url = format!("{base_url}/@{}/{}", row.username, row.id);
-    let display_name = if row.display_name.is_empty() { row.username.clone() } else { row.display_name.clone() };
+    let display_name = if row.display_name.is_empty() {
+        row.username.clone()
+    } else {
+        row.display_name.clone()
+    };
 
     let width = params.maxwidth.unwrap_or(400).min(400);
     let html = format!(

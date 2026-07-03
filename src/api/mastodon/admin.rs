@@ -1,3 +1,13 @@
+use super::accounts::{batch_account_roles, fetch_account_emojis};
+use super::convert::account_from_db;
+use super::extractors::QueryOrJson;
+use super::types::Account as ApiAccount;
+use crate::{
+    db::models,
+    error::{AppError, AppResult},
+    middleware::{AuthenticatedUser, ResolvedInstance},
+    state::AppState,
+};
 use axum::{
     extract::{Extension, Multipart, Path, Query, State},
     http::{header, HeaderMap, StatusCode, Uri},
@@ -5,16 +15,6 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
-use crate::{
-    db::models,
-    error::{AppError, AppResult},
-    middleware::{AuthenticatedUser, ResolvedInstance},
-    state::AppState,
-};
-use super::accounts::{batch_account_roles, fetch_account_emojis};
-use super::convert::account_from_db;
-use super::extractors::QueryOrJson;
-use super::types::Account as ApiAccount;
 
 // ── Admin auth guard ──────────────────────────────────────────────────────
 
@@ -147,7 +147,10 @@ fn role_for(role_str: &str) -> AdminRole {
     }
 }
 
-async fn build_admin_account(state: &AppState, account: &models::Account) -> AppResult<AdminAccount> {
+async fn build_admin_account(
+    state: &AppState,
+    account: &models::Account,
+) -> AppResult<AdminAccount> {
     let user = sqlx::query!(
         r#"SELECT u.id, u.email, u.confirmed_at, u.approved,
                   COALESCE(ur.position, 0) AS "role_position!: i32"
@@ -161,7 +164,13 @@ async fn build_admin_account(state: &AppState, account: &models::Account) -> App
 
     let (user_id, email, confirmed, approved, reason, role_str) = match user {
         Some(u) => {
-            let role = if u.role_position >= 1000 { "admin" } else if u.role_position >= 100 { "moderator" } else { "user" };
+            let role = if u.role_position >= 1000 {
+                "admin"
+            } else if u.role_position >= 100 {
+                "moderator"
+            } else {
+                "user"
+            };
             (
                 Some(u.id),
                 u.email,
@@ -192,7 +201,9 @@ async fn build_admin_account(state: &AppState, account: &models::Account) -> App
     } else {
         vec![]
     };
-    let first_ip = ips.first().and_then(|v| v["ip"].as_str().map(str::to_string));
+    let first_ip = ips
+        .first()
+        .and_then(|v| v["ip"].as_str().map(str::to_string));
 
     Ok(AdminAccount {
         id: account.id.to_string(),
@@ -251,7 +262,10 @@ pub async fn list_admin_accounts(
     let limit = params.limit.unwrap_or(40).clamp(1, 80);
     let max_id = params.max_id.as_deref().and_then(|s| s.parse::<i64>().ok());
     let min_id = params.min_id.as_deref().and_then(|s| s.parse::<i64>().ok());
-    let since_id = params.since_id.as_deref().and_then(|s| s.parse::<i64>().ok());
+    let since_id = params
+        .since_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
 
     let accounts = sqlx::query_as!(
         models::Account,
@@ -303,7 +317,7 @@ pub async fn list_admin_accounts(
 
 #[derive(Debug, Deserialize)]
 pub struct AdminAccountsV2Params {
-    pub origin: Option<String>,      // "local" | "remote"
+    pub origin: Option<String>, // "local" | "remote"
     pub status: Option<String>,
     pub username: Option<String>,
     pub display_name: Option<String>,
@@ -328,7 +342,10 @@ pub async fn list_admin_accounts_v2(
     let limit = params.limit.unwrap_or(40).clamp(1, 80);
     let max_id = params.max_id.as_deref().and_then(|s| s.parse::<i64>().ok());
     let min_id = params.min_id.as_deref().and_then(|s| s.parse::<i64>().ok());
-    let since_id = params.since_id.as_deref().and_then(|s| s.parse::<i64>().ok());
+    let since_id = params
+        .since_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
 
     // origin filter: "local" = domain IS NULL, "remote" = domain IS NOT NULL
     let local_only = params.origin.as_deref() == Some("local");
@@ -359,13 +376,18 @@ pub async fn list_admin_accounts_v2(
            ORDER BY a.id DESC
            LIMIT $1"#,
         limit,
-        local_only, remote_only,
+        local_only,
+        remote_only,
         params.username.as_deref(),
         display_name_pattern.as_deref(),
         params.status.as_deref(),
         params.email.as_deref(),
-        max_id, since_id, min_id,
-    ).fetch_all(&state.db).await?;
+        max_id,
+        since_id,
+        min_id,
+    )
+    .fetch_all(&state.db)
+    .await?;
 
     let mut result = Vec::with_capacity(accounts.len());
     for a in &accounts {
@@ -408,12 +430,9 @@ pub async fn approve_account(
     Path(id): Path<i64>,
 ) -> AppResult<Json<AdminAccount>> {
     require_permission(&state, auth.account_id, perm::MANAGE_USERS).await?;
-    sqlx::query!(
-        "UPDATE users SET approved = true WHERE account_id = $1",
-        id,
-    )
-    .execute(&state.db)
-    .await?;
+    sqlx::query!("UPDATE users SET approved = true WHERE account_id = $1", id,)
+        .execute(&state.db)
+        .await?;
     let account = sqlx::query_as!(models::Account, "SELECT * FROM accounts WHERE id = $1", id)
         .fetch_optional(&state.db)
         .await?
@@ -435,12 +454,9 @@ pub async fn reject_account(
     )
     .execute(&state.db)
     .await?;
-    sqlx::query!(
-        "UPDATE accounts SET suspended_at = now() WHERE id = $1",
-        id,
-    )
-    .execute(&state.db)
-    .await?;
+    sqlx::query!("UPDATE accounts SET suspended_at = now() WHERE id = $1", id,)
+        .execute(&state.db)
+        .await?;
     Ok(StatusCode::OK)
 }
 
@@ -452,12 +468,9 @@ pub async fn enable_account(
     Path(id): Path<i64>,
 ) -> AppResult<Json<AdminAccount>> {
     require_permission(&state, auth.account_id, perm::MANAGE_USERS).await?;
-    sqlx::query!(
-        "UPDATE accounts SET suspended_at = NULL WHERE id = $1",
-        id,
-    )
-    .execute(&state.db)
-    .await?;
+    sqlx::query!("UPDATE accounts SET suspended_at = NULL WHERE id = $1", id,)
+        .execute(&state.db)
+        .await?;
     let account = sqlx::query_as!(models::Account, "SELECT * FROM accounts WHERE id = $1", id)
         .fetch_optional(&state.db)
         .await?
@@ -494,12 +507,9 @@ pub async fn unsilence_account(
     Path(id): Path<i64>,
 ) -> AppResult<Json<AdminAccount>> {
     require_permission(&state, auth.account_id, perm::MANAGE_USERS).await?;
-    sqlx::query!(
-        "UPDATE accounts SET silenced_at = NULL WHERE id = $1",
-        id,
-    )
-    .execute(&state.db)
-    .await?;
+    sqlx::query!("UPDATE accounts SET silenced_at = NULL WHERE id = $1", id,)
+        .execute(&state.db)
+        .await?;
     let account = sqlx::query_as!(models::Account, "SELECT * FROM accounts WHERE id = $1", id)
         .fetch_optional(&state.db)
         .await?
@@ -542,12 +552,9 @@ pub async fn unsuspend_account(
     Path(id): Path<i64>,
 ) -> AppResult<Json<AdminAccount>> {
     require_permission(&state, auth.account_id, perm::MANAGE_USERS).await?;
-    sqlx::query!(
-        "UPDATE accounts SET suspended_at = NULL WHERE id = $1",
-        id,
-    )
-    .execute(&state.db)
-    .await?;
+    sqlx::query!("UPDATE accounts SET suspended_at = NULL WHERE id = $1", id,)
+        .execute(&state.db)
+        .await?;
     let account = sqlx::query_as!(models::Account, "SELECT * FROM accounts WHERE id = $1", id)
         .fetch_optional(&state.db)
         .await?
@@ -575,10 +582,7 @@ pub struct AdminReport {
     pub rules: Vec<serde_json::Value>,
 }
 
-async fn build_admin_report(
-    state: &AppState,
-    report: &AdminReportRow,
-) -> AppResult<AdminReport> {
+async fn build_admin_report(state: &AppState, report: &AdminReportRow) -> AppResult<AdminReport> {
     let account = sqlx::query_as!(
         models::Account,
         "SELECT * FROM accounts WHERE id = $1",
@@ -660,7 +664,10 @@ pub async fn list_admin_reports(
     let resolved = params.resolved.unwrap_or(false);
     let max_id = params.max_id.as_deref().and_then(|s| s.parse::<i64>().ok());
     let min_id = params.min_id.as_deref().and_then(|s| s.parse::<i64>().ok());
-    let since_id = params.since_id.as_deref().and_then(|s| s.parse::<i64>().ok());
+    let since_id = params
+        .since_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
 
     let rows = sqlx::query!(
         r#"SELECT r.id, r.account_id, r.target_account_id,
@@ -752,7 +759,8 @@ pub async fn resolve_report(
     require_permission(&state, auth.account_id, perm::MANAGE_REPORTS).await?;
     sqlx::query!(
         "UPDATE reports SET action_taken_at = now(), action_taken_by_account_id = $1 WHERE id = $2",
-        auth.account_id, id,
+        auth.account_id,
+        id,
     )
     .execute(&state.db)
     .await?;
@@ -843,10 +851,14 @@ pub async fn get_measures(
 ) -> AppResult<Json<Vec<serde_json::Value>>> {
     require_admin(&state, auth.account_id).await?;
 
-    let start: chrono::NaiveDateTime = body.start_at.as_deref()
+    let start: chrono::NaiveDateTime = body
+        .start_at
+        .as_deref()
         .and_then(parse_admin_date)
         .unwrap_or_else(|| chrono::Utc::now().naive_utc() - chrono::Duration::days(7));
-    let end: chrono::NaiveDateTime = body.end_at.as_deref()
+    let end: chrono::NaiveDateTime = body
+        .end_at
+        .as_deref()
         .and_then(parse_admin_date)
         .unwrap_or_else(|| chrono::Utc::now().naive_utc());
     let prev_start = start - (end - start);
@@ -858,12 +870,20 @@ pub async fn get_measures(
             "new_users" => {
                 let total = sqlx::query_scalar!(
                     "SELECT COUNT(*) FROM users WHERE created_at BETWEEN $1 AND $2",
-                    start, end,
-                ).fetch_one(&state.db).await?.unwrap_or(0);
+                    start,
+                    end,
+                )
+                .fetch_one(&state.db)
+                .await?
+                .unwrap_or(0);
                 let previous_total = sqlx::query_scalar!(
                     "SELECT COUNT(*) FROM users WHERE created_at BETWEEN $1 AND $2",
-                    prev_start, start,
-                ).fetch_one(&state.db).await?.unwrap_or(0);
+                    prev_start,
+                    start,
+                )
+                .fetch_one(&state.db)
+                .await?
+                .unwrap_or(0);
                 let data = sqlx::query!(
                     r#"SELECT axis.day::timestamp,
                               (SELECT COUNT(*) FROM users
@@ -887,12 +907,20 @@ pub async fn get_measures(
                 // Matches Mastodon: counts users by current_sign_in_at (updated on every login).
                 let total = sqlx::query_scalar!(
                     "SELECT COUNT(*) FROM users WHERE current_sign_in_at BETWEEN $1 AND $2",
-                    start, end,
-                ).fetch_one(&state.db).await?.unwrap_or(0);
+                    start,
+                    end,
+                )
+                .fetch_one(&state.db)
+                .await?
+                .unwrap_or(0);
                 let previous_total = sqlx::query_scalar!(
                     "SELECT COUNT(*) FROM users WHERE current_sign_in_at BETWEEN $1 AND $2",
-                    prev_start, start,
-                ).fetch_one(&state.db).await?.unwrap_or(0);
+                    prev_start,
+                    start,
+                )
+                .fetch_one(&state.db)
+                .await?
+                .unwrap_or(0);
                 let data = sqlx::query!(
                     r#"SELECT axis.day::timestamp,
                               (SELECT COUNT(*) FROM users
@@ -946,12 +974,20 @@ pub async fn get_measures(
             "opened_reports" => {
                 let total = sqlx::query_scalar!(
                     "SELECT COUNT(*) FROM reports WHERE created_at BETWEEN $1 AND $2",
-                    start, end,
-                ).fetch_one(&state.db).await?.unwrap_or(0);
+                    start,
+                    end,
+                )
+                .fetch_one(&state.db)
+                .await?
+                .unwrap_or(0);
                 let previous_total = sqlx::query_scalar!(
                     "SELECT COUNT(*) FROM reports WHERE created_at BETWEEN $1 AND $2",
-                    prev_start, start,
-                ).fetch_one(&state.db).await?.unwrap_or(0);
+                    prev_start,
+                    start,
+                )
+                .fetch_one(&state.db)
+                .await?
+                .unwrap_or(0);
                 let data = sqlx::query!(
                     r#"SELECT axis.day::timestamp,
                               (SELECT COUNT(*) FROM reports
@@ -973,12 +1009,20 @@ pub async fn get_measures(
             "resolved_reports" => {
                 let total = sqlx::query_scalar!(
                     "SELECT COUNT(*) FROM reports WHERE action_taken_at BETWEEN $1 AND $2",
-                    start, end,
-                ).fetch_one(&state.db).await?.unwrap_or(0);
+                    start,
+                    end,
+                )
+                .fetch_one(&state.db)
+                .await?
+                .unwrap_or(0);
                 let previous_total = sqlx::query_scalar!(
                     "SELECT COUNT(*) FROM reports WHERE action_taken_at BETWEEN $1 AND $2",
-                    prev_start, start,
-                ).fetch_one(&state.db).await?.unwrap_or(0);
+                    prev_start,
+                    start,
+                )
+                .fetch_one(&state.db)
+                .await?
+                .unwrap_or(0);
                 let data = sqlx::query!(
                     r#"SELECT axis.day::timestamp,
                               (SELECT COUNT(*) FROM reports
@@ -1124,10 +1168,14 @@ pub async fn get_dimensions(
 ) -> AppResult<Json<Vec<serde_json::Value>>> {
     require_admin(&state, auth.account_id).await?;
 
-    let start: chrono::NaiveDateTime = body.start_at.as_deref()
+    let start: chrono::NaiveDateTime = body
+        .start_at
+        .as_deref()
         .and_then(parse_admin_date)
         .unwrap_or_else(|| chrono::Utc::now().naive_utc() - chrono::Duration::days(7));
-    let end: chrono::NaiveDateTime = body.end_at.as_deref()
+    let end: chrono::NaiveDateTime = body
+        .end_at
+        .as_deref()
         .and_then(parse_admin_date)
         .unwrap_or_else(|| chrono::Utc::now().naive_utc());
     let limit = body.limit.unwrap_or(10).clamp(1, 50);
@@ -1142,8 +1190,12 @@ pub async fn get_dimensions(
                        FROM statuses s JOIN accounts a ON a.id = s.account_id
                        WHERE s.created_at BETWEEN $1 AND $2 AND s.deleted_at IS NULL
                        GROUP BY COALESCE(a.domain, 'local') ORDER BY n DESC LIMIT $3"#,
-                    start, end, limit,
-                ).fetch_all(&state.db).await?;
+                    start,
+                    end,
+                    limit,
+                )
+                .fetch_all(&state.db)
+                .await?;
                 serde_json::json!({
                     "key": key,
                     "data": rows.iter().map(|r| {
@@ -1165,8 +1217,12 @@ pub async fn get_dimensions(
                        LEFT JOIN oauth_applications a ON a.id = u.created_by_application_id
                        WHERE u.created_at BETWEEN $1 AND $2
                        GROUP BY a.name ORDER BY n DESC LIMIT $3"#,
-                    start, end, limit,
-                ).fetch_all(&state.db).await?;
+                    start,
+                    end,
+                    limit,
+                )
+                .fetch_all(&state.db)
+                .await?;
                 serde_json::json!({
                     "key": key,
                     "data": rows.iter().map(|r| {
@@ -1185,8 +1241,12 @@ pub async fn get_dimensions(
                        WHERE u.current_sign_in_at BETWEEN $1 AND $2
                          AND u.locale IS NOT NULL
                        GROUP BY u.locale ORDER BY n DESC LIMIT $3"#,
-                    start, end, limit,
-                ).fetch_all(&state.db).await?;
+                    start,
+                    end,
+                    limit,
+                )
+                .fetch_all(&state.db)
+                .await?;
                 serde_json::json!({
                     "key": key,
                     "data": rows.iter().map(|r| {
@@ -1201,15 +1261,20 @@ pub async fn get_dimensions(
             }
             "software_versions" => {
                 let pg_version_raw: String = sqlx::query_scalar!("SELECT version()")
-                    .fetch_one(&state.db).await?
+                    .fetch_one(&state.db)
+                    .await?
                     .unwrap_or_default();
                 let pg_version = pg_version_raw
-                    .split_whitespace().nth(1).unwrap_or("unknown").to_string();
+                    .split_whitespace()
+                    .nth(1)
+                    .unwrap_or("unknown")
+                    .to_string();
 
                 let mut redis = state.redis.clone();
                 let redis_info: String = redis::cmd("INFO")
                     .arg("server")
-                    .query_async(&mut redis).await
+                    .query_async(&mut redis)
+                    .await
                     .unwrap_or_default();
                 let redis_version = parse_redis_info_field(&redis_info, "redis_version")
                     .unwrap_or_else(|| "unknown".to_string());
@@ -1226,17 +1291,21 @@ pub async fn get_dimensions(
                 })
             }
             "space_usage" => {
-                let pg_size: i64 = sqlx::query_scalar!(
-                    "SELECT pg_database_size(current_database())"
-                ).fetch_one(&state.db).await?.unwrap_or(0);
+                let pg_size: i64 =
+                    sqlx::query_scalar!("SELECT pg_database_size(current_database())")
+                        .fetch_one(&state.db)
+                        .await?
+                        .unwrap_or(0);
 
                 let mut redis = state.redis.clone();
                 let redis_mem_info: String = redis::cmd("INFO")
                     .arg("memory")
-                    .query_async(&mut redis).await
+                    .query_async(&mut redis)
+                    .await
                     .unwrap_or_default();
                 let redis_size: i64 = parse_redis_info_field(&redis_mem_info, "used_memory")
-                    .and_then(|v| v.parse().ok()).unwrap_or(0);
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(0);
 
                 let media_size: i64 = sqlx::query_scalar!(
                     r#"SELECT
@@ -1295,10 +1364,14 @@ pub async fn get_retention(
 ) -> AppResult<Json<Vec<serde_json::Value>>> {
     require_admin(&state, auth.account_id).await?;
 
-    let start: chrono::NaiveDateTime = body.start_at.as_deref()
+    let start: chrono::NaiveDateTime = body
+        .start_at
+        .as_deref()
         .and_then(parse_admin_date)
         .unwrap_or_else(|| chrono::Utc::now().naive_utc() - chrono::Duration::days(30));
-    let end: chrono::NaiveDateTime = body.end_at.as_deref()
+    let end: chrono::NaiveDateTime = body
+        .end_at
+        .as_deref()
         .and_then(parse_admin_date)
         .unwrap_or_else(|| chrono::Utc::now().naive_utc());
     let frequency = match body.frequency.as_deref().unwrap_or("day") {
@@ -1353,10 +1426,8 @@ pub async fn get_retention(
     .fetch_all(&state.db)
     .await?;
 
-    let mut cohorts: indexmap::IndexMap<
-        chrono::NaiveDateTime,
-        Vec<serde_json::Value>,
-    > = indexmap::IndexMap::new();
+    let mut cohorts: indexmap::IndexMap<chrono::NaiveDateTime, Vec<serde_json::Value>> =
+        indexmap::IndexMap::new();
 
     for row in &rows {
         let cohort_period = match row.cohort_period {
@@ -1373,25 +1444,32 @@ pub async fn get_retention(
         };
         let rate = rate_millionths as f64 / 1_000_000.0;
 
-        cohorts.entry(cohort_period).or_default().push(serde_json::json!({
-            "date": super::convert::mastodon_date(retention_period),
-            "rate": rate,
-            "value": value.to_string(),
-        }));
+        cohorts
+            .entry(cohort_period)
+            .or_default()
+            .push(serde_json::json!({
+                "date": super::convert::mastodon_date(retention_period),
+                "rate": rate,
+                "value": value.to_string(),
+            }));
     }
 
-    let data: Vec<serde_json::Value> = cohorts.into_iter().map(|(period, entries)| {
-        let cohort_size = entries.first()
-            .and_then(|e| e["value"].as_str())
-            .and_then(|v| v.parse::<i64>().ok())
-            .unwrap_or(0);
-        serde_json::json!({
-            "period": super::convert::mastodon_date(period),
-            "frequency": frequency,
-            "cohort_size": cohort_size,
-            "data": entries,
+    let data: Vec<serde_json::Value> = cohorts
+        .into_iter()
+        .map(|(period, entries)| {
+            let cohort_size = entries
+                .first()
+                .and_then(|e| e["value"].as_str())
+                .and_then(|v| v.parse::<i64>().ok())
+                .unwrap_or(0);
+            serde_json::json!({
+                "period": super::convert::mastodon_date(period),
+                "frequency": frequency,
+                "cohort_size": cohort_size,
+                "data": entries,
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(Json(data))
 }
@@ -1424,18 +1502,22 @@ pub async fn list_admin_custom_emojis(
     .fetch_all(&state.db)
     .await?;
 
-    Ok(Json(rows.into_iter().map(|r| {
-        let url = r.image_remote_url.unwrap_or_default();
-        AdminCustomEmoji {
-            id: r.id.to_string(),
-            shortcode: r.shortcode,
-            url: url.clone(),
-            static_url: url,
-            visible_in_picker: r.visible_in_picker,
-            disabled: r.disabled,
-            category: None,
-        }
-    }).collect()))
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| {
+                let url = r.image_remote_url.unwrap_or_default();
+                AdminCustomEmoji {
+                    id: r.id.to_string(),
+                    shortcode: r.shortcode,
+                    url: url.clone(),
+                    static_url: url,
+                    visible_in_picker: r.visible_in_picker,
+                    disabled: r.disabled,
+                    category: None,
+                }
+            })
+            .collect(),
+    ))
 }
 
 // ── POST /api/v1/admin/custom_emojis ─────────────────────────────────────
@@ -1468,7 +1550,8 @@ pub async fn create_admin_custom_emoji(
     if shortcode.is_empty() {
         return Err(AppError::Unprocessable("shortcode is required".into()));
     }
-    let image_data = image_bytes.ok_or_else(|| AppError::Unprocessable("image is required".into()))?;
+    let image_data =
+        image_bytes.ok_or_else(|| AppError::Unprocessable("image is required".into()))?;
 
     // Upload to storage
     let ext = match content_type.as_str() {
@@ -1477,7 +1560,10 @@ pub async fn create_admin_custom_emoji(
         _ => "png",
     };
     let key = format!("emoji/{}.{}", shortcode, ext);
-    state.storage.store(&image_data, &key, &content_type).await
+    state
+        .storage
+        .store(&image_data, &key, &content_type)
+        .await
         .map_err(|e| AppError::Internal(anyhow::anyhow!("storage: {e}")))?;
     let url = state.storage.public_url(&key);
 
@@ -1486,12 +1572,19 @@ pub async fn create_admin_custom_emoji(
            SET image_remote_url = $2, disabled = false, visible_in_picker = true, updated_at = now()
            WHERE shortcode = $1 AND domain IS NULL
            RETURNING id, shortcode, image_remote_url, visible_in_picker, disabled"#,
-        shortcode, url,
+        shortcode,
+        url,
     )
     .fetch_optional(&state.db)
     .await?
     {
-        (row.id, row.shortcode, row.image_remote_url, row.visible_in_picker, row.disabled)
+        (
+            row.id,
+            row.shortcode,
+            row.image_remote_url,
+            row.visible_in_picker,
+            row.disabled,
+        )
     } else {
         let row = sqlx::query!(
             r#"INSERT INTO custom_emojis (shortcode, image_remote_url, visible_in_picker, created_at, updated_at)
@@ -1501,7 +1594,13 @@ pub async fn create_admin_custom_emoji(
         )
         .fetch_one(&state.db)
         .await?;
-        (row.id, row.shortcode, row.image_remote_url, row.visible_in_picker, row.disabled)
+        (
+            row.id,
+            row.shortcode,
+            row.image_remote_url,
+            row.visible_in_picker,
+            row.disabled,
+        )
     };
 
     let url = row.2.unwrap_or_default();
@@ -1524,12 +1623,9 @@ pub async fn delete_admin_custom_emoji(
     Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
     require_admin(&state, auth.account_id).await?;
-    sqlx::query!(
-        "DELETE FROM custom_emojis WHERE id = $1",
-        id,
-    )
-    .execute(&state.db)
-    .await?;
+    sqlx::query!("DELETE FROM custom_emojis WHERE id = $1", id,)
+        .execute(&state.db)
+        .await?;
     Ok(StatusCode::OK)
 }
 
@@ -1550,16 +1646,31 @@ pub async fn update_admin_custom_emoji(
 ) -> AppResult<Json<AdminCustomEmoji>> {
     require_admin(&state, auth.account_id).await?;
     if let Some(sc) = &form.shortcode {
-        sqlx::query!("UPDATE custom_emojis SET shortcode = $1 WHERE id = $2", sc, id)
-            .execute(&state.db).await?;
+        sqlx::query!(
+            "UPDATE custom_emojis SET shortcode = $1 WHERE id = $2",
+            sc,
+            id
+        )
+        .execute(&state.db)
+        .await?;
     }
     if let Some(v) = form.visible_in_picker {
-        sqlx::query!("UPDATE custom_emojis SET visible_in_picker = $1 WHERE id = $2", v, id)
-            .execute(&state.db).await?;
+        sqlx::query!(
+            "UPDATE custom_emojis SET visible_in_picker = $1 WHERE id = $2",
+            v,
+            id
+        )
+        .execute(&state.db)
+        .await?;
     }
     if let Some(d) = form.disabled {
-        sqlx::query!("UPDATE custom_emojis SET disabled = $1 WHERE id = $2", d, id)
-            .execute(&state.db).await?;
+        sqlx::query!(
+            "UPDATE custom_emojis SET disabled = $1 WHERE id = $2",
+            d,
+            id
+        )
+        .execute(&state.db)
+        .await?;
     }
     let row = sqlx::query!(
         "SELECT id, shortcode, image_remote_url, visible_in_picker, disabled FROM custom_emojis WHERE id = $1",
@@ -1617,18 +1728,22 @@ pub async fn list_domain_blocks(
     )
     .fetch_all(&state.db)
     .await?;
-    Ok(Json(rows.into_iter().map(|r| AdminDomainBlock {
-        id: r.id.to_string(),
-        digest: sha256_hex(&r.domain),
-        domain: r.domain,
-        created_at: super::convert::mastodon_date(r.created_at),
-        severity: r.severity,
-        reject_media: r.reject_media,
-        reject_reports: r.reject_reports,
-        private_comment: r.private_comment,
-        public_comment: r.public_comment,
-        obfuscate: r.obfuscate,
-    }).collect()))
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| AdminDomainBlock {
+                id: r.id.to_string(),
+                digest: sha256_hex(&r.domain),
+                domain: r.domain,
+                created_at: super::convert::mastodon_date(r.created_at),
+                severity: r.severity,
+                reject_media: r.reject_media,
+                reject_reports: r.reject_reports,
+                private_comment: r.private_comment,
+                public_comment: r.public_comment,
+                obfuscate: r.obfuscate,
+            })
+            .collect(),
+    ))
 }
 
 // ── POST /api/v1/admin/domain_blocks ─────────────────────────────────────
@@ -1650,7 +1765,8 @@ pub async fn create_domain_block(
     Json(form): Json<CreateDomainBlockForm>,
 ) -> AppResult<Json<AdminDomainBlock>> {
     require_admin(&state, auth.account_id).await?;
-    let severity = crate::db::models::domain_severity::from_str(form.severity.as_deref().unwrap_or("silence"));
+    let severity =
+        crate::db::models::domain_severity::from_str(form.severity.as_deref().unwrap_or("silence"));
     let row = sqlx::query!(
         r#"INSERT INTO domain_blocks (domain, severity, reject_media, reject_reports, private_comment, public_comment, obfuscate, created_at, updated_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7, now(), now())
@@ -1721,7 +1837,10 @@ pub async fn update_admin_domain_block(
     Json(form): Json<CreateDomainBlockForm>,
 ) -> AppResult<Json<AdminDomainBlock>> {
     require_admin(&state, auth.account_id).await?;
-    let severity_int: Option<i32> = form.severity.as_deref().map(crate::db::models::domain_severity::from_str);
+    let severity_int: Option<i32> = form
+        .severity
+        .as_deref()
+        .map(crate::db::models::domain_severity::from_str);
     let r = sqlx::query!(
         r#"UPDATE domain_blocks SET
                severity       = COALESCE($2, severity),
@@ -1780,16 +1899,18 @@ pub async fn list_domain_allows(
     Extension(auth): Extension<AuthenticatedUser>,
 ) -> AppResult<Json<Vec<AdminDomainAllow>>> {
     require_admin(&state, auth.account_id).await?;
-    let rows = sqlx::query!(
-        "SELECT id, domain, created_at FROM domain_allows ORDER BY domain",
-    )
-    .fetch_all(&state.db)
-    .await?;
-    Ok(Json(rows.into_iter().map(|r| AdminDomainAllow {
-        id: r.id.to_string(),
-        domain: r.domain,
-        created_at: super::convert::mastodon_date(r.created_at),
-    }).collect()))
+    let rows = sqlx::query!("SELECT id, domain, created_at FROM domain_allows ORDER BY domain",)
+        .fetch_all(&state.db)
+        .await?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| AdminDomainAllow {
+                id: r.id.to_string(),
+                domain: r.domain,
+                created_at: super::convert::mastodon_date(r.created_at),
+            })
+            .collect(),
+    ))
 }
 
 // ── POST /api/v1/admin/domain_allows ─────────────────────────────────────
@@ -1868,14 +1989,18 @@ pub async fn list_ip_blocks(
     )
     .fetch_all(&state.db)
     .await?;
-    Ok(Json(rows.into_iter().map(|r| AdminIpBlock {
-        id: r.id.to_string(),
-        ip: r.ip,
-        severity: r.severity,
-        comment: Some(r.comment),
-        expires_at: r.expires_at.map(super::convert::mastodon_date),
-        created_at: super::convert::mastodon_date(r.created_at),
-    }).collect()))
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| AdminIpBlock {
+                id: r.id.to_string(),
+                ip: r.ip,
+                severity: r.severity,
+                comment: Some(r.comment),
+                expires_at: r.expires_at.map(super::convert::mastodon_date),
+                created_at: super::convert::mastodon_date(r.created_at),
+            })
+            .collect(),
+    ))
 }
 
 pub async fn get_ip_block(
@@ -1909,8 +2034,11 @@ pub async fn create_ip_block(
     Json(form): Json<CreateIpBlockForm>,
 ) -> AppResult<Json<AdminIpBlock>> {
     require_admin(&state, auth.account_id).await?;
-    let severity = crate::db::models::ip_severity::from_str(form.severity.as_deref().unwrap_or("sign_up_block"));
-    let expires_at = form.expires_in
+    let severity = crate::db::models::ip_severity::from_str(
+        form.severity.as_deref().unwrap_or("sign_up_block"),
+    );
+    let expires_at = form
+        .expires_in
         .map(|secs| chrono::Utc::now().naive_utc() + chrono::Duration::seconds(secs));
     let r = sqlx::query!(
         r#"INSERT INTO ip_blocks (ip, severity, comment, expires_at, created_at, updated_at)
@@ -1939,8 +2067,11 @@ pub async fn update_ip_block(
     Json(form): Json<CreateIpBlockForm>,
 ) -> AppResult<Json<AdminIpBlock>> {
     require_admin(&state, auth.account_id).await?;
-    let severity = crate::db::models::ip_severity::from_str(form.severity.as_deref().unwrap_or("sign_up_block"));
-    let expires_at = form.expires_in
+    let severity = crate::db::models::ip_severity::from_str(
+        form.severity.as_deref().unwrap_or("sign_up_block"),
+    );
+    let expires_at = form
+        .expires_in
         .map(|secs| chrono::Utc::now().naive_utc() + chrono::Duration::seconds(secs));
     let r = sqlx::query!(
         r#"UPDATE ip_blocks SET severity = $2, comment = $3, expires_at = $4, updated_at = now()
@@ -2007,13 +2138,17 @@ pub async fn list_email_domain_blocks(
     )
     .fetch_all(&state.db)
     .await?;
-    Ok(Json(rows.into_iter().map(|r| AdminEmailDomainBlock {
-        id: r.id.to_string(),
-        domain: r.domain,
-        created_at: super::convert::mastodon_date(r.created_at),
-        history: vec![],
-        allow_with_approval: r.allow_with_approval,
-    }).collect()))
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| AdminEmailDomainBlock {
+                id: r.id.to_string(),
+                domain: r.domain,
+                created_at: super::convert::mastodon_date(r.created_at),
+                history: vec![],
+                allow_with_approval: r.allow_with_approval,
+            })
+            .collect(),
+    ))
 }
 
 pub async fn get_email_domain_block(
@@ -2083,7 +2218,8 @@ pub async fn assign_report_to_self(
     require_permission(&state, auth.account_id, perm::MANAGE_REPORTS).await?;
     sqlx::query!(
         "UPDATE reports SET assigned_account_id = $1 WHERE id = $2",
-        auth.account_id, id,
+        auth.account_id,
+        id,
     )
     .execute(&state.db)
     .await?;
@@ -2136,12 +2272,9 @@ pub async fn unsensitive_account(
     Path(id): Path<i64>,
 ) -> AppResult<Json<AdminAccount>> {
     require_permission(&state, auth.account_id, perm::MANAGE_USERS).await?;
-    sqlx::query!(
-        "UPDATE accounts SET sensitized_at = NULL WHERE id = $1",
-        id,
-    )
-    .execute(&state.db)
-    .await?;
+    sqlx::query!("UPDATE accounts SET sensitized_at = NULL WHERE id = $1", id,)
+        .execute(&state.db)
+        .await?;
     let account = sqlx::query_as!(models::Account, "SELECT * FROM accounts WHERE id = $1", id)
         .fetch_optional(&state.db)
         .await?
@@ -2238,7 +2371,9 @@ pub async fn delete_admin_account(
     sqlx::query!(
         "UPDATE statuses SET deleted_at = now() WHERE account_id = $1 AND deleted_at IS NULL",
         id,
-    ).execute(&mut *tx).await?;
+    )
+    .execute(&mut *tx)
+    .await?;
     sqlx::query!(
         r#"UPDATE oauth_access_tokens t
            SET revoked_at = now()
@@ -2247,15 +2382,15 @@ pub async fn delete_admin_account(
              AND u.account_id = $1
              AND t.revoked_at IS NULL"#,
         id,
-    ).execute(&mut *tx).await?;
-    sqlx::query!(
-        "UPDATE accounts SET suspended_at = now() WHERE id = $1",
-        id,
-    ).execute(&mut *tx).await?;
-    sqlx::query!(
-        "DELETE FROM users WHERE account_id = $1",
-        id,
-    ).execute(&mut *tx).await?;
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!("UPDATE accounts SET suspended_at = now() WHERE id = $1", id,)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query!("DELETE FROM users WHERE account_id = $1", id,)
+        .execute(&mut *tx)
+        .await?;
     tx.commit().await?;
 
     Ok(StatusCode::OK)
@@ -2279,7 +2414,20 @@ pub async fn admin_trending_statuses(
     auth: axum::extract::Extension<AuthenticatedUser>,
 ) -> AppResult<axum::Json<Vec<super::types::Status>>> {
     require_permission(&state, auth.account_id, perm::MANAGE_TAXONOMIES).await?;
-    super::trends::trending_statuses(state, query, Some(axum::extract::Extension(crate::middleware::AuthenticatedUser { account_id: auth.account_id, user_id: auth.user_id, token_id: auth.token_id, scopes: auth.scopes.clone(), application_id: auth.application_id }))).await
+    super::trends::trending_statuses(
+        state,
+        query,
+        Some(axum::extract::Extension(
+            crate::middleware::AuthenticatedUser {
+                account_id: auth.account_id,
+                user_id: auth.user_id,
+                token_id: auth.token_id,
+                scopes: auth.scopes.clone(),
+                application_id: auth.application_id,
+            },
+        )),
+    )
+    .await
 }
 
 pub async fn admin_trending_links(
@@ -2366,11 +2514,15 @@ pub async fn list_canonical_email_blocks(
     )
     .fetch_all(&state.db)
     .await?;
-    Ok(Json(rows.into_iter().map(|r| CanonicalEmailBlock {
-        id: r.id.to_string(),
-        canonical_email_hash: r.canonical_email_hash,
-        created_at: super::convert::mastodon_date(r.created_at),
-    }).collect()))
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| CanonicalEmailBlock {
+                id: r.id.to_string(),
+                canonical_email_hash: r.canonical_email_hash,
+                created_at: super::convert::mastodon_date(r.created_at),
+            })
+            .collect(),
+    ))
 }
 
 #[derive(Debug, Deserialize)]
@@ -2391,7 +2543,9 @@ pub async fn create_canonical_email_block(
         let normalized = email.trim().to_lowercase();
         sha256_hex(&normalized)
     } else {
-        return Err(AppError::Unprocessable("email or canonical_email_hash required".into()));
+        return Err(AppError::Unprocessable(
+            "email or canonical_email_hash required".into(),
+        ));
     };
     let row = sqlx::query!(
         "INSERT INTO canonical_email_blocks (canonical_email_hash, created_at, updated_at) VALUES ($1, now(), now()) ON CONFLICT (canonical_email_hash) DO UPDATE SET canonical_email_hash = EXCLUDED.canonical_email_hash RETURNING id, canonical_email_hash, created_at",
@@ -2450,7 +2604,9 @@ pub async fn test_canonical_email_block(
         let normalized = email.trim().to_lowercase();
         sha256_hex(&normalized)
     } else {
-        return Err(AppError::Unprocessable("email or canonical_email_hash required".into()));
+        return Err(AppError::Unprocessable(
+            "email or canonical_email_hash required".into(),
+        ));
     };
     let rows = sqlx::query!(
         "SELECT id, canonical_email_hash, created_at FROM canonical_email_blocks WHERE canonical_email_hash = $1",
@@ -2458,11 +2614,15 @@ pub async fn test_canonical_email_block(
     )
     .fetch_all(&state.db)
     .await?;
-    Ok(Json(rows.into_iter().map(|r| CanonicalEmailBlock {
-        id: r.id.to_string(),
-        canonical_email_hash: r.canonical_email_hash,
-        created_at: super::convert::mastodon_date(r.created_at),
-    }).collect()))
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| CanonicalEmailBlock {
+                id: r.id.to_string(),
+                canonical_email_hash: r.canonical_email_hash,
+                created_at: super::convert::mastodon_date(r.created_at),
+            })
+            .collect(),
+    ))
 }
 
 // ── Admin Tags ────────────────────────────────────────────────────────────
@@ -2505,9 +2665,21 @@ pub async fn list_admin_tags(
     require_permission(&state, auth.account_id, perm::MANAGE_TAXONOMIES).await?;
     let domain = &instance.domain;
     let limit = params.pagination.limit_clamped(100, 100);
-    let max_id = params.pagination.max_id.as_deref().and_then(|s| s.parse::<i64>().ok());
-    let since_id = params.pagination.since_id.as_deref().and_then(|s| s.parse::<i64>().ok());
-    let min_id = params.pagination.min_id.as_deref().and_then(|s| s.parse::<i64>().ok());
+    let max_id = params
+        .pagination
+        .max_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
+    let since_id = params
+        .pagination
+        .since_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
+    let min_id = params
+        .pagination
+        .min_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
     let name_filter = params.name.as_deref().map(|s| s.to_lowercase());
 
     let rows = sqlx::query!(
@@ -2528,15 +2700,19 @@ pub async fn list_admin_tags(
     .fetch_all(&state.db)
     .await?;
 
-    Ok(Json(rows.into_iter().map(|r| AdminTag {
-        id: r.id.to_string(),
-        name: r.name.clone(),
-        url: admin_tag_url(domain, &r.name),
-        trendable: r.trendable.unwrap_or(false),
-        usable: r.usable.unwrap_or(true),
-        listable: r.listable.unwrap_or(true),
-        requires_review: r.reviewed_at.is_none(),
-    }).collect()))
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| AdminTag {
+                id: r.id.to_string(),
+                name: r.name.clone(),
+                url: admin_tag_url(domain, &r.name),
+                trendable: r.trendable.unwrap_or(false),
+                usable: r.usable.unwrap_or(true),
+                listable: r.listable.unwrap_or(true),
+                requires_review: r.reviewed_at.is_none(),
+            })
+            .collect(),
+    ))
 }
 
 pub async fn get_admin_tag(
@@ -2603,7 +2779,7 @@ pub async fn update_admin_tag(
 }
 
 fn sha256_hex(s: &str) -> String {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     let mut h = Sha256::new();
     h.update(s.as_bytes());
     hex::encode(h.finalize())

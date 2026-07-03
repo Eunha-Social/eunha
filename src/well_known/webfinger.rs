@@ -54,7 +54,11 @@ pub async fn webfinger(
         // URL like https://domain/users/username
         url.path_segments()
             .and_then(|mut s| {
-                if s.next()? == "users" { s.next().map(str::to_owned) } else { None }
+                if s.next()? == "users" {
+                    s.next().map(str::to_owned)
+                } else {
+                    None
+                }
             })
             .ok_or(AppError::NotFound)?
     } else {
@@ -108,7 +112,10 @@ pub async fn webfinger(
 
     Ok((
         StatusCode::OK,
-        [(axum::http::header::CONTENT_TYPE, "application/jrd+json; charset=utf-8")],
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "application/jrd+json; charset=utf-8",
+        )],
         Json(response),
     )
         .into_response())

@@ -47,20 +47,53 @@ async fn transcode_inner(src: &Path, media_type: &str) -> anyhow::Result<Transco
     let mut args: Vec<&str> = vec!["-y", "-i", &src_s, "-loglevel", "fatal"];
     match media_type {
         "audio" => args.extend([
-            "-vn", "-c:a", "libmp3lame", "-q:a", "2", "-map_metadata", "-1",
+            "-vn",
+            "-c:a",
+            "libmp3lame",
+            "-q:a",
+            "2",
+            "-map_metadata",
+            "-1",
         ]),
         "gifv" => args.extend([
-            "-movflags", "faststart", "-pix_fmt", "yuv420p", "-vf",
-            "crop=floor(iw/2)*2:floor(ih/2)*2", "-c:v", "h264", "-an",
+            "-movflags",
+            "faststart",
+            "-pix_fmt",
+            "yuv420p",
+            "-vf",
+            "crop=floor(iw/2)*2:floor(ih/2)*2",
+            "-c:v",
+            "h264",
+            "-an",
         ]),
         // video
         _ if video_passthrough(&probe) => args.extend([
-            "-movflags", "faststart", "-map_metadata", "-1", "-c:v", "copy", "-c:a", "copy",
+            "-movflags",
+            "faststart",
+            "-map_metadata",
+            "-1",
+            "-c:v",
+            "copy",
+            "-c:a",
+            "copy",
         ]),
         _ => args.extend([
-            "-preset", "veryfast", "-movflags", "faststart", "-pix_fmt", "yuv420p", "-vf",
-            "crop=floor(iw/2)*2:floor(ih/2)*2", "-c:v", "h264", "-c:a", "aac", "-b:a", "192k",
-            "-map_metadata", "-1",
+            "-preset",
+            "veryfast",
+            "-movflags",
+            "faststart",
+            "-pix_fmt",
+            "yuv420p",
+            "-vf",
+            "crop=floor(iw/2)*2:floor(ih/2)*2",
+            "-c:v",
+            "h264",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "192k",
+            "-map_metadata",
+            "-1",
         ]),
     }
     args.push(&out_s);
@@ -68,7 +101,12 @@ async fn transcode_inner(src: &Path, media_type: &str) -> anyhow::Result<Transco
     run("ffmpeg", &args).await?;
     let bytes = tokio::fs::read(&out).await?;
     let _ = tokio::fs::remove_file(&out).await;
-    Ok(Transcoded { bytes, ext, content_type, meta: probe.original_meta() })
+    Ok(Transcoded {
+        bytes,
+        ext,
+        content_type,
+        meta: probe.original_meta(),
+    })
 }
 
 /// Extract the first frame as a PNG, for thumbnail/blurhash generation.
@@ -81,8 +119,20 @@ pub async fn extract_frame(src: &[u8]) -> anyhow::Result<Vec<u8>> {
     let res = run(
         "ffmpeg",
         &[
-            "-y", "-ss", "0", "-i", &src_s, "-loglevel", "fatal", "-frames:v", "1", "-f",
-            "image2", "-c:v", "png", &out_s,
+            "-y",
+            "-ss",
+            "0",
+            "-i",
+            &src_s,
+            "-loglevel",
+            "fatal",
+            "-frames:v",
+            "1",
+            "-f",
+            "image2",
+            "-c:v",
+            "png",
+            &out_s,
         ],
     )
     .await;
@@ -153,7 +203,9 @@ impl Probe {
 fn video_passthrough(p: &Probe) -> bool {
     p.vcodec.as_deref() == Some("h264")
         && matches!(p.acodec.as_deref(), Some("aac") | None)
-        && p.pix_fmt.as_deref().is_some_and(|f| f.starts_with("yuv420"))
+        && p.pix_fmt
+            .as_deref()
+            .is_some_and(|f| f.starts_with("yuv420"))
 }
 
 fn parse_rational(s: &str) -> Option<f64> {
@@ -169,7 +221,14 @@ fn parse_rational(s: &str) -> Option<f64> {
 
 async fn ffprobe(src: &Path) -> anyhow::Result<Probe> {
     let output = Command::new("ffprobe")
-        .args(["-v", "quiet", "-print_format", "json", "-show_format", "-show_streams"])
+        .args([
+            "-v",
+            "quiet",
+            "-print_format",
+            "json",
+            "-show_format",
+            "-show_streams",
+        ])
         .arg(src)
         .stdin(Stdio::null())
         .output()
@@ -185,7 +244,10 @@ async fn ffprobe(src: &Path) -> anyhow::Result<Probe> {
                 Some("video") => {
                     p.width = s.get("width").and_then(Value::as_i64);
                     p.height = s.get("height").and_then(Value::as_i64);
-                    p.vcodec = s.get("codec_name").and_then(|v| v.as_str()).map(str::to_owned);
+                    p.vcodec = s
+                        .get("codec_name")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_owned);
                     p.pix_fmt = s.get("pix_fmt").and_then(|v| v.as_str()).map(str::to_owned);
                     p.frame_rate = s
                         .get("avg_frame_rate")
@@ -193,15 +255,24 @@ async fn ffprobe(src: &Path) -> anyhow::Result<Probe> {
                         .and_then(parse_rational);
                 }
                 Some("audio") => {
-                    p.acodec = s.get("codec_name").and_then(|v| v.as_str()).map(str::to_owned);
+                    p.acodec = s
+                        .get("codec_name")
+                        .and_then(|v| v.as_str())
+                        .map(str::to_owned);
                 }
                 _ => {}
             }
         }
     }
     if let Some(fmt) = json.get("format") {
-        p.duration = fmt.get("duration").and_then(|v| v.as_str()).and_then(|s| s.parse().ok());
-        p.bitrate = fmt.get("bit_rate").and_then(|v| v.as_str()).and_then(|s| s.parse().ok());
+        p.duration = fmt
+            .get("duration")
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse().ok());
+        p.bitrate = fmt
+            .get("bit_rate")
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse().ok());
     }
     Ok(p)
 }

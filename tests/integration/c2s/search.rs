@@ -8,12 +8,20 @@ use crate::helpers::TestContext;
 async fn test_search_accounts() {
     let ctx = TestContext::new("search-acct").await;
 
-    let resp = ctx.api.get("/api/v2/search?q=alice&type=accounts", Some(&ctx.alice_token)).await;
+    let resp = ctx
+        .api
+        .get(
+            "/api/v2/search?q=alice&type=accounts",
+            Some(&ctx.alice_token),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let body: Value = resp.json().await.unwrap();
 
     let accounts = body["accounts"].as_array().unwrap();
-    assert!(accounts.iter().any(|a| a["username"].as_str() == Some("alice")));
+    assert!(accounts
+        .iter()
+        .any(|a| a["username"].as_str() == Some("alice")));
 }
 
 /// Search for a status by its text returns the matching status.
@@ -21,18 +29,26 @@ async fn test_search_accounts() {
 async fn test_search_statuses() {
     let ctx = TestContext::new("search-status").await;
 
-    ctx.api.post_status(&ctx.alice_token, "uniqueterm12345", "public").await;
+    ctx.api
+        .post_status(&ctx.alice_token, "uniqueterm12345", "public")
+        .await;
 
-    let resp = ctx.api.get(
-        "/api/v2/search?q=uniqueterm12345&type=statuses",
-        Some(&ctx.alice_token),
-    ).await;
+    let resp = ctx
+        .api
+        .get(
+            "/api/v2/search?q=uniqueterm12345&type=statuses",
+            Some(&ctx.alice_token),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let body: Value = resp.json().await.unwrap();
 
     let statuses = body["statuses"].as_array().unwrap();
     assert!(
-        statuses.iter().any(|s| s["content"].as_str().unwrap_or("").contains("uniqueterm12345")
+        statuses.iter().any(|s| s["content"]
+            .as_str()
+            .unwrap_or("")
+            .contains("uniqueterm12345")
             || s["text"].as_str().unwrap_or("").contains("uniqueterm12345")),
         "search did not find status with uniqueterm12345"
     );
@@ -43,16 +59,30 @@ async fn test_search_statuses() {
 async fn test_search_all_types() {
     let ctx = TestContext::new("search-all").await;
 
-    ctx.api.post_status(&ctx.alice_token, "searching #alltype999 here", "public").await;
+    ctx.api
+        .post_status(&ctx.alice_token, "searching #alltype999 here", "public")
+        .await;
 
-    let body: Value = ctx.api.get(
-        "/api/v2/search?q=alltype999",
-        Some(&ctx.alice_token),
-    ).await.json().await.unwrap();
+    let body: Value = ctx
+        .api
+        .get("/api/v2/search?q=alltype999", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
 
-    assert!(body["accounts"].is_array(), "accounts missing from search result");
-    assert!(body["statuses"].is_array(), "statuses missing from search result");
-    assert!(body["hashtags"].is_array(), "hashtags missing from search result");
+    assert!(
+        body["accounts"].is_array(),
+        "accounts missing from search result"
+    );
+    assert!(
+        body["statuses"].is_array(),
+        "statuses missing from search result"
+    );
+    assert!(
+        body["hashtags"].is_array(),
+        "hashtags missing from search result"
+    );
 }
 
 /// Search with limit=1 returns at most one result per category.
@@ -60,16 +90,30 @@ async fn test_search_all_types() {
 async fn test_search_limit_param() {
     let ctx = TestContext::new("search-limit").await;
 
-    ctx.api.post_status(&ctx.alice_token, "limitterm888", "public").await;
-    ctx.api.post_status(&ctx.alice_token, "limitterm888 second", "public").await;
+    ctx.api
+        .post_status(&ctx.alice_token, "limitterm888", "public")
+        .await;
+    ctx.api
+        .post_status(&ctx.alice_token, "limitterm888 second", "public")
+        .await;
 
-    let body: Value = ctx.api.get(
-        "/api/v2/search?q=limitterm888&type=statuses&limit=1",
-        Some(&ctx.alice_token),
-    ).await.json().await.unwrap();
+    let body: Value = ctx
+        .api
+        .get(
+            "/api/v2/search?q=limitterm888&type=statuses&limit=1",
+            Some(&ctx.alice_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
 
     let statuses = body["statuses"].as_array().unwrap();
-    assert!(statuses.len() <= 1, "limit=1 should return at most 1 status, got {}", statuses.len());
+    assert!(
+        statuses.len() <= 1,
+        "limit=1 should return at most 1 status, got {}",
+        statuses.len()
+    );
 }
 
 /// GET /api/v2/search with offset parameter is accepted (returns 200).
@@ -77,13 +121,22 @@ async fn test_search_limit_param() {
 async fn test_search_offset_param_accepted() {
     let ctx = TestContext::new("search-offset").await;
 
-    ctx.api.post_status(&ctx.alice_token, "offsetterm777 first", "public").await;
+    ctx.api
+        .post_status(&ctx.alice_token, "offsetterm777 first", "public")
+        .await;
 
-    let resp = ctx.api.get(
-        "/api/v2/search?q=offsetterm777&type=statuses&offset=1",
-        Some(&ctx.alice_token),
-    ).await;
-    assert_eq!(resp.status(), StatusCode::OK, "offset param should be accepted");
+    let resp = ctx
+        .api
+        .get(
+            "/api/v2/search?q=offsetterm777&type=statuses&offset=1",
+            Some(&ctx.alice_token),
+        )
+        .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "offset param should be accepted"
+    );
     let body: Value = resp.json().await.unwrap();
     assert!(body["statuses"].is_array(), "statuses field missing");
 }
@@ -94,10 +147,16 @@ async fn test_search_following_filter() {
     let ctx = TestContext::new("search-following").await;
 
     // Without following Bob, searching with following=true should return no results.
-    let no_follow: Value = ctx.api.get(
-        "/api/v2/search?q=bob&type=accounts&following=true",
-        Some(&ctx.alice_token),
-    ).await.json().await.unwrap();
+    let no_follow: Value = ctx
+        .api
+        .get(
+            "/api/v2/search?q=bob&type=accounts&following=true",
+            Some(&ctx.alice_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(
         no_follow["accounts"].as_array().unwrap().is_empty(),
         "following=true should return empty when not following bob",
@@ -106,12 +165,22 @@ async fn test_search_following_filter() {
     // Now follow Bob.
     ctx.api.follow(&ctx.alice_token, &ctx.bob_id).await;
 
-    let after_follow: Value = ctx.api.get(
-        "/api/v2/search?q=bob&type=accounts&following=true",
-        Some(&ctx.alice_token),
-    ).await.json().await.unwrap();
+    let after_follow: Value = ctx
+        .api
+        .get(
+            "/api/v2/search?q=bob&type=accounts&following=true",
+            Some(&ctx.alice_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(
-        after_follow["accounts"].as_array().unwrap().iter().any(|a| a["id"].as_str() == Some(ctx.bob_id.as_str())),
+        after_follow["accounts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|a| a["id"].as_str() == Some(ctx.bob_id.as_str())),
         "following=true should include bob after following",
     );
 }
@@ -121,15 +190,25 @@ async fn test_search_following_filter() {
 async fn test_search_hashtags() {
     let ctx = TestContext::new("search-hash").await;
 
-    ctx.api.post_status(&ctx.alice_token, "I enjoy #searchhash999", "public").await;
+    ctx.api
+        .post_status(&ctx.alice_token, "I enjoy #searchhash999", "public")
+        .await;
 
-    let body: Value = ctx.api.get(
-        "/api/v2/search?q=searchhash999&type=hashtags",
-        Some(&ctx.alice_token),
-    ).await.json().await.unwrap();
+    let body: Value = ctx
+        .api
+        .get(
+            "/api/v2/search?q=searchhash999&type=hashtags",
+            Some(&ctx.alice_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
     let hashtags = body["hashtags"].as_array().unwrap();
     assert!(
-        hashtags.iter().any(|t| t["name"].as_str() == Some("searchhash999")),
+        hashtags
+            .iter()
+            .any(|t| t["name"].as_str() == Some("searchhash999")),
         "hashtag not found in search results",
     );
 }
@@ -140,35 +219,55 @@ async fn test_search_excludes_blocked_accounts() {
     let ctx = TestContext::new("search-block").await;
 
     // Bob posts a searchable status.
-    ctx.api.post_status(&ctx.bob_token, "blocksearchterm42 hello", "public").await;
+    ctx.api
+        .post_status(&ctx.bob_token, "blocksearchterm42 hello", "public")
+        .await;
 
     // Verify it appears before the block.
-    let before: Value = ctx.api.get(
-        "/api/v2/search?q=blocksearchterm42&type=statuses",
-        Some(&ctx.alice_token),
-    ).await.json().await.unwrap();
+    let before: Value = ctx
+        .api
+        .get(
+            "/api/v2/search?q=blocksearchterm42&type=statuses",
+            Some(&ctx.alice_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(
-        before["statuses"].as_array().unwrap().iter().any(|s| {
-            s["account"]["id"].as_str() == Some(ctx.bob_id.as_str())
-        }),
+        before["statuses"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| { s["account"]["id"].as_str() == Some(ctx.bob_id.as_str()) }),
         "bob's status should appear in search before block",
     );
 
     // Alice blocks Bob.
-    ctx.api.post_json(
-        &format!("/api/v1/accounts/{}/block", ctx.bob_id),
-        Some(&ctx.alice_token),
-        &json!({}),
-    ).await;
+    ctx.api
+        .post_json(
+            &format!("/api/v1/accounts/{}/block", ctx.bob_id),
+            Some(&ctx.alice_token),
+            &json!({}),
+        )
+        .await;
 
-    let after: Value = ctx.api.get(
-        "/api/v2/search?q=blocksearchterm42&type=statuses",
-        Some(&ctx.alice_token),
-    ).await.json().await.unwrap();
+    let after: Value = ctx
+        .api
+        .get(
+            "/api/v2/search?q=blocksearchterm42&type=statuses",
+            Some(&ctx.alice_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(
-        after["statuses"].as_array().unwrap().iter().all(|s| {
-            s["account"]["id"].as_str() != Some(ctx.bob_id.as_str())
-        }),
+        after["statuses"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|s| { s["account"]["id"].as_str() != Some(ctx.bob_id.as_str()) }),
         "blocked account's statuses should not appear in search results",
     );
 }
@@ -178,34 +277,54 @@ async fn test_search_excludes_blocked_accounts() {
 async fn test_search_excludes_muted_accounts() {
     let ctx = TestContext::new("search-mute").await;
 
-    ctx.api.post_status(&ctx.bob_token, "mutesearchterm55 hello", "public").await;
+    ctx.api
+        .post_status(&ctx.bob_token, "mutesearchterm55 hello", "public")
+        .await;
 
     // Verify it appears before the mute.
-    let before: Value = ctx.api.get(
-        "/api/v2/search?q=mutesearchterm55&type=statuses",
-        Some(&ctx.alice_token),
-    ).await.json().await.unwrap();
+    let before: Value = ctx
+        .api
+        .get(
+            "/api/v2/search?q=mutesearchterm55&type=statuses",
+            Some(&ctx.alice_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(
-        before["statuses"].as_array().unwrap().iter().any(|s| {
-            s["account"]["id"].as_str() == Some(ctx.bob_id.as_str())
-        }),
+        before["statuses"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| { s["account"]["id"].as_str() == Some(ctx.bob_id.as_str()) }),
         "bob's status should appear in search before mute",
     );
 
-    ctx.api.post_json(
-        &format!("/api/v1/accounts/{}/mute", ctx.bob_id),
-        Some(&ctx.alice_token),
-        &json!({}),
-    ).await;
+    ctx.api
+        .post_json(
+            &format!("/api/v1/accounts/{}/mute", ctx.bob_id),
+            Some(&ctx.alice_token),
+            &json!({}),
+        )
+        .await;
 
-    let after: Value = ctx.api.get(
-        "/api/v2/search?q=mutesearchterm55&type=statuses",
-        Some(&ctx.alice_token),
-    ).await.json().await.unwrap();
+    let after: Value = ctx
+        .api
+        .get(
+            "/api/v2/search?q=mutesearchterm55&type=statuses",
+            Some(&ctx.alice_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(
-        after["statuses"].as_array().unwrap().iter().all(|s| {
-            s["account"]["id"].as_str() != Some(ctx.bob_id.as_str())
-        }),
+        after["statuses"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|s| { s["account"]["id"].as_str() != Some(ctx.bob_id.as_str()) }),
         "muted account's statuses should not appear in search results",
     );
 }
@@ -215,39 +334,70 @@ async fn test_search_excludes_muted_accounts() {
 async fn test_search_own_private_statuses() {
     let ctx = TestContext::new("search-private").await;
 
-    ctx.api.post_status(&ctx.alice_token, "privateuniqueterm11111", "private").await;
-    ctx.api.post_status(&ctx.alice_token, "directuniqueterm22222", "direct").await;
+    ctx.api
+        .post_status(&ctx.alice_token, "privateuniqueterm11111", "private")
+        .await;
+    ctx.api
+        .post_status(&ctx.alice_token, "directuniqueterm22222", "direct")
+        .await;
 
     // Alice can find her own private status.
-    let body: Value = ctx.api.get(
-        "/api/v2/search?q=privateuniqueterm11111&type=statuses",
-        Some(&ctx.alice_token),
-    ).await.json().await.unwrap();
+    let body: Value = ctx
+        .api
+        .get(
+            "/api/v2/search?q=privateuniqueterm11111&type=statuses",
+            Some(&ctx.alice_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
     let statuses = body["statuses"].as_array().unwrap();
     assert!(
-        statuses.iter().any(|s| s["content"].as_str().unwrap_or("").contains("privateuniqueterm11111")),
+        statuses.iter().any(|s| s["content"]
+            .as_str()
+            .unwrap_or("")
+            .contains("privateuniqueterm11111")),
         "alice should find her own private status in search results",
     );
 
     // Alice can find her own direct status.
-    let body: Value = ctx.api.get(
-        "/api/v2/search?q=directuniqueterm22222&type=statuses",
-        Some(&ctx.alice_token),
-    ).await.json().await.unwrap();
+    let body: Value = ctx
+        .api
+        .get(
+            "/api/v2/search?q=directuniqueterm22222&type=statuses",
+            Some(&ctx.alice_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
     let statuses = body["statuses"].as_array().unwrap();
     assert!(
-        statuses.iter().any(|s| s["content"].as_str().unwrap_or("").contains("directuniqueterm22222")),
+        statuses.iter().any(|s| s["content"]
+            .as_str()
+            .unwrap_or("")
+            .contains("directuniqueterm22222")),
         "alice should find her own direct status in search results",
     );
 
     // Bob cannot find alice's private status.
-    let body: Value = ctx.api.get(
-        "/api/v2/search?q=privateuniqueterm11111&type=statuses",
-        Some(&ctx.bob_token),
-    ).await.json().await.unwrap();
+    let body: Value = ctx
+        .api
+        .get(
+            "/api/v2/search?q=privateuniqueterm11111&type=statuses",
+            Some(&ctx.bob_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
     let statuses = body["statuses"].as_array().unwrap();
     assert!(
-        statuses.iter().all(|s| !s["content"].as_str().unwrap_or("").contains("privateuniqueterm11111")),
+        statuses.iter().all(|s| !s["content"]
+            .as_str()
+            .unwrap_or("")
+            .contains("privateuniqueterm11111")),
         "bob should not find alice's private status in search results",
     );
 }
@@ -257,17 +407,32 @@ async fn test_search_own_private_statuses() {
 async fn test_search_account_id_filter() {
     let ctx = TestContext::new("search-acct-id").await;
 
-    ctx.api.post_status(&ctx.alice_token, "alicesearch uniqueword9876", "public").await;
-    ctx.api.post_status(&ctx.bob_token, "bobsearch uniqueword9876", "public").await;
+    ctx.api
+        .post_status(&ctx.alice_token, "alicesearch uniqueword9876", "public")
+        .await;
+    ctx.api
+        .post_status(&ctx.bob_token, "bobsearch uniqueword9876", "public")
+        .await;
 
     // Search filtered to alice's account should only return alice's status.
-    let body: Value = ctx.api.get(
-        &format!("/api/v2/search?q=uniqueword9876&type=statuses&account_id={}", ctx.alice_id),
-        Some(&ctx.alice_token),
-    ).await.json().await.unwrap();
+    let body: Value = ctx
+        .api
+        .get(
+            &format!(
+                "/api/v2/search?q=uniqueword9876&type=statuses&account_id={}",
+                ctx.alice_id
+            ),
+            Some(&ctx.alice_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
     let statuses = body["statuses"].as_array().unwrap();
     assert!(
-        statuses.iter().all(|s| s["account"]["id"].as_str() == Some(ctx.alice_id.as_str())),
+        statuses
+            .iter()
+            .all(|s| s["account"]["id"].as_str() == Some(ctx.alice_id.as_str())),
         "search with account_id should only return that account's statuses, got: {statuses:?}",
     );
     assert!(
@@ -283,11 +448,19 @@ async fn test_search_anonymous_pagination_unauthorized() {
     let ctx = TestContext::new("search-anon-page").await;
 
     let resp = ctx.api.get("/api/v2/search?q=alice&offset=20", None).await;
-    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "anon pagination must be 401");
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "anon pagination must be 401"
+    );
 
     // Without pagination, anonymous search still works.
     let resp = ctx.api.get("/api/v2/search?q=alice", None).await;
-    assert_eq!(resp.status(), StatusCode::OK, "anon search without pagination should be 200");
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "anon search without pagination should be 200"
+    );
 }
 
 /// Anonymous search cannot resolve remote resources (Mastodon returns 401 when
@@ -296,6 +469,13 @@ async fn test_search_anonymous_pagination_unauthorized() {
 async fn test_search_anonymous_resolve_unauthorized() {
     let ctx = TestContext::new("search-anon-resolve").await;
 
-    let resp = ctx.api.get("/api/v2/search?q=alice&resolve=true", None).await;
-    assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "anon resolve must be 401");
+    let resp = ctx
+        .api
+        .get("/api/v2/search?q=alice&resolve=true", None)
+        .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "anon resolve must be 401"
+    );
 }

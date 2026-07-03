@@ -16,8 +16,8 @@ pub struct Account {
     pub discoverable: Option<bool>,
     pub indexable: bool,
     pub hide_collections: Option<bool>,
-    pub created_at: String,         // ISO 8601 date (midnight UTC, day precision)
-    pub note: String,               // HTML
+    pub created_at: String, // ISO 8601 date (midnight UTC, day precision)
+    pub note: String,       // HTML
     pub url: String,
     pub uri: String,
     pub avatar: String,
@@ -42,11 +42,11 @@ pub struct Account {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memorial: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub mute_expires_at: Option<String>,  // only on MutedAccount (GET /api/v1/mutes)
+    pub mute_expires_at: Option<String>, // only on MutedAccount (GET /api/v1/mutes)
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub source: Option<AccountSource>,  // only on CredentialAccount
+    pub source: Option<AccountSource>, // only on CredentialAccount
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub role: Option<Role>,  // only on CredentialAccount
+    pub role: Option<Role>, // only on CredentialAccount
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -54,7 +54,7 @@ pub struct AccountSource {
     pub privacy: String,
     pub sensitive: bool,
     pub language: Option<String>,
-    pub note: String,               // plain text
+    pub note: String, // plain text
     pub fields: Vec<Field>,
     pub follow_requests_count: i64,
     pub discoverable: Option<bool>,
@@ -671,9 +671,9 @@ pub struct Profile {
     pub id: String,
     pub username: String,
     pub display_name: String,
-    pub note: String,               // plain text
+    pub note: String, // plain text
     pub fields: Vec<Field>,
-    pub formatted_note: String,     // HTML
+    pub formatted_note: String, // HTML
     pub formatted_fields: Vec<Field>,
     pub avatar: Option<String>,
     pub avatar_static: Option<String>,
@@ -895,7 +895,6 @@ pub struct FamiliarFollowers {
     pub accounts: Vec<Account>,
 }
 
-
 #[derive(Debug, Deserialize)]
 pub struct PaginationParams {
     pub max_id: Option<String>,
@@ -906,7 +905,8 @@ pub struct PaginationParams {
 
 impl PaginationParams {
     pub fn limit_clamped(&self, default: i64, max: i64) -> i64 {
-        self.limit.as_deref()
+        self.limit
+            .as_deref()
             .and_then(|s| s.parse::<i64>().ok())
             .unwrap_or(default)
             .min(max)

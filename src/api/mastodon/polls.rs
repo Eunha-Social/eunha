@@ -1,15 +1,13 @@
-use axum::{
-    extract::{Extension, Json, Path, State},
-};
+use axum::extract::{Extension, Json, Path, State};
 use serde::Deserialize;
 
+use super::types::{Poll, PollOption};
 use crate::{
     db::models,
     error::{AppError, AppResult},
     middleware::AuthenticatedUser,
     state::AppState,
 };
-use super::types::{Poll, PollOption};
 
 // ── GET /api/v1/polls/:id ─────────────────────────────────────────────────
 
@@ -39,25 +37,33 @@ pub async fn vote_poll(
     auth.require_scope("write:statuses")?;
     let poll = fetch_poll(&state, id).await?;
 
-    let expired = poll.expires_at.map(|e| e < chrono::Utc::now().naive_utc()).unwrap_or(false);
+    let expired = poll
+        .expires_at
+        .map(|e| e < chrono::Utc::now().naive_utc())
+        .unwrap_or(false);
     if expired {
         return Err(AppError::Unprocessable("Poll has expired".into()));
     }
 
     if poll.account_id == auth.account_id {
-        return Err(AppError::Unprocessable("You cannot vote on your own poll".into()));
+        return Err(AppError::Unprocessable(
+            "You cannot vote on your own poll".into(),
+        ));
     }
 
     let option_count = poll.options.len() as i32;
     if !poll.multiple && form.choices.len() > 1 {
-        return Err(AppError::Unprocessable("Multiple choices not allowed".into()));
+        return Err(AppError::Unprocessable(
+            "Multiple choices not allowed".into(),
+        ));
     }
 
     // Single-choice: block re-voting entirely. Multi-choice: only block same choice (ON CONFLICT).
     if !poll.multiple {
         let already_voted = sqlx::query_scalar!(
             "SELECT EXISTS(SELECT 1 FROM poll_votes WHERE poll_id = $1 AND account_id = $2)",
-            id, auth.account_id,
+            id,
+            auth.account_id,
         )
         .fetch_one(&state.db)
         .await?
@@ -69,7 +75,8 @@ pub async fn vote_poll(
 
     let was_first_vote = sqlx::query_scalar!(
         "SELECT NOT EXISTS(SELECT 1 FROM poll_votes WHERE poll_id = $1 AND account_id = $2)",
-        id, auth.account_id,
+        id,
+        auth.account_id,
     )
     .fetch_one(&state.db)
     .await?
@@ -85,7 +92,9 @@ pub async fn vote_poll(
                VALUES ($1, $2, $3, now(), now())
                ON CONFLICT DO NOTHING
                RETURNING id, choice"#,
-            id, auth.account_id, choice,
+            id,
+            auth.account_id,
+            choice,
         )
         .fetch_optional(&state.db)
         .await?
@@ -120,19 +129,17 @@ pub async fn vote_poll(
             tracing::warn!(poll_id = id, error = %e, "failed to enqueue ActivityPub poll update");
         }
     }
-    poll_from_db(&state, &poll, Some(auth.account_id)).await.map(Json)
+    poll_from_db(&state, &poll, Some(auth.account_id))
+        .await
+        .map(Json)
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 async fn fetch_poll(state: &AppState, id: i64) -> AppResult<models::Poll> {
-    sqlx::query_as!(
-        models::Poll,
-        "SELECT * FROM polls WHERE id = $1",
-        id,
-    )
-    .fetch_optional(&state.db)
-    .await?
+    sqlx::query_as!(models::Poll, "SELECT * FROM polls WHERE id = $1", id,)
+        .fetch_optional(&state.db)
+        .await?
         .ok_or(AppError::NotFound)
 }
 
@@ -152,7 +159,9 @@ async fn federate_poll_votes(
     )
     .fetch_optional(&state.db)
     .await?;
-    let Some(voter) = voter else { return Ok(()); };
+    let Some(voter) = voter else {
+        return Ok(());
+    };
     if voter.private_key.as_deref().is_none_or(|s| s.is_empty()) {
         return Ok(());
     }
@@ -168,7 +177,9 @@ async fn federate_poll_votes(
     )
     .fetch_optional(&state.db)
     .await?;
-    let Some(remote) = remote else { return Ok(()); };
+    let Some(remote) = remote else {
+        return Ok(());
+    };
     let Some(status_uri) = remote.status_uri.filter(|s| !s.is_empty()) else {
         return Ok(());
     };
@@ -182,7 +193,12 @@ async fn federate_poll_votes(
         return Ok(());
     }
 
-    let actor = crate::federation::tag::account_uri(&state.instance.domain, voter_id, voter.id_scheme, &voter.username);
+    let actor = crate::federation::tag::account_uri(
+        &state.instance.domain,
+        voter_id,
+        voter.id_scheme,
+        &voter.username,
+    );
     let key_id = format!("{actor}#main-key");
     let owner_uri = remote.owner_uri;
 
@@ -242,12 +258,16 @@ pub(crate) async fn federate_poll_update(state: &AppState, status_id: i64) -> an
     )
     .fetch_optional(&state.db)
     .await?;
-    let Some(status) = status else { return Ok(()); };
+    let Some(status) = status else {
+        return Ok(());
+    };
     if status.private_key.as_deref().is_none_or(|s| s.is_empty()) {
         return Ok(());
     }
 
-    let Some(bundle) = crate::api::ap::note::build_note(state, &state.instance.domain, status_id).await? else {
+    let Some(bundle) =
+        crate::api::ap::note::build_note(state, &state.instance.domain, status_id).await?
+    else {
         return Ok(());
     };
     let update_id = format!(
@@ -264,7 +284,12 @@ pub(crate) async fn federate_poll_update(state: &AppState, status_id: i64) -> an
         "cc": bundle.cc,
         "object": bundle.note,
     });
-    let actor_url = crate::federation::tag::account_uri(&state.instance.domain, status.account_id, status.id_scheme, &status.username);
+    let actor_url = crate::federation::tag::account_uri(
+        &state.instance.domain,
+        status.account_id,
+        status.id_scheme,
+        &status.username,
+    );
     let key_id = format!("{actor_url}#main-key");
 
     let mut inboxes: Vec<String> = sqlx::query!(
@@ -320,22 +345,33 @@ pub(crate) async fn federate_poll_update(state: &AppState, status_id: i64) -> an
     Ok(())
 }
 
-async fn poll_from_db(state: &AppState, poll: &models::Poll, viewer_id: Option<i64>) -> AppResult<Poll> {
+async fn poll_from_db(
+    state: &AppState,
+    poll: &models::Poll,
+    viewer_id: Option<i64>,
+) -> AppResult<Poll> {
     let option_titles: Vec<String> = poll.options.clone();
 
-    let expired = poll.expires_at.map(|e| e < chrono::Utc::now().naive_utc()).unwrap_or(false);
+    let expired = poll
+        .expires_at
+        .map(|e| e < chrono::Utc::now().naive_utc())
+        .unwrap_or(false);
     let viewer_is_owner = viewer_id.map(|vid| vid == poll.account_id).unwrap_or(false);
 
     let (voted, own_votes) = if let Some(vid) = viewer_id {
         let votes = sqlx::query!(
             "SELECT choice FROM poll_votes WHERE poll_id = $1 AND account_id = $2 ORDER BY choice",
-            poll.id, vid,
+            poll.id,
+            vid,
         )
         .fetch_all(&state.db)
         .await?;
         if votes.is_empty() {
             // Poll owner counts as having voted (matches Mastodon's voted? logic)
-            (Some(viewer_is_owner), if viewer_is_owner { Some(vec![]) } else { None })
+            (
+                Some(viewer_is_owner),
+                if viewer_is_owner { Some(vec![]) } else { None },
+            )
         } else {
             let choices: Vec<i32> = votes.iter().map(|v| v.choice).collect();
             (Some(true), Some(choices))
@@ -358,18 +394,26 @@ async fn poll_from_db(state: &AppState, poll: &models::Poll, viewer_id: Option<i
         vec![]
     };
 
-    let options: Vec<PollOption> = option_titles.iter().enumerate().map(|(i, title)| {
-        let votes_count = if show_results {
-            let cnt = per_option_counts.iter()
-                .find(|r| r.choice == i as i32)
-                .and_then(|r| r.cnt)
-                .unwrap_or(0);
-            Some(cnt)
-        } else {
-            None
-        };
-        PollOption { title: title.clone(), votes_count }
-    }).collect();
+    let options: Vec<PollOption> = option_titles
+        .iter()
+        .enumerate()
+        .map(|(i, title)| {
+            let votes_count = if show_results {
+                let cnt = per_option_counts
+                    .iter()
+                    .find(|r| r.choice == i as i32)
+                    .and_then(|r| r.cnt)
+                    .unwrap_or(0);
+                Some(cnt)
+            } else {
+                None
+            };
+            PollOption {
+                title: title.clone(),
+                votes_count,
+            }
+        })
+        .collect();
 
     let voters_count = sqlx::query_scalar!(
         "SELECT COUNT(DISTINCT account_id) FROM poll_votes WHERE poll_id = $1",
@@ -393,7 +437,11 @@ async fn poll_from_db(state: &AppState, poll: &models::Poll, viewer_id: Option<i
         expired,
         multiple: poll.multiple,
         votes_count,
-        voters_count: if poll.multiple { Some(voters_count) } else { None },
+        voters_count: if poll.multiple {
+            Some(voters_count)
+        } else {
+            None
+        },
         options,
         emojis: vec![],
         voted,

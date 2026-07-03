@@ -1,14 +1,10 @@
+use super::types::*;
+use crate::{error::AppResult, middleware::ResolvedInstance, state::AppState};
 use axum::{
     extract::{Extension, Path, Query, State},
     Json,
 };
 use serde::Deserialize;
-use crate::{
-    error::AppResult,
-    middleware::ResolvedInstance,
-    state::AppState,
-};
-use super::types::*;
 
 // ── GET /api/v1/instance/translation_languages ───────────────────────────
 // Returns empty object — translation is not supported.
@@ -37,26 +33,29 @@ pub async fn get_instance_domain_blocks(
     .fetch_all(&state.db)
     .await?;
 
-    let blocks: Vec<serde_json::Value> = rows.into_iter().map(|r| {
-        let digest = domain_digest(&r.domain);
-        let domain = if r.obfuscate {
-            obfuscate_domain(&r.domain)
-        } else {
-            r.domain
-        };
-        serde_json::json!({
-            "domain": domain,
-            "digest": digest,
-            "severity": r.severity,
-            "comment": r.public_comment.unwrap_or_default(),
+    let blocks: Vec<serde_json::Value> = rows
+        .into_iter()
+        .map(|r| {
+            let digest = domain_digest(&r.domain);
+            let domain = if r.obfuscate {
+                obfuscate_domain(&r.domain)
+            } else {
+                r.domain
+            };
+            serde_json::json!({
+                "domain": domain,
+                "digest": digest,
+                "severity": r.severity,
+                "comment": r.public_comment.unwrap_or_default(),
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(Json(blocks))
 }
 
 fn domain_digest(domain: &str) -> String {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     let mut h = Sha256::new();
     h.update(domain.as_bytes());
     hex::encode(h.finalize())
@@ -125,13 +124,18 @@ pub async fn get_instance_v1(
         description: instance.description.clone(),
         email: instance.contact_email.clone().unwrap_or_default(),
         version: "0.0.1 (compatible; Mastodon 4.3.0)".to_string(),
-        urls: InstanceV1Urls { streaming_api: streaming_url },
+        urls: InstanceV1Urls {
+            streaming_api: streaming_url,
+        },
         stats: InstanceV1Stats {
             user_count,
             status_count,
             domain_count,
         },
-        thumbnail: instance.icon_url.clone().unwrap_or_else(|| format!("{base_url}/instance-thumbnail.png")),
+        thumbnail: instance
+            .icon_url
+            .clone()
+            .unwrap_or_else(|| format!("{base_url}/instance-thumbnail.png")),
         languages: vec!["ko".to_string(), "en".to_string()],
         registrations: instance.registrations_open,
         approval_required: instance.approval_required,
@@ -172,9 +176,7 @@ pub async fn get_instance_v1(
 
 // ── GET /api/v1/instance/peers ────────────────────────────────────────────
 
-pub async fn get_peers(
-    State(state): State<AppState>,
-) -> AppResult<Json<Vec<String>>> {
+pub async fn get_peers(State(state): State<AppState>) -> AppResult<Json<Vec<String>>> {
     let rows = sqlx::query_scalar!(
         "SELECT DISTINCT domain FROM accounts WHERE domain IS NOT NULL ORDER BY domain",
     )
@@ -290,27 +292,44 @@ pub async fn get_instance_v2(
             users: InstanceUsageUsers { active_month },
         },
         thumbnail: InstanceThumbnail {
-            url: instance.icon_url.clone().unwrap_or_else(|| format!("{base_url}/instance-thumbnail.png")),
+            url: instance
+                .icon_url
+                .clone()
+                .unwrap_or_else(|| format!("{base_url}/instance-thumbnail.png")),
             blurhash: None,
             versions: None,
             description: None,
         },
-        icon: instance.icon_url.as_ref().map(|url| {
-            vec![
-                serde_json::json!({ "src": url, "size": "192x192" }),
-                serde_json::json!({ "src": url, "size": "512x512" }),
-            ]
-        }).unwrap_or_default(),
+        icon: instance
+            .icon_url
+            .as_ref()
+            .map(|url| {
+                vec![
+                    serde_json::json!({ "src": url, "size": "192x192" }),
+                    serde_json::json!({ "src": url, "size": "512x512" }),
+                ]
+            })
+            .unwrap_or_default(),
         languages: vec!["ko".to_string(), "en".to_string()],
         configuration: InstanceConfiguration {
             urls: InstanceUrls {
                 streaming: streaming_url,
                 status: None,
                 about: Some(format!("{base_url}/about")),
-                privacy_policy: if instance.privacy_policy.is_empty() { None } else { Some(format!("{base_url}/api/v1/instance/privacy_policy")) },
-                terms_of_service: if instance.terms_of_service.is_empty() { None } else { Some(format!("{base_url}/api/v1/instance/terms_of_service")) },
+                privacy_policy: if instance.privacy_policy.is_empty() {
+                    None
+                } else {
+                    Some(format!("{base_url}/api/v1/instance/privacy_policy"))
+                },
+                terms_of_service: if instance.terms_of_service.is_empty() {
+                    None
+                } else {
+                    Some(format!("{base_url}/api/v1/instance/terms_of_service"))
+                },
             },
-            vapid: VapidConfiguration { public_key: instance.vapid_public_key.clone() },
+            vapid: VapidConfiguration {
+                public_key: instance.vapid_public_key.clone(),
+            },
             accounts: AccountsConfiguration {
                 max_featured_tags: 10,
                 max_pinned_statuses: 5,
@@ -371,9 +390,18 @@ pub async fn get_instance_v2(
             },
             translation: TranslationConfiguration { enabled: false },
             timelines_access: TimelinesAccess {
-                live_feeds: TimelineAccessControl { local: "public".into(), remote: "public".into() },
-                hashtag_feeds: TimelineAccessControl { local: "public".into(), remote: "public".into() },
-                trending_link_feeds: TimelineAccessControl { local: "public".into(), remote: "public".into() },
+                live_feeds: TimelineAccessControl {
+                    local: "public".into(),
+                    remote: "public".into(),
+                },
+                hashtag_feeds: TimelineAccessControl {
+                    local: "public".into(),
+                    remote: "public".into(),
+                },
+                trending_link_feeds: TimelineAccessControl {
+                    local: "public".into(),
+                    remote: "public".into(),
+                },
             },
             limited_federation: false,
         },

@@ -12,8 +12,8 @@ use anyhow::{bail, Context, Result};
 use clap::Parser;
 use sqlx::postgres::PgPoolOptions;
 use web_push::{
-    ContentEncoding, SubscriptionInfo, SubscriptionKeys,
-    VapidSignatureBuilder, WebPushMessageBuilder,
+    ContentEncoding, SubscriptionInfo, SubscriptionKeys, VapidSignatureBuilder,
+    WebPushMessageBuilder,
 };
 
 #[derive(Parser, Debug)]
@@ -43,12 +43,18 @@ struct Args {
 async fn main() -> Result<()> {
     let args = Args::parse();
 
-    let cfg = args.config.as_deref().map(eunha::config::Config::from_file).transpose()?;
-    let db_url = args.db
+    let cfg = args
+        .config
+        .as_deref()
+        .map(eunha::config::Config::from_file)
+        .transpose()?;
+    let db_url = args
+        .db
         .or_else(|| cfg.as_ref().map(|c| c.database_url.clone()))
         .context("--db <url> or --config <path> with database_url")?;
 
-    let vapid_private_key = cfg.as_ref()
+    let vapid_private_key = cfg
+        .as_ref()
         .map(|c| c.instance.vapid_private_key.clone())
         .unwrap_or_default();
 
@@ -116,13 +122,26 @@ async fn main() -> Result<()> {
     let mut fail = 0usize;
 
     for sub in &subs {
-        match send_one(&http, sub.endpoint.as_str(), sub.key_p256dh.as_str(), sub.key_auth.as_str(), &vapid_private_key, &payload).await {
+        match send_one(
+            &http,
+            sub.endpoint.as_str(),
+            sub.key_p256dh.as_str(),
+            sub.key_auth.as_str(),
+            &vapid_private_key,
+            &payload,
+        )
+        .await
+        {
             Ok(()) => {
                 println!("  sub {} → OK  ({})", sub.id, truncate(&sub.endpoint, 60));
                 ok += 1;
             }
             Err(e) => {
-                eprintln!("  sub {} → FAIL: {e}  ({})", sub.id, truncate(&sub.endpoint, 60));
+                eprintln!(
+                    "  sub {} → FAIL: {e}  ({})",
+                    sub.id,
+                    truncate(&sub.endpoint, 60)
+                );
                 fail += 1;
             }
         }
@@ -163,7 +182,9 @@ async fn send_one(
     let endpoint_url = message.endpoint.to_string();
     let ttl = message.ttl;
 
-    let mut req = http.post(endpoint_url.as_str()).header("TTL", ttl.to_string());
+    let mut req = http
+        .post(endpoint_url.as_str())
+        .header("TTL", ttl.to_string());
 
     if let Some(p) = message.payload {
         req = req

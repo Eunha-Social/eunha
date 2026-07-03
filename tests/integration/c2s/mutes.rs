@@ -21,7 +21,10 @@ async fn test_mutes_returns_muted_accounts() {
 
     let body: Vec<Value> = resp.json().await.unwrap();
     let ids: Vec<&str> = body.iter().filter_map(|a| a["id"].as_str()).collect();
-    assert!(ids.contains(&ctx.alice_id.as_str()), "alice not in mutes list");
+    assert!(
+        ids.contains(&ctx.alice_id.as_str()),
+        "alice not in mutes list"
+    );
 }
 
 /// Mute list is empty when nothing has been muted.
@@ -50,16 +53,24 @@ async fn test_mutes_requires_auth() {
 async fn test_mutes_limit_param() {
     let ctx = TestContext::new("mutes-limit").await;
 
-    ctx.api.post_json(
-        &format!("/api/v1/accounts/{}/mute", ctx.bob_id),
-        Some(&ctx.alice_token),
-        &serde_json::json!({}),
-    ).await;
+    ctx.api
+        .post_json(
+            &format!("/api/v1/accounts/{}/mute", ctx.bob_id),
+            Some(&ctx.alice_token),
+            &serde_json::json!({}),
+        )
+        .await;
 
-    let resp = ctx.api.get("/api/v1/mutes?limit=1", Some(&ctx.alice_token)).await;
+    let resp = ctx
+        .api
+        .get("/api/v1/mutes?limit=1", Some(&ctx.alice_token))
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let body: Vec<Value> = resp.json().await.unwrap();
-    assert!(body.len() <= 1, "limit=1 should return at most 1 muted account");
+    assert!(
+        body.len() <= 1,
+        "limit=1 should return at most 1 muted account"
+    );
 }
 
 /// Muting then unmuting removes the account from the list.
@@ -88,5 +99,8 @@ async fn test_mutes_unmute_removes_from_list() {
 
     let body: Vec<Value> = resp.json().await.unwrap();
     let ids: Vec<&str> = body.iter().filter_map(|a| a["id"].as_str()).collect();
-    assert!(!ids.contains(&ctx.alice_id.as_str()), "alice still in mutes list after unmute");
+    assert!(
+        !ids.contains(&ctx.alice_id.as_str()),
+        "alice still in mutes list after unmute"
+    );
 }

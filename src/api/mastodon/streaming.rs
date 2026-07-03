@@ -11,11 +11,7 @@ use serde::Deserialize;
 use std::collections::HashSet;
 use std::time::Duration;
 
-use crate::{
-    middleware::AuthenticatedUser,
-    state::AppState,
-    streaming::Event,
-};
+use crate::{middleware::AuthenticatedUser, state::AppState, streaming::Event};
 
 #[derive(Debug, Deserialize)]
 pub struct StreamingParams {
@@ -43,7 +39,10 @@ pub async fn handler(
         .and_then(|v| v.to_str().ok())
         .map(str::to_string);
 
-    let token = params.access_token.clone().or_else(|| protocol_token.clone());
+    let token = params
+        .access_token
+        .clone()
+        .or_else(|| protocol_token.clone());
     let initial_stream = params.stream.clone();
 
     let ws = if let Some(proto) = protocol_token.clone() {
@@ -85,8 +84,7 @@ async fn resolve_token(state: &AppState, token: &str) -> Option<i64> {
 
 /// Returns true for streams that require authentication.
 fn requires_auth(stream: &str) -> bool {
-    matches!(stream, "user" | "user:notification" | "direct")
-        || stream.starts_with("list:")
+    matches!(stream, "user" | "user:notification" | "direct") || stream.starts_with("list:")
 }
 
 async fn run(
@@ -274,11 +272,18 @@ async fn to_wire_user(
 /// `user:notification` stream: delivers notifications only, no status events.
 fn to_wire_user_notification(event: &Event, account_id: Option<i64>) -> Option<String> {
     match event {
-        Event::Notification { for_account_id, payload } => {
+        Event::Notification {
+            for_account_id,
+            payload,
+        } => {
             if account_id != Some(*for_account_id) {
                 return None;
             }
-            Some(wire("notification", &["user", "user:notification"], payload))
+            Some(wire(
+                "notification",
+                &["user", "user:notification"],
+                payload,
+            ))
         }
         _ => None,
     }
@@ -294,9 +299,14 @@ async fn inject_viewer_context(
 ) -> Option<String> {
     let favourited = sqlx::query_scalar!(
         "SELECT 1 AS e FROM favourites WHERE account_id = $1 AND status_id = $2",
-        aid, status_id
+        aid,
+        status_id
     )
-    .fetch_optional(db).await.ok().flatten().is_some();
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten()
+    .is_some();
 
     let reblogged = sqlx::query_scalar!(
         "SELECT 1 AS e FROM statuses WHERE account_id = $1 AND reblog_of_id = $2 AND deleted_at IS NULL",
@@ -306,9 +316,14 @@ async fn inject_viewer_context(
 
     let bookmarked = sqlx::query_scalar!(
         "SELECT 1 AS e FROM bookmarks WHERE account_id = $1 AND status_id = $2",
-        aid, status_id
+        aid,
+        status_id
     )
-    .fetch_optional(db).await.ok().flatten().is_some();
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten()
+    .is_some();
 
     let mut value: serde_json::Value = serde_json::from_str(payload).ok()?;
     if let serde_json::Value::Object(ref mut obj) = value {
@@ -341,7 +356,9 @@ fn to_wire(
             payload,
             ..
         } => {
-            if !should_deliver(stream, *is_public, *has_media, hashtags, *author_id, account_id, following) {
+            if !should_deliver(
+                stream, *is_public, *has_media, hashtags, *author_id, account_id, following,
+            ) {
                 return None;
             }
             Some(wire("update", &stream_label(stream), payload))
@@ -355,7 +372,9 @@ fn to_wire(
             payload,
             ..
         } => {
-            if !should_deliver(stream, *is_public, *has_media, hashtags, *author_id, account_id, following) {
+            if !should_deliver(
+                stream, *is_public, *has_media, hashtags, *author_id, account_id, following,
+            ) {
                 return None;
             }
             Some(wire("status.update", &stream_label(stream), payload))
@@ -374,9 +393,7 @@ fn to_wire(
             Some(wire("notification", &["user"], payload))
         }
 
-        Event::DeleteStatus {
-            status_id,
-        } => {
+        Event::DeleteStatus { status_id } => {
             if !is_status_stream(stream) {
                 return None;
             }
@@ -426,11 +443,9 @@ fn should_deliver(
         "public:local:media" => is_public && has_media,
         // public:remote needs federated content; always false until AP inbox is wired.
         "public:remote" | "public:remote:media" => false,
-        "user" => {
-            account_id
-                .map(|aid| aid == author_id || following.contains(&author_id))
-                .unwrap_or(false)
-        }
+        "user" => account_id
+            .map(|aid| aid == author_id || following.contains(&author_id))
+            .unwrap_or(false),
         s if s.starts_with("hashtag:local:") => {
             let tag = &s["hashtag:local:".len()..];
             is_public && hashtags.iter().any(|h| h.eq_ignore_ascii_case(tag))
@@ -461,7 +476,8 @@ async fn to_wire_authenticated(
             payload,
             ..
         } => {
-            let deliver = deliver_authenticated(stream, *is_direct, *status_id, *author_id, aid, db).await;
+            let deliver =
+                deliver_authenticated(stream, *is_direct, *status_id, *author_id, aid, db).await;
             if !deliver {
                 return None;
             }
@@ -470,9 +486,7 @@ async fn to_wire_authenticated(
         }
 
         Event::StatusUpdate {
-            author_id,
-            payload,
-            ..
+            author_id, payload, ..
         } => {
             if let Some(list_id_str) = stream.strip_prefix("list:") {
                 if let Ok(list_id) = list_id_str.parse::<i64>() {
@@ -481,9 +495,15 @@ async fn to_wire_authenticated(
                            JOIN lists l ON l.id = la.list_id
                            WHERE la.list_id = $1 AND la.account_id = $2
                              AND l.account_id = $3"#,
-                        list_id, *author_id, aid,
+                        list_id,
+                        *author_id,
+                        aid,
                     )
-                    .fetch_optional(db).await.ok().flatten().is_some();
+                    .fetch_optional(db)
+                    .await
+                    .ok()
+                    .flatten()
+                    .is_some();
                     if !in_list {
                         return None;
                     }
@@ -496,11 +516,14 @@ async fn to_wire_authenticated(
 
         Event::DeleteStatus { status_id } => {
             let stream_arr = stream_label(stream);
-            Some(serde_json::json!({
-                "stream": stream_arr,
-                "event": "delete",
-                "payload": status_id.to_string(),
-            }).to_string())
+            Some(
+                serde_json::json!({
+                    "stream": stream_arr,
+                    "event": "delete",
+                    "payload": status_id.to_string(),
+                })
+                .to_string(),
+            )
         }
 
         Event::Notification { .. } | Event::FiltersChanged { .. } => None,
@@ -517,11 +540,17 @@ async fn deliver_authenticated(
 ) -> bool {
     if stream == "direct" {
         // Deliver if the viewer authored it, or if they are mentioned.
-        return is_direct && (author_id == aid || sqlx::query_scalar!(
+        return is_direct
+            && (author_id == aid
+                || sqlx::query_scalar!(
             "SELECT 1 AS e FROM statuses WHERE id = $1 AND account_id = $2 AND deleted_at IS NULL",
             status_id, aid
         )
-        .fetch_optional(db).await.ok().flatten().is_some());
+                .fetch_optional(db)
+                .await
+                .ok()
+                .flatten()
+                .is_some());
     }
 
     if let Some(list_id_str) = stream.strip_prefix("list:") {
@@ -531,9 +560,15 @@ async fn deliver_authenticated(
                    JOIN lists l ON l.id = la.list_id
                    WHERE la.list_id = $1 AND la.account_id = $2
                      AND l.account_id = $3"#,
-                list_id, author_id, aid,
+                list_id,
+                author_id,
+                aid,
             )
-            .fetch_optional(db).await.ok().flatten().is_some();
+            .fetch_optional(db)
+            .await
+            .ok()
+            .flatten()
+            .is_some();
         }
     }
 
@@ -543,9 +578,17 @@ async fn deliver_authenticated(
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 fn is_status_stream(stream: &str) -> bool {
-    matches!(stream, "public" | "public:local" | "public:media" | "public:local:media"
-        | "public:remote" | "public:remote:media" | "user" | "direct")
-        || stream.starts_with("hashtag:")
+    matches!(
+        stream,
+        "public"
+            | "public:local"
+            | "public:media"
+            | "public:local:media"
+            | "public:remote"
+            | "public:remote:media"
+            | "user"
+            | "direct"
+    ) || stream.starts_with("hashtag:")
         || stream.starts_with("list:")
 }
 

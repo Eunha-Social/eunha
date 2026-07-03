@@ -34,18 +34,19 @@ where
                 .await
                 .map_err(IntoResponse::into_response)?;
             let mut pairs: Vec<(String, String)> = Vec::new();
-            while let Some(field) = multipart.next_field().await.map_err(|e| {
-                (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()).into_response()
-            })? {
+            while let Some(field) = multipart
+                .next_field()
+                .await
+                .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()).into_response())?
+            {
                 let name = field.name().unwrap_or("").to_string();
                 let value = field.text().await.map_err(|e| {
                     (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()).into_response()
                 })?;
                 pairs.push((name, value));
             }
-            let encoded = serde_urlencoded::to_string(&pairs).map_err(|e| {
-                (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()).into_response()
-            })?;
+            let encoded = serde_urlencoded::to_string(&pairs)
+                .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()).into_response())?;
             serde_urlencoded::from_str::<T>(&encoded)
                 .map(FormOrJson)
                 .map_err(|e| (StatusCode::UNPROCESSABLE_ENTITY, e.to_string()).into_response())
@@ -96,4 +97,3 @@ where
         }
     }
 }
-

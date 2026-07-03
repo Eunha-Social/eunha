@@ -1,9 +1,3 @@
-use axum::{
-    extract::{Extension, Form, Query, State},
-    http::{HeaderMap, StatusCode},
-    response::{Html, IntoResponse, Json, Redirect, Response},
-};
-use serde::Deserialize;
 use crate::{
     crypto,
     error::{AppError, AppResult},
@@ -11,6 +5,12 @@ use crate::{
     state::AppState,
     templates,
 };
+use axum::{
+    extract::{Extension, Form, Query, State},
+    http::{HeaderMap, StatusCode},
+    response::{Html, IntoResponse, Json, Redirect, Response},
+};
+use serde::Deserialize;
 
 use urlencoding;
 
@@ -35,7 +35,14 @@ pub async fn signup_get(
             return render(&instance, &invite, false, false, None, locale);
         }
         if let Err(msg) = validate_invite(&state, &invite).await {
-            return render(&instance, &invite, false, false, Some(locale.t(msg)), locale);
+            return render(
+                &instance,
+                &invite,
+                false,
+                false,
+                Some(locale.t(msg)),
+                locale,
+            );
         }
     }
 
@@ -44,10 +51,7 @@ pub async fn signup_get(
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
-async fn validate_invite(
-    state: &AppState,
-    code: &str,
-) -> Result<i64, &'static str> {
+async fn validate_invite(state: &AppState, code: &str) -> Result<i64, &'static str> {
     let row = sqlx::query!(
         "SELECT id, uses, max_uses, expires_at FROM invites WHERE code = $1",
         code,
@@ -63,7 +67,10 @@ async fn validate_invite(
     if inv.max_uses.is_some_and(|m| inv.uses >= m) {
         return Err("err_invite_maxed");
     }
-    if inv.expires_at.is_some_and(|e| e < chrono::Utc::now().naive_utc()) {
+    if inv
+        .expires_at
+        .is_some_and(|e| e < chrono::Utc::now().naive_utc())
+    {
         return Err("err_invite_expired");
     }
     Ok(inv.id)
@@ -90,10 +97,15 @@ pub async fn api_create_account(
 ) -> AppResult<Json<super::types::Token>> {
     let invite_code = form.invite_code.as_deref().unwrap_or("").trim().to_string();
     let invite_id: Option<i64> = if !invite_code.is_empty() {
-        Some(validate_invite(&state, &invite_code).await
-            .map_err(|_| AppError::Unprocessable("Invalid or expired invite code".into()))?)
+        Some(
+            validate_invite(&state, &invite_code)
+                .await
+                .map_err(|_| AppError::Unprocessable("Invalid or expired invite code".into()))?,
+        )
     } else if !instance.registrations_open {
-        return Err(AppError::Unprocessable("This instance is not open for registration".into()));
+        return Err(AppError::Unprocessable(
+            "This instance is not open for registration".into(),
+        ));
     } else {
         None
     };
@@ -103,21 +115,32 @@ pub async fn api_create_account(
     let password = &form.password;
     let locale_str = form.locale.clone().unwrap_or_else(|| "en".into());
 
-    if username.is_empty() || !username.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
-        return Err(AppError::Unprocessable("Username can only contain letters, numbers, and underscores".into()));
+    if username.is_empty()
+        || !username
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+    {
+        return Err(AppError::Unprocessable(
+            "Username can only contain letters, numbers, and underscores".into(),
+        ));
     }
     if !email.contains('@') {
         return Err(AppError::Unprocessable("Invalid email address".into()));
     }
     if password.len() < 8 {
-        return Err(AppError::Unprocessable("Password must be at least 8 characters".into()));
+        return Err(AppError::Unprocessable(
+            "Password must be at least 8 characters".into(),
+        ));
     }
 
     // Reject if email already belongs to a confirmed account.
     let email_confirmed = sqlx::query_scalar!(
         "SELECT 1 FROM users WHERE lower(email) = lower($1) AND confirmed_at IS NOT NULL",
         email,
-    ).fetch_optional(&state.db).await?.is_some();
+    )
+    .fetch_optional(&state.db)
+    .await?
+    .is_some();
     if email_confirmed {
         return Err(AppError::Unprocessable("Email is already taken".into()));
     }
@@ -131,15 +154,24 @@ pub async fn api_create_account(
                AND lower(email) != lower($2)
                AND expires_at > now()
            LIMIT 1"#,
-        username, email,
-    ).fetch_optional(&state.db).await?.is_some();
+        username,
+        email,
+    )
+    .fetch_optional(&state.db)
+    .await?
+    .is_some();
     if username_taken {
         return Err(AppError::Unprocessable("Username is already taken".into()));
     }
 
     let password_hash = crypto::hash_password(password)
         .map_err(|_| AppError::Internal(anyhow::anyhow!("password hashing failed")))?;
-    let reason = form.reason.as_deref().map(str::trim).filter(|s| !s.is_empty()).map(str::to_string);
+    let reason = form
+        .reason
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
     let confirmation_token = api_generate_token();
     let app_id = extract_app_from_bearer(&state, &req_headers).await;
 
@@ -157,18 +189,32 @@ pub async fn api_create_account(
              app_id             = EXCLUDED.app_id,
              confirmation_token = EXCLUDED.confirmation_token,
              expires_at         = now() + interval '24 hours'"#,
-        username, email, password_hash,
-        invite_id, reason, locale_str, app_id, confirmation_token,
-    ).execute(&state.db).await
-        .map_err(|_| AppError::Internal(anyhow::anyhow!("pending signup failed")))?;
+        username,
+        email,
+        password_hash,
+        invite_id,
+        reason,
+        locale_str,
+        app_id,
+        confirmation_token,
+    )
+    .execute(&state.db)
+    .await
+    .map_err(|_| AppError::Internal(anyhow::anyhow!("pending signup failed")))?;
 
-    let confirm_url = format!("https://{}/auth/confirm?token={}", instance.domain, confirmation_token);
+    let confirm_url = format!(
+        "https://{}/auth/confirm?token={}",
+        instance.domain, confirmation_token
+    );
     let email_sender = state.email.clone();
     let to = email.clone();
     let uname = username.clone();
     let locale_for_email = locale_str.clone();
     tokio::spawn(async move {
-        if let Err(e) = email_sender.send_confirmation(&to, &uname, "", &confirm_url, &locale_for_email).await {
+        if let Err(e) = email_sender
+            .send_confirmation(&to, &uname, "", &confirm_url, &locale_for_email)
+            .await
+        {
             tracing::error!(error = %e, "failed to send confirmation email");
         }
     });
@@ -237,11 +283,18 @@ pub async fn confirm_email(
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, 1, now(), now())
            RETURNING id"#,
         new_account_id,
-        pending.username, url, uri, private_key, public_key,
+        pending.username,
+        url,
+        uri,
+        private_key,
+        public_key,
         format!("{}/inbox", uri),
         format!("{}/outbox", uri),
         format!("https://{}/inbox", instance_domain),
-    ).fetch_one(&state.db).await {
+    )
+    .fetch_one(&state.db)
+    .await
+    {
         Ok(id) => id,
         Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     };
@@ -257,11 +310,17 @@ pub async fn confirm_email(
                    NOT $5::boolean,
                    $6, $7, now(), now())
            RETURNING id"#,
-        account_id, pending.email,
-        pending.password_hash, pending.invite_id, needs_approval,
+        account_id,
+        pending.email,
+        pending.password_hash,
+        pending.invite_id,
+        needs_approval,
         pending.locale.as_str(),
         pending.app_id,
-    ).fetch_one(&state.db).await {
+    )
+    .fetch_one(&state.db)
+    .await
+    {
         Ok(id) => id,
         Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     };
@@ -277,14 +336,18 @@ pub async fn confirm_email(
 
     if let Some(id) = pending.invite_id {
         let _ = sqlx::query!("UPDATE invites SET uses = uses + 1 WHERE id = $1", id)
-            .execute(&state.db).await;
+            .execute(&state.db)
+            .await;
     }
 
     if let Some(app_id) = pending.app_id {
         if let Ok(Some(app)) = sqlx::query!(
             "SELECT redirect_uri, scopes FROM oauth_applications WHERE id = $1",
             app_id,
-        ).fetch_optional(&state.db).await {
+        )
+        .fetch_optional(&state.db)
+        .await
+        {
             let redirect_uri = app.redirect_uri.lines().next().unwrap_or("").to_string();
             if !redirect_uri.is_empty() && redirect_uri != "urn:ietf:wg:oauth:2.0:oob" {
                 let code = api_generate_token();
@@ -302,7 +365,8 @@ pub async fn confirm_email(
         }
     }
 
-    Html("<h1>Email confirmed!</h1><p>Your account is now active. You can sign in.</p>".to_string()).into_response()
+    Html("<h1>Email confirmed!</h1><p>Your account is now active. You can sign in.</p>".to_string())
+        .into_response()
 }
 
 // ── GET /api/v1/emails/check_confirmation ────────────────────────────────
@@ -356,17 +420,24 @@ pub async fn request_password_reset(
     let token = crypto::generate_token(32);
     let _ = sqlx::query!(
         "UPDATE users SET reset_password_token = $1, reset_password_sent_at = now() WHERE id = $2",
-        token, row.id,
+        token,
+        row.id,
     )
     .execute(&state.db)
     .await;
 
-    let reset_url = format!("https://{}/auth/password/reset?token={}", instance.domain, token);
+    let reset_url = format!(
+        "https://{}/auth/password/reset?token={}",
+        instance.domain, token
+    );
     let email = state.email.clone();
     let to = row.email.clone();
     let name = row.username.clone();
     tokio::spawn(async move {
-        if let Err(e) = email.send_password_reset(&to, &name, &reset_url, "en").await {
+        if let Err(e) = email
+            .send_password_reset(&to, &name, &reset_url, "en")
+            .await
+        {
             tracing::error!(error = %e, "failed to send password reset email");
         }
     });
@@ -392,7 +463,13 @@ pub async fn apply_password_reset(
     };
     let password = match form.password {
         Some(p) if p.len() >= 8 => p,
-        _ => return (StatusCode::UNPROCESSABLE_ENTITY, "Password must be at least 8 characters").into_response(),
+        _ => {
+            return (
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "Password must be at least 8 characters",
+            )
+                .into_response()
+        }
     };
 
     let row = sqlx::query!(
@@ -426,7 +503,10 @@ pub async fn apply_password_reset(
 // ── helpers ────────────────────────────────────────────────────────────────
 
 async fn extract_app_from_bearer(state: &AppState, headers: &HeaderMap) -> Option<i64> {
-    let val = headers.get(axum::http::header::AUTHORIZATION)?.to_str().ok()?;
+    let val = headers
+        .get(axum::http::header::AUTHORIZATION)?
+        .to_str()
+        .ok()?;
     let token = val.strip_prefix("Bearer ")?.trim();
     sqlx::query_scalar!(
         "SELECT application_id FROM oauth_access_tokens WHERE token = $1 AND resource_owner_id IS NULL",
@@ -437,7 +517,9 @@ async fn extract_app_from_bearer(state: &AppState, headers: &HeaderMap) -> Optio
 fn api_generate_token() -> String {
     use rand::RngCore;
     let mut rng = rand::rng();
-    (0..64).map(|_| format!("{:02x}", rng.next_u32() as u8)).collect()
+    (0..64)
+        .map(|_| format!("{:02x}", rng.next_u32() as u8))
+        .collect()
 }
 
 // ── helpers ────────────────────────────────────────────────────────────────

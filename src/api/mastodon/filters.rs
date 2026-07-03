@@ -5,25 +5,23 @@ use axum::{
 };
 use serde::Deserialize;
 
+use super::types::{Filter, FilterKeyword, FilterStatus, FilterV1};
 use crate::{
     error::{AppError, AppResult},
     middleware::AuthenticatedUser,
     state::AppState,
     streaming::Event,
 };
-use super::types::{Filter, FilterKeyword, FilterStatus, FilterV1};
 
 fn publish_filters_changed(state: &AppState, account_id: i64) {
-    state.streaming.publish(Event::FiltersChanged { for_account_id: account_id });
+    state.streaming.publish(Event::FiltersChanged {
+        for_account_id: account_id,
+    });
 }
 
 // ── Shared helpers ─────────────────────────────────────────────────────────
 
-async fn fetch_filter(
-    state: &AppState,
-    filter_id: i64,
-    account_id: i64,
-) -> AppResult<Filter> {
+async fn fetch_filter(state: &AppState, filter_id: i64, account_id: i64) -> AppResult<Filter> {
     let f = sqlx::query!(
         r#"SELECT id, phrase, context, expires_at,
                   CASE action WHEN 0 THEN 'warn' WHEN 1 THEN 'hide' WHEN 2 THEN 'blur' ELSE 'warn' END AS "action!"
@@ -105,31 +103,39 @@ pub async fn get_filters_v2(
     .fetch_all(&state.db)
     .await?;
 
-    let mut keywords_map: std::collections::HashMap<i64, Vec<FilterKeyword>> = std::collections::HashMap::new();
+    let mut keywords_map: std::collections::HashMap<i64, Vec<FilterKeyword>> =
+        std::collections::HashMap::new();
     for k in all_keywords {
-        keywords_map.entry(k.custom_filter_id).or_default().push(FilterKeyword {
-            id: k.id.to_string(),
-            keyword: k.keyword,
-            whole_word: k.whole_word,
-        });
+        keywords_map
+            .entry(k.custom_filter_id)
+            .or_default()
+            .push(FilterKeyword {
+                id: k.id.to_string(),
+                keyword: k.keyword,
+                whole_word: k.whole_word,
+            });
     }
 
-    let mut statuses_map: std::collections::HashMap<i64, Vec<serde_json::Value>> = std::collections::HashMap::new();
+    let mut statuses_map: std::collections::HashMap<i64, Vec<serde_json::Value>> =
+        std::collections::HashMap::new();
     for r in all_statuses {
         statuses_map.entry(r.custom_filter_id).or_default().push(
-            serde_json::json!({ "id": r.id.to_string(), "status_id": r.status_id.to_string() })
+            serde_json::json!({ "id": r.id.to_string(), "status_id": r.status_id.to_string() }),
         );
     }
 
-    let result = filters.into_iter().map(|f| Filter {
-        id: f.id.to_string(),
-        title: f.phrase,
-        context: f.context,
-        expires_at: f.expires_at.map(super::convert::mastodon_date),
-        filter_action: f.action,
-        keywords: keywords_map.remove(&f.id).unwrap_or_default(),
-        statuses: statuses_map.remove(&f.id).unwrap_or_default(),
-    }).collect();
+    let result = filters
+        .into_iter()
+        .map(|f| Filter {
+            id: f.id.to_string(),
+            title: f.phrase,
+            context: f.context,
+            expires_at: f.expires_at.map(super::convert::mastodon_date),
+            filter_action: f.action,
+            keywords: keywords_map.remove(&f.id).unwrap_or_default(),
+            statuses: statuses_map.remove(&f.id).unwrap_or_default(),
+        })
+        .collect();
 
     Ok(Json(result))
 }
@@ -178,7 +184,11 @@ fn validate_filter_form(form: &CreateFilterForm) -> AppResult<()> {
     if form.context.is_empty() {
         return Err(AppError::Unprocessable("Context can't be blank".into()));
     }
-    if let Some(bad) = form.context.iter().find(|c| !VALID_FILTER_CONTEXTS.contains(&c.as_str())) {
+    if let Some(bad) = form
+        .context
+        .iter()
+        .find(|c| !VALID_FILTER_CONTEXTS.contains(&c.as_str()))
+    {
         return Err(AppError::Unprocessable(format!(
             "Context '{bad}' is not a valid filter context"
         )));
@@ -209,7 +219,8 @@ pub async fn create_filter_v2(
 ) -> AppResult<(StatusCode, Json<Filter>)> {
     auth.require_scope("write:filters")?;
     validate_filter_form(&form)?;
-    let action = crate::db::models::filter_action::from_str(form.filter_action.as_deref().unwrap_or("warn"));
+    let action =
+        crate::db::models::filter_action::from_str(form.filter_action.as_deref().unwrap_or("warn"));
     let filter_id = sqlx::query_scalar!(
         r#"INSERT INTO custom_filters (account_id, phrase, context, action, expires_at, created_at, updated_at)
            VALUES ($1, $2, $3, $4,
@@ -259,7 +270,8 @@ pub async fn update_filter_v2(
 ) -> AppResult<Json<Filter>> {
     auth.require_scope("write:filters")?;
     validate_filter_form(&form)?;
-    let action = crate::db::models::filter_action::from_str(form.filter_action.as_deref().unwrap_or("warn"));
+    let action =
+        crate::db::models::filter_action::from_str(form.filter_action.as_deref().unwrap_or("warn"));
     let updated = sqlx::query_scalar!(
         r#"UPDATE custom_filters
            SET phrase = $3,
@@ -342,7 +354,8 @@ pub async fn delete_filter_v2(
     auth.require_scope("write:filters")?;
     let deleted = sqlx::query_scalar!(
         "DELETE FROM custom_filters WHERE id = $1 AND account_id = $2 RETURNING id",
-        id, auth.account_id,
+        id,
+        auth.account_id,
     )
     .fetch_optional(&state.db)
     .await?;
@@ -365,7 +378,8 @@ pub async fn get_filter_keywords(
     auth.require_scope("read:filters")?;
     let exists = sqlx::query_scalar!(
         "SELECT 1 FROM custom_filters WHERE id = $1 AND account_id = $2",
-        id, auth.account_id,
+        id,
+        auth.account_id,
     )
     .fetch_optional(&state.db)
     .await?;
@@ -408,7 +422,8 @@ pub async fn create_filter_keyword(
     auth.require_scope("write:filters")?;
     let exists = sqlx::query_scalar!(
         "SELECT 1 FROM custom_filters WHERE id = $1 AND account_id = $2",
-        id, auth.account_id,
+        id,
+        auth.account_id,
     )
     .fetch_optional(&state.db)
     .await?;
@@ -427,11 +442,14 @@ pub async fn create_filter_keyword(
     .await?;
 
     publish_filters_changed(&state, auth.account_id);
-    Ok((StatusCode::OK, Json(FilterKeyword {
-        id: kid.to_string(),
-        keyword: form.keyword,
-        whole_word: form.whole_word.unwrap_or(false),
-    })))
+    Ok((
+        StatusCode::OK,
+        Json(FilterKeyword {
+            id: kid.to_string(),
+            keyword: form.keyword,
+            whole_word: form.whole_word.unwrap_or(false),
+        }),
+    ))
 }
 
 // ── GET /api/v2/filter_keywords/:id ──────────────────────────────────────
@@ -447,7 +465,8 @@ pub async fn get_filter_keyword(
            FROM custom_filter_keywords fk
            JOIN custom_filters f ON f.id = fk.custom_filter_id
            WHERE fk.id = $1 AND f.account_id = $2"#,
-        id, auth.account_id,
+        id,
+        auth.account_id,
     )
     .fetch_optional(&state.db)
     .await?
@@ -505,7 +524,8 @@ pub async fn delete_filter_keyword(
            USING custom_filters f
            WHERE fk.id = $1 AND fk.custom_filter_id = f.id AND f.account_id = $2
            RETURNING fk.id"#,
-        id, auth.account_id,
+        id,
+        auth.account_id,
     )
     .fetch_optional(&state.db)
     .await?;
@@ -528,7 +548,8 @@ pub async fn get_filter_statuses(
     auth.require_scope("read:filters")?;
     let exists = sqlx::query_scalar!(
         "SELECT 1 FROM custom_filters WHERE id = $1 AND account_id = $2",
-        id, auth.account_id,
+        id,
+        auth.account_id,
     )
     .fetch_optional(&state.db)
     .await?;
@@ -544,10 +565,14 @@ pub async fn get_filter_statuses(
     .fetch_all(&state.db)
     .await?;
 
-    Ok(Json(rows.into_iter().map(|r| FilterStatus {
-        id: r.id.to_string(),
-        status_id: r.status_id.to_string(),
-    }).collect()))
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| FilterStatus {
+                id: r.id.to_string(),
+                status_id: r.status_id.to_string(),
+            })
+            .collect(),
+    ))
 }
 
 // ── POST /api/v2/filters/:id/statuses ────────────────────────────────────
@@ -566,7 +591,8 @@ pub async fn add_filter_status(
     auth.require_scope("write:filters")?;
     let exists = sqlx::query_scalar!(
         "SELECT 1 FROM custom_filters WHERE id = $1 AND account_id = $2",
-        id, auth.account_id,
+        id,
+        auth.account_id,
     )
     .fetch_optional(&state.db)
     .await?;
@@ -585,10 +611,13 @@ pub async fn add_filter_status(
     .await?;
 
     publish_filters_changed(&state, auth.account_id);
-    Ok((StatusCode::OK, Json(FilterStatus {
-        id: row_id.to_string(),
-        status_id: status_id.to_string(),
-    })))
+    Ok((
+        StatusCode::OK,
+        Json(FilterStatus {
+            id: row_id.to_string(),
+            status_id: status_id.to_string(),
+        }),
+    ))
 }
 
 // ── GET /api/v2/filter_statuses/:id ──────────────────────────────────────
@@ -604,7 +633,8 @@ pub async fn get_filter_status(
            FROM custom_filter_statuses fs
            JOIN custom_filters f ON f.id = fs.custom_filter_id
            WHERE fs.id = $1 AND f.account_id = $2"#,
-        id, auth.account_id,
+        id,
+        auth.account_id,
     )
     .fetch_optional(&state.db)
     .await?
@@ -629,7 +659,8 @@ pub async fn delete_filter_status(
            USING custom_filters f
            WHERE fs.id = $1 AND fs.custom_filter_id = f.id AND f.account_id = $2
            RETURNING fs.id"#,
-        id, auth.account_id,
+        id,
+        auth.account_id,
     )
     .fetch_optional(&state.db)
     .await?;
@@ -725,9 +756,11 @@ pub async fn create_filter_v1(
     Json(form): Json<CreateFilterV1Form>,
 ) -> AppResult<(StatusCode, Json<FilterV1>)> {
     auth.require_scope("write:filters")?;
-    let action = crate::db::models::filter_action::from_str(
-        if form.irreversible == Some(true) { "hide" } else { "warn" }
-    );
+    let action = crate::db::models::filter_action::from_str(if form.irreversible == Some(true) {
+        "hide"
+    } else {
+        "warn"
+    });
     let filter_id = sqlx::query_scalar!(
         r#"INSERT INTO custom_filters (account_id, phrase, context, action, expires_at, created_at, updated_at)
            VALUES ($1, $2, $3, $4,
@@ -762,14 +795,17 @@ pub async fn create_filter_v1(
     .await?;
 
     publish_filters_changed(&state, auth.account_id);
-    Ok((StatusCode::OK, Json(FilterV1 {
-        id: keyword_id.to_string(),
-        phrase: form.phrase,
-        context: f.context,
-        whole_word,
-        expires_at: f.expires_at.map(super::convert::mastodon_date),
-        irreversible: f.action == "hide",
-    })))
+    Ok((
+        StatusCode::OK,
+        Json(FilterV1 {
+            id: keyword_id.to_string(),
+            phrase: form.phrase,
+            context: f.context,
+            whole_word,
+            expires_at: f.expires_at.map(super::convert::mastodon_date),
+            irreversible: f.action == "hide",
+        }),
+    ))
 }
 
 // ── PUT /api/v1/filters/:id ───────────────────────────────────────────────
@@ -781,9 +817,11 @@ pub async fn update_filter_v1(
     Json(form): Json<CreateFilterV1Form>,
 ) -> AppResult<Json<FilterV1>> {
     auth.require_scope("write:filters")?;
-    let action = crate::db::models::filter_action::from_str(
-        if form.irreversible == Some(true) { "hide" } else { "warn" }
-    );
+    let action = crate::db::models::filter_action::from_str(if form.irreversible == Some(true) {
+        "hide"
+    } else {
+        "warn"
+    });
 
     // id is a keyword ID; find it and its parent filter (ownership check via filter)
     let existing = sqlx::query!(
@@ -791,7 +829,8 @@ pub async fn update_filter_v1(
            FROM custom_filter_keywords fk
            JOIN custom_filters cf ON cf.id = fk.custom_filter_id
            WHERE fk.id = $1 AND cf.account_id = $2"#,
-        id, auth.account_id,
+        id,
+        auth.account_id,
     )
     .fetch_optional(&state.db)
     .await?
@@ -807,7 +846,12 @@ pub async fn update_filter_v1(
                             END,
                updated_at = now()
            WHERE id = $1 AND account_id = $2"#,
-        existing.filter_id, auth.account_id, form.phrase, &form.context, action, form.expires_in,
+        existing.filter_id,
+        auth.account_id,
+        form.phrase,
+        &form.context,
+        action,
+        form.expires_in,
     )
     .execute(&state.db)
     .await?;
@@ -854,7 +898,8 @@ pub async fn delete_filter_v1(
            FROM custom_filter_keywords fk
            JOIN custom_filters cf ON cf.id = fk.custom_filter_id
            WHERE fk.id = $1 AND cf.account_id = $2"#,
-        id, auth.account_id,
+        id,
+        auth.account_id,
     )
     .fetch_optional(&state.db)
     .await?;
@@ -880,9 +925,12 @@ pub async fn delete_filter_v1(
     .unwrap_or(false);
 
     if !has_remaining {
-        sqlx::query!("DELETE FROM custom_filters WHERE id = $1", existing.filter_id)
-            .execute(&state.db)
-            .await?;
+        sqlx::query!(
+            "DELETE FROM custom_filters WHERE id = $1",
+            existing.filter_id
+        )
+        .execute(&state.db)
+        .await?;
     }
 
     publish_filters_changed(&state, auth.account_id);

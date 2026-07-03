@@ -8,19 +8,25 @@ use crate::helpers::TestContext;
 async fn test_file_report() {
     let ctx = TestContext::new("report").await;
 
-    let status = ctx.api.post_status(&ctx.bob_token, "reportable content", "public").await;
+    let status = ctx
+        .api
+        .post_status(&ctx.bob_token, "reportable content", "public")
+        .await;
     let status_id = status["id"].as_str().unwrap();
 
-    let resp = ctx.api.post_json(
-        "/api/v1/reports",
-        Some(&ctx.alice_token),
-        &json!({
-            "account_id": ctx.bob_id,
-            "status_ids": [status_id],
-            "comment": "This is spam",
-            "category": "spam"
-        }),
-    ).await;
+    let resp = ctx
+        .api
+        .post_json(
+            "/api/v1/reports",
+            Some(&ctx.alice_token),
+            &json!({
+                "account_id": ctx.bob_id,
+                "status_ids": [status_id],
+                "comment": "This is spam",
+                "category": "spam"
+            }),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let report: Value = resp.json().await.unwrap();
     assert!(report["id"].as_str().is_some());
@@ -39,11 +45,14 @@ async fn test_file_report() {
 async fn test_file_report_comment_too_long() {
     let ctx = TestContext::new("report-long").await;
 
-    let resp = ctx.api.post_json(
-        "/api/v1/reports",
-        Some(&ctx.alice_token),
-        &json!({ "account_id": ctx.bob_id, "comment": "x".repeat(1001) }),
-    ).await;
+    let resp = ctx
+        .api
+        .post_json(
+            "/api/v1/reports",
+            Some(&ctx.alice_token),
+            &json!({ "account_id": ctx.bob_id, "comment": "x".repeat(1001) }),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
 }
 
@@ -53,19 +62,25 @@ async fn test_report_status_not_belonging_to_target_returns_404() {
     let ctx = TestContext::new("report-wrong-status").await;
 
     // Alice posts a status.
-    let alice_status = ctx.api.post_status(&ctx.alice_token, "alice's post", "public").await;
+    let alice_status = ctx
+        .api
+        .post_status(&ctx.alice_token, "alice's post", "public")
+        .await;
     let alice_status_id = alice_status["id"].as_str().unwrap();
 
     // Alice reports Bob but attaches her own status (which belongs to Alice, not Bob).
-    let resp = ctx.api.post_json(
-        "/api/v1/reports",
-        Some(&ctx.alice_token),
-        &json!({
-            "account_id": ctx.bob_id,
-            "status_ids": [alice_status_id],
-            "comment": "wrong status"
-        }),
-    ).await;
+    let resp = ctx
+        .api
+        .post_json(
+            "/api/v1/reports",
+            Some(&ctx.alice_token),
+            &json!({
+                "account_id": ctx.bob_id,
+                "status_ids": [alice_status_id],
+                "comment": "wrong status"
+            }),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
@@ -75,11 +90,14 @@ async fn test_report_category_is_saved() {
     let ctx = TestContext::new("report-category").await;
 
     for category in &["spam", "violation", "other"] {
-        let resp = ctx.api.post_json(
-            "/api/v1/reports",
-            Some(&ctx.alice_token),
-            &json!({"account_id": ctx.bob_id, "category": category}),
-        ).await;
+        let resp = ctx
+            .api
+            .post_json(
+                "/api/v1/reports",
+                Some(&ctx.alice_token),
+                &json!({"account_id": ctx.bob_id, "category": category}),
+            )
+            .await;
         assert_eq!(resp.status(), StatusCode::OK);
         let report: Value = resp.json().await.unwrap();
         assert_eq!(report["category"].as_str(), Some(*category));
@@ -91,15 +109,18 @@ async fn test_report_category_is_saved() {
 async fn test_report_forward_flag() {
     let ctx = TestContext::new("report-fwd").await;
 
-    let resp = ctx.api.post_json(
-        "/api/v1/reports",
-        Some(&ctx.alice_token),
-        &json!({
-            "account_id": ctx.bob_id,
-            "comment": "forwarded report",
-            "forward": true
-        }),
-    ).await;
+    let resp = ctx
+        .api
+        .post_json(
+            "/api/v1/reports",
+            Some(&ctx.alice_token),
+            &json!({
+                "account_id": ctx.bob_id,
+                "comment": "forwarded report",
+                "forward": true
+            }),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let report: Value = resp.json().await.unwrap();
     assert!(report["id"].as_str().is_some(), "report id missing");
@@ -110,14 +131,17 @@ async fn test_report_forward_flag() {
 async fn test_file_report_requires_auth() {
     let ctx = TestContext::new("report-unauth").await;
 
-    let resp = ctx.api.post_json(
-        "/api/v1/reports",
-        None,
-        &json!({
-            "account_id": ctx.bob_id,
-            "comment": "unauthenticated report attempt"
-        }),
-    ).await;
+    let resp = ctx
+        .api
+        .post_json(
+            "/api/v1/reports",
+            None,
+            &json!({
+                "account_id": ctx.bob_id,
+                "comment": "unauthenticated report attempt"
+            }),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 }
 
@@ -126,26 +150,50 @@ async fn test_file_report_requires_auth() {
 async fn test_report_status_ids_and_rule_ids_are_arrays() {
     let ctx = TestContext::new("report-arrays").await;
 
-    let status = ctx.api.post_status(&ctx.bob_token, "array field test", "public").await;
+    let status = ctx
+        .api
+        .post_status(&ctx.bob_token, "array field test", "public")
+        .await;
     let sid = status["id"].as_str().unwrap();
 
     // Report with a status
-    let with_status: Value = ctx.api.post_json(
-        "/api/v1/reports",
-        Some(&ctx.alice_token),
-        &json!({"account_id": ctx.bob_id, "status_ids": [sid]}),
-    ).await.json().await.unwrap();
-    assert!(with_status["status_ids"].as_array().is_some(), "status_ids should be array");
-    assert!(with_status["rule_ids"].as_array().is_some(), "rule_ids should be array");
+    let with_status: Value = ctx
+        .api
+        .post_json(
+            "/api/v1/reports",
+            Some(&ctx.alice_token),
+            &json!({"account_id": ctx.bob_id, "status_ids": [sid]}),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        with_status["status_ids"].as_array().is_some(),
+        "status_ids should be array"
+    );
+    assert!(
+        with_status["rule_ids"].as_array().is_some(),
+        "rule_ids should be array"
+    );
     assert_eq!(with_status["status_ids"].as_array().unwrap().len(), 1);
 
     // Report without statuses
-    let without_status: Value = ctx.api.post_json(
-        "/api/v1/reports",
-        Some(&ctx.alice_token),
-        &json!({"account_id": ctx.bob_id}),
-    ).await.json().await.unwrap();
-    assert!(without_status["status_ids"].as_array().is_some(), "status_ids should be empty array not null");
+    let without_status: Value = ctx
+        .api
+        .post_json(
+            "/api/v1/reports",
+            Some(&ctx.alice_token),
+            &json!({"account_id": ctx.bob_id}),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        without_status["status_ids"].as_array().is_some(),
+        "status_ids should be empty array not null"
+    );
     assert_eq!(without_status["status_ids"].as_array().unwrap().len(), 0);
 }
 
@@ -154,13 +202,16 @@ async fn test_report_status_ids_and_rule_ids_are_arrays() {
 async fn test_file_report_unknown_account() {
     let ctx = TestContext::new("report-404").await;
 
-    let resp = ctx.api.post_json(
-        "/api/v1/reports",
-        Some(&ctx.alice_token),
-        &json!({
-            "account_id": "1234567890",
-            "comment": "spam"
-        }),
-    ).await;
+    let resp = ctx
+        .api
+        .post_json(
+            "/api/v1/reports",
+            Some(&ctx.alice_token),
+            &json!({
+                "account_id": "1234567890",
+                "comment": "spam"
+            }),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }

@@ -1,9 +1,9 @@
-use sqlx::PgPool;
-use std::sync::Arc;
 use crate::config::{Config, InstanceConfig};
 use crate::email::EmailSender;
 use crate::media::Storage;
 use crate::streaming::StreamBus;
+use sqlx::PgPool;
+use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -23,7 +23,11 @@ pub struct AppState {
 impl AppState {
     pub async fn new(db: PgPool, config: Config) -> anyhow::Result<Self> {
         let http = reqwest::Client::builder()
-            .user_agent(concat!("eunha/", env!("CARGO_PKG_VERSION"), " (ActivityPub)"))
+            .user_agent(concat!(
+                "eunha/",
+                env!("CARGO_PKG_VERSION"),
+                " (ActivityPub)"
+            ))
             .timeout(std::time::Duration::from_secs(30))
             .build()
             .expect("failed to build HTTP client");

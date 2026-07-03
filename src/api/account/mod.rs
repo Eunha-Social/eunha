@@ -48,10 +48,7 @@ fn extract_session_token(headers: &HeaderMap) -> Option<String> {
     None
 }
 
-async fn get_session(
-    headers: &HeaderMap,
-    state: &AppState,
-) -> Option<AccountSession> {
+async fn get_session(headers: &HeaderMap, state: &AppState) -> Option<AccountSession> {
     let token = extract_session_token(headers)?;
     let row = sqlx::query!(
         r#"SELECT u.id as user_id, a.username
@@ -75,9 +72,7 @@ async fn get_session(
 }
 
 fn set_cookie(token: &str) -> String {
-    format!(
-        "{COOKIE_NAME}={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age={COOKIE_MAX_AGE}"
-    )
+    format!("{COOKIE_NAME}={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age={COOKIE_MAX_AGE}")
 }
 
 fn clear_cookie() -> &'static str {
@@ -98,7 +93,9 @@ fn is_htmx(headers: &HeaderMap) -> bool {
 
 pub async fn account_home(
     State(state): State<AppState>,
-    axum::extract::Extension(ResolvedInstance(instance)): axum::extract::Extension<ResolvedInstance>,
+    axum::extract::Extension(ResolvedInstance(instance)): axum::extract::Extension<
+        ResolvedInstance,
+    >,
     headers: HeaderMap,
 ) -> Response {
     let locale = Locale::detect(None, accept_language(&headers));
@@ -128,7 +125,9 @@ pub async fn account_home(
 // ── GET /account/login ─────────────────────────────────────────────────────────
 
 pub async fn login_page(
-    axum::extract::Extension(ResolvedInstance(instance)): axum::extract::Extension<ResolvedInstance>,
+    axum::extract::Extension(ResolvedInstance(instance)): axum::extract::Extension<
+        ResolvedInstance,
+    >,
     headers: HeaderMap,
 ) -> Response {
     let locale = Locale::detect(None, accept_language(&headers));
@@ -159,7 +158,9 @@ pub struct LoginForm {
 
 pub async fn login_post(
     State(state): State<AppState>,
-    axum::extract::Extension(ResolvedInstance(instance)): axum::extract::Extension<ResolvedInstance>,
+    axum::extract::Extension(ResolvedInstance(instance)): axum::extract::Extension<
+        ResolvedInstance,
+    >,
     headers: HeaderMap,
     Form(form): Form<LoginForm>,
 ) -> Response {
@@ -261,7 +262,9 @@ pub struct SsoForm {
 
 pub async fn sso_post(
     State(state): State<AppState>,
-    axum::extract::Extension(ResolvedInstance(_instance)): axum::extract::Extension<ResolvedInstance>,
+    axum::extract::Extension(ResolvedInstance(_instance)): axum::extract::Extension<
+        ResolvedInstance,
+    >,
     Form(form): Form<SsoForm>,
 ) -> Response {
     let valid = sqlx::query!(
@@ -294,10 +297,7 @@ pub async fn sso_post(
 
 // ── POST /account/logout ───────────────────────────────────────────────────────
 
-pub async fn logout_post(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-) -> Response {
+pub async fn logout_post(State(state): State<AppState>, headers: HeaderMap) -> Response {
     if let Some(token) = extract_session_token(&headers) {
         let _ = sqlx::query!(
             "UPDATE oauth_access_tokens SET revoked_at = now() WHERE token = $1",
@@ -321,11 +321,7 @@ r.onerror=go;
 function go(){location.replace('/')}
 </script></body></html>"#;
 
-    (
-        [(header::SET_COOKIE, clear_cookie())],
-        Html(html),
-    )
-        .into_response()
+    ([(header::SET_COOKIE, clear_cookie())], Html(html)).into_response()
 }
 
 // ── GET /account/password ──────────────────────────────────────────────────────
@@ -339,7 +335,9 @@ pub struct PasswordQuery {
 
 pub async fn password_page(
     State(state): State<AppState>,
-    axum::extract::Extension(ResolvedInstance(instance)): axum::extract::Extension<ResolvedInstance>,
+    axum::extract::Extension(ResolvedInstance(instance)): axum::extract::Extension<
+        ResolvedInstance,
+    >,
     headers: HeaderMap,
     Query(query): Query<PasswordQuery>,
 ) -> Response {
@@ -388,7 +386,9 @@ pub struct PasswordForm {
 
 pub async fn password_post(
     State(state): State<AppState>,
-    axum::extract::Extension(ResolvedInstance(_instance)): axum::extract::Extension<ResolvedInstance>,
+    axum::extract::Extension(ResolvedInstance(_instance)): axum::extract::Extension<
+        ResolvedInstance,
+    >,
     headers: HeaderMap,
     Form(form): Form<PasswordForm>,
 ) -> Response {
@@ -409,7 +409,10 @@ pub async fn password_post(
     };
 
     if form.new_password != form.new_password_confirm {
-        err!(locale.t("password_mismatch"), "/account/password?mismatch=1");
+        err!(
+            locale.t("password_mismatch"),
+            "/account/password?mismatch=1"
+        );
     }
 
     if form.new_password.len() < 8 {
@@ -446,7 +449,11 @@ pub async fn password_post(
     {
         Ok(_) => {
             if htmx {
-                return Html(format!("<div class=\"success\">{}</div>", locale.t("password_changed"))).into_response();
+                return Html(format!(
+                    "<div class=\"success\">{}</div>",
+                    locale.t("password_changed")
+                ))
+                .into_response();
             }
             Redirect::to("/account/password?ok=1").into_response()
         }
@@ -465,7 +472,9 @@ struct MemberView {
 
 pub async fn invites_page(
     State(state): State<AppState>,
-    axum::extract::Extension(ResolvedInstance(instance)): axum::extract::Extension<ResolvedInstance>,
+    axum::extract::Extension(ResolvedInstance(instance)): axum::extract::Extension<
+        ResolvedInstance,
+    >,
     headers: HeaderMap,
 ) -> Response {
     let locale = Locale::detect(None, accept_language(&headers));
@@ -519,7 +528,11 @@ pub async fn invites_page(
 
     while let Some((username, depth)) = stack.pop() {
         let invited_by = invited_by_map.get(&username).cloned().flatten();
-        members.push(MemberView { username: username.clone(), invited_by, depth });
+        members.push(MemberView {
+            username: username.clone(),
+            invited_by,
+            depth,
+        });
         if let Some(kids) = children.get(&Some(username)) {
             for kid in kids.iter().rev() {
                 stack.push((kid.clone(), depth + 1));

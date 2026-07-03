@@ -1,3 +1,8 @@
+use crate::{
+    error::{AppError, AppResult},
+    middleware::{AuthenticatedUser, ResolvedInstance},
+    state::AppState,
+};
 use axum::{
     extract::{Extension, Path, State},
     http::StatusCode,
@@ -5,11 +10,6 @@ use axum::{
 };
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
-use crate::{
-    error::{AppError, AppResult},
-    middleware::{AuthenticatedUser, ResolvedInstance},
-    state::AppState,
-};
 
 #[derive(Debug, Serialize)]
 pub struct InviteResponse {

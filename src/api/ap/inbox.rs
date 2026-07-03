@@ -25,7 +25,10 @@ fn tag_type_is(tag: &Value, type_name: &str) -> bool {
 fn as_string_vec(v: Option<&Value>) -> Vec<String> {
     match v {
         Some(Value::String(s)) => vec![s.clone()],
-        Some(Value::Array(arr)) => arr.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect(),
+        Some(Value::Array(arr)) => arr
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_owned))
+            .collect(),
         _ => vec![],
     }
 }
@@ -64,10 +67,7 @@ pub async fn shared_inbox(
     // signature (the signing key must belong to this actor) and by handlers.
     let actor_uri = activity
         .get("actor")
-        .and_then(|a| {
-            a.as_str()
-                .or_else(|| a.get("id").and_then(|i| i.as_str()))
-        })
+        .and_then(|a| a.as_str().or_else(|| a.get("id").and_then(|i| i.as_str())))
         .unwrap_or("")
         .to_string();
 
@@ -95,21 +95,66 @@ pub async fn shared_inbox(
     }
 
     let outcome = match activity_type {
-        "Follow" => { handle_follow(&state, &instance, &activity).await?; "handled" }
-        "Undo" => { handle_undo(&state, &instance, &activity).await?; "handled" }
-        "Create" => { handle_create(&state, &instance, &activity).await?; "handled" }
-        "Delete" => { handle_delete(&state, &instance, &activity).await?; "handled" }
-        "Announce" => { handle_announce(&state, &instance, &activity).await?; "handled" }
-        "Like" => { handle_like(&state, &instance, &activity).await?; "handled" }
-        "Accept" | "Reject" => { handle_accept_reject(&state, &instance, &activity).await?; "handled" }
-        "Update" => { handle_update(&state, &instance, &activity).await?; "handled" }
-        "Block" => { handle_block(&state, &activity).await?; "handled" }
-        "Flag" => { handle_flag(&state, &activity).await?; "handled" }
-        "Move" => { handle_move(&state, &activity).await?; "handled" }
-        "Add" => { handle_add(&state, &activity).await?; "handled" }
-        "Remove" => { handle_remove(&state, &activity).await?; "handled" }
-        "QuoteRequest" => { handle_quote_request(&state, &instance, &activity).await?; "handled" }
-        "FeatureRequest" => { handle_feature_request(&state, &instance, &activity).await?; "handled" }
+        "Follow" => {
+            handle_follow(&state, &instance, &activity).await?;
+            "handled"
+        }
+        "Undo" => {
+            handle_undo(&state, &instance, &activity).await?;
+            "handled"
+        }
+        "Create" => {
+            handle_create(&state, &instance, &activity).await?;
+            "handled"
+        }
+        "Delete" => {
+            handle_delete(&state, &instance, &activity).await?;
+            "handled"
+        }
+        "Announce" => {
+            handle_announce(&state, &instance, &activity).await?;
+            "handled"
+        }
+        "Like" => {
+            handle_like(&state, &instance, &activity).await?;
+            "handled"
+        }
+        "Accept" | "Reject" => {
+            handle_accept_reject(&state, &instance, &activity).await?;
+            "handled"
+        }
+        "Update" => {
+            handle_update(&state, &instance, &activity).await?;
+            "handled"
+        }
+        "Block" => {
+            handle_block(&state, &activity).await?;
+            "handled"
+        }
+        "Flag" => {
+            handle_flag(&state, &activity).await?;
+            "handled"
+        }
+        "Move" => {
+            handle_move(&state, &activity).await?;
+            "handled"
+        }
+        "Add" => {
+            handle_add(&state, &activity).await?;
+            "handled"
+        }
+        "Remove" => {
+            handle_remove(&state, &activity).await?;
+            "handled"
+        }
+        "QuoteRequest" => {
+            handle_quote_request(&state, &instance, &activity).await?;
+            "handled"
+        }
+        "FeatureRequest" => {
+            handle_feature_request(&state, &instance, &activity).await?;
+            "handled"
+        }
         _ => "ignored",
     };
     tracing::debug!(activity_type, outcome, "ActivityPub activity processed");
@@ -139,7 +184,9 @@ fn date_within_skew(date_val: &str, skew: chrono::Duration) -> bool {
     let trimmed = date_val.trim();
     let parsed = chrono::NaiveDateTime::parse_from_str(trimmed, "%a, %d %b %Y %H:%M:%S GMT")
         .map(|n| n.and_utc())
-        .or_else(|_| chrono::DateTime::parse_from_rfc2822(trimmed).map(|d| d.with_timezone(&chrono::Utc)));
+        .or_else(|_| {
+            chrono::DateTime::parse_from_rfc2822(trimmed).map(|d| d.with_timezone(&chrono::Utc))
+        });
     match parsed {
         Ok(signed) => (chrono::Utc::now() - signed).abs() <= skew,
         Err(_) => false,
@@ -186,7 +233,9 @@ async fn verify_inbound_signature(
     let covered = signed_headers_list(sig_val);
     for required in ["(request-target)", "host", "date", "digest"] {
         if !covered.iter().any(|h| h == required) {
-            return Err(format!("signature does not cover required header {required:?}"));
+            return Err(format!(
+                "signature does not cover required header {required:?}"
+            ));
         }
     }
     if headers.get("digest").is_none() {
@@ -197,7 +246,9 @@ async fn verify_inbound_signature(
         .and_then(|h| h.to_str().ok())
         .ok_or_else(|| "missing Date header".to_string())?;
     if !date_within_skew(date_val, chrono::Duration::hours(1)) {
-        return Err(format!("Date header outside acceptable clock skew: {date_val:?}"));
+        return Err(format!(
+            "Date header outside acceptable clock skew: {date_val:?}"
+        ));
     }
 
     let pem = fetch_public_key(state, key_actor)
@@ -205,15 +256,24 @@ async fn verify_inbound_signature(
         .map_err(|e| format!("could not fetch public key: {e}"))?;
 
     let hdr_vec = crate::federation::signature::headers_to_vec(headers);
-    let hdr_refs: Vec<(&str, &str)> = hdr_vec.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    let hdr_refs: Vec<(&str, &str)> = hdr_vec
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
     match crate::federation::signature::verify_request("post", path, &hdr_refs, body, &pem) {
         Ok(()) => Ok(()),
         Err(first_err) => {
             let refreshed_pem = refresh_public_key(state, key_actor)
                 .await
                 .map_err(|e| format!("could not refresh public key: {e}"))?;
-            crate::federation::signature::verify_request("post", path, &hdr_refs, body, &refreshed_pem)
-                .map_err(|e| format!("{first_err}; after key refresh: {e}"))
+            crate::federation::signature::verify_request(
+                "post",
+                path,
+                &hdr_refs,
+                body,
+                &refreshed_pem,
+            )
+            .map_err(|e| format!("{first_err}; after key refresh: {e}"))
         }
     }
 }
@@ -262,7 +322,10 @@ async fn handle_follow(
     activity: &Value,
 ) -> AppResult<()> {
     let actor_uri = activity.get("actor").and_then(|a| a.as_str()).unwrap_or("");
-    let object_uri = activity.get("object").and_then(|o| o.as_str()).unwrap_or("");
+    let object_uri = activity
+        .get("object")
+        .and_then(|o| o.as_str())
+        .unwrap_or("");
     let activity_uri = activity.get("id").and_then(|i| i.as_str()).unwrap_or("");
 
     let target = sqlx::query!(
@@ -383,12 +446,20 @@ async fn handle_follow(
                 .await?
                 .filter(|s| !s.is_empty());
                 let Some(inbox) = follower_inbox else {
-                    tracing::warn!(actor_uri, "cannot send Accept: remote actor has no inbox URL");
+                    tracing::warn!(
+                        actor_uri,
+                        "cannot send Accept: remote actor has no inbox URL"
+                    );
                     continue;
                 };
                 let activity = serde_json::to_value(&accept)
                     .map_err(|e| crate::error::AppError::Internal(e.into()))?;
-                let actor_url = crate::federation::tag::account_uri(&instance.domain, target.id, target.id_scheme, &target.username);
+                let actor_url = crate::federation::tag::account_uri(
+                    &instance.domain,
+                    target.id,
+                    target.id_scheme,
+                    &target.username,
+                );
                 let key_id = format!("{actor_url}#main-key");
                 tracing::debug!(inbox, actor_uri, "enqueueing Accept");
                 if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
@@ -419,23 +490,45 @@ async fn handle_undo(
 
     match object_type {
         Some("Follow") => {
-            let follow_uri = object.and_then(|o| o.get("id")).and_then(|i| i.as_str()).unwrap_or("");
-            sqlx::query!("DELETE FROM follows WHERE uri = $1", follow_uri).execute(&state.db).await?;
-            sqlx::query!("DELETE FROM follow_requests WHERE uri = $1", follow_uri).execute(&state.db).await?;
+            let follow_uri = object
+                .and_then(|o| o.get("id"))
+                .and_then(|i| i.as_str())
+                .unwrap_or("");
+            sqlx::query!("DELETE FROM follows WHERE uri = $1", follow_uri)
+                .execute(&state.db)
+                .await?;
+            sqlx::query!("DELETE FROM follow_requests WHERE uri = $1", follow_uri)
+                .execute(&state.db)
+                .await?;
         }
         Some("Like") => {
             // object.object is the liked status URI
             let status_uri = object
                 .and_then(|o| o.get("object"))
-                .and_then(|v| if v.is_string() { v.as_str() } else { v.get("id").and_then(|i| i.as_str()) })
+                .and_then(|v| {
+                    if v.is_string() {
+                        v.as_str()
+                    } else {
+                        v.get("id").and_then(|i| i.as_str())
+                    }
+                })
                 .unwrap_or("");
-            let status_id = sqlx::query_scalar!("SELECT id FROM statuses WHERE uri = $1", status_uri)
-                .fetch_optional(&state.db).await?;
-            let account_id = sqlx::query_scalar!("SELECT id FROM accounts WHERE uri = $1", actor_uri)
-                .fetch_optional(&state.db).await?;
+            let status_id =
+                sqlx::query_scalar!("SELECT id FROM statuses WHERE uri = $1", status_uri)
+                    .fetch_optional(&state.db)
+                    .await?;
+            let account_id =
+                sqlx::query_scalar!("SELECT id FROM accounts WHERE uri = $1", actor_uri)
+                    .fetch_optional(&state.db)
+                    .await?;
             if let (Some(sid), Some(aid)) = (status_id, account_id) {
-                sqlx::query!("DELETE FROM favourites WHERE account_id = $1 AND status_id = $2", aid, sid)
-                    .execute(&state.db).await?;
+                sqlx::query!(
+                    "DELETE FROM favourites WHERE account_id = $1 AND status_id = $2",
+                    aid,
+                    sid
+                )
+                .execute(&state.db)
+                .await?;
                 sqlx::query!(
                     r#"UPDATE status_stats SET favourites_count = (SELECT COUNT(*) FROM favourites WHERE status_id = $1), updated_at = now() WHERE status_id = $1"#,
                     sid
@@ -444,12 +537,17 @@ async fn handle_undo(
         }
         Some("Announce") => {
             // Delete the remote boost status by its announce URI
-            let announce_uri = object.and_then(|o| o.get("id")).and_then(|i| i.as_str()).unwrap_or("");
+            let announce_uri = object
+                .and_then(|o| o.get("id"))
+                .and_then(|i| i.as_str())
+                .unwrap_or("");
             if !announce_uri.is_empty() {
                 let deleted = sqlx::query!(
                     "DELETE FROM statuses WHERE uri = $1 RETURNING reblog_of_id",
                     announce_uri,
-                ).fetch_optional(&state.db).await?;
+                )
+                .fetch_optional(&state.db)
+                .await?;
                 if let Some(row) = deleted {
                     if let Some(original_id) = row.reblog_of_id {
                         sqlx::query!(
@@ -463,15 +561,32 @@ async fn handle_undo(
         Some("Block") => {
             let block_object_uri = object
                 .and_then(|o| o.get("object"))
-                .and_then(|v| if v.is_string() { v.as_str() } else { v.get("id").and_then(|i| i.as_str()) })
+                .and_then(|v| {
+                    if v.is_string() {
+                        v.as_str()
+                    } else {
+                        v.get("id").and_then(|i| i.as_str())
+                    }
+                })
                 .unwrap_or("");
-            let blocker_id = sqlx::query_scalar!("SELECT id FROM accounts WHERE uri = $1", actor_uri)
-                .fetch_optional(&state.db).await?;
-            let blockee_id = sqlx::query_scalar!("SELECT id FROM accounts WHERE uri = $1 AND domain IS NULL", block_object_uri)
-                .fetch_optional(&state.db).await?;
+            let blocker_id =
+                sqlx::query_scalar!("SELECT id FROM accounts WHERE uri = $1", actor_uri)
+                    .fetch_optional(&state.db)
+                    .await?;
+            let blockee_id = sqlx::query_scalar!(
+                "SELECT id FROM accounts WHERE uri = $1 AND domain IS NULL",
+                block_object_uri
+            )
+            .fetch_optional(&state.db)
+            .await?;
             if let (Some(bid), Some(eid)) = (blocker_id, blockee_id) {
-                sqlx::query!("DELETE FROM blocks WHERE account_id = $1 AND target_account_id = $2", bid, eid)
-                    .execute(&state.db).await?;
+                sqlx::query!(
+                    "DELETE FROM blocks WHERE account_id = $1 AND target_account_id = $2",
+                    bid,
+                    eid
+                )
+                .execute(&state.db)
+                .await?;
             }
         }
         _ => {}
@@ -574,7 +689,10 @@ async fn handle_create(
     // these as poll_votes instead of creating a visible status.
     if let (Some(parent_id), Some(choice_name)) = (
         in_reply_to_id,
-        object.get("name").and_then(|v| v.as_str()).filter(|s| !s.is_empty()),
+        object
+            .get("name")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty()),
     ) {
         if handle_poll_vote_note(state, account_id, parent_id, choice_name, note_uri).await? {
             return Ok(());
@@ -609,15 +727,32 @@ async fn handle_create(
     };
 
     if !is_followed_locally && !addresses_local && !in_reply_to_local {
-        tracing::debug!(note_uri, "Create(Note): ignoring, not related to local activity");
+        tracing::debug!(
+            note_uri,
+            "Create(Note): ignoring, not related to local activity"
+        );
         return Ok(());
     }
 
     // Field extraction
-    let text = object.get("content").and_then(|c| c.as_str()).unwrap_or("").to_string();
-    let spoiler_text = object.get("summary").and_then(|s| s.as_str()).unwrap_or("").to_string();
-    let sensitive = object.get("sensitive").and_then(|s| s.as_bool()).unwrap_or(false);
-    let url = object.get("url").and_then(|u| u.as_str()).map(str::to_owned);
+    let text = object
+        .get("content")
+        .and_then(|c| c.as_str())
+        .unwrap_or("")
+        .to_string();
+    let spoiler_text = object
+        .get("summary")
+        .and_then(|s| s.as_str())
+        .unwrap_or("")
+        .to_string();
+    let sensitive = object
+        .get("sensitive")
+        .and_then(|s| s.as_bool())
+        .unwrap_or(false);
+    let url = object
+        .get("url")
+        .and_then(|u| u.as_str())
+        .map(str::to_owned);
     let published = object
         .get("published")
         .and_then(|p| p.as_str())
@@ -724,9 +859,7 @@ async fn handle_create(
         let att_type_str = att.get("type").and_then(|v| v.as_str()).unwrap_or("");
         // `url` may be a string, a Link object (`{href, mediaType}`), or an
         // array of links — Mastodon resolves all of these.
-        let Some((remote_url, link_media_type)) =
-            att.get("url").and_then(attachment_url)
-        else {
+        let Some((remote_url, link_media_type)) = att.get("url").and_then(attachment_url) else {
             continue;
         };
         // mediaType: explicit, else from the chosen Link, else guessed from the
@@ -755,14 +888,21 @@ async fn handle_create(
             match att_type_str {
                 "Image" => 0,
                 "Video" => {
-                    if media_type_str.contains("gif") { 1 } else { 2 }
+                    if media_type_str.contains("gif") {
+                        1
+                    } else {
+                        2
+                    }
                 }
                 "Audio" => 3,
                 _ => 4,
             }
         };
         let description = att.get("name").and_then(|v| v.as_str()).map(str::to_owned);
-        let blurhash = att.get("blurhash").and_then(|v| v.as_str()).map(str::to_owned);
+        let blurhash = att
+            .get("blurhash")
+            .and_then(|v| v.as_str())
+            .map(str::to_owned);
         let thumbnail_remote_url = att
             .get("icon")
             .and_then(|i| if i.is_object() { i.get("url") } else { None })
@@ -777,29 +917,33 @@ async fn handle_create(
         let height = att.get("height").and_then(|v| v.as_i64());
         let duration = att.get("duration").and_then(|v| v.as_f64());
         // focalPoint [x, y] -> meta.focus { x, y } (Mastodon's focus).
-        let focus = att.get("focalPoint").and_then(|v| v.as_array()).and_then(|a| {
-            Some((a.first()?.as_f64()?, a.get(1)?.as_f64()?))
-        });
-        let file_meta: Option<serde_json::Value> = if width.is_some()
-            || height.is_some()
-            || duration.is_some()
-            || focus.is_some()
-        {
-            let mut meta = serde_json::Map::new();
-            if width.is_some() || height.is_some() || duration.is_some() {
-                let mut orig = serde_json::Map::new();
-                if let Some(w) = width { orig.insert("width".into(), w.into()); }
-                if let Some(h) = height { orig.insert("height".into(), h.into()); }
-                if let Some(d) = duration { orig.insert("duration".into(), d.into()); }
-                meta.insert("original".into(), serde_json::Value::Object(orig));
-            }
-            if let Some((x, y)) = focus {
-                meta.insert("focus".into(), serde_json::json!({ "x": x, "y": y }));
-            }
-            Some(serde_json::Value::Object(meta))
-        } else {
-            None
-        };
+        let focus = att
+            .get("focalPoint")
+            .and_then(|v| v.as_array())
+            .and_then(|a| Some((a.first()?.as_f64()?, a.get(1)?.as_f64()?)));
+        let file_meta: Option<serde_json::Value> =
+            if width.is_some() || height.is_some() || duration.is_some() || focus.is_some() {
+                let mut meta = serde_json::Map::new();
+                if width.is_some() || height.is_some() || duration.is_some() {
+                    let mut orig = serde_json::Map::new();
+                    if let Some(w) = width {
+                        orig.insert("width".into(), w.into());
+                    }
+                    if let Some(h) = height {
+                        orig.insert("height".into(), h.into());
+                    }
+                    if let Some(d) = duration {
+                        orig.insert("duration".into(), d.into());
+                    }
+                    meta.insert("original".into(), serde_json::Value::Object(orig));
+                }
+                if let Some((x, y)) = focus {
+                    meta.insert("focus".into(), serde_json::json!({ "x": x, "y": y }));
+                }
+                Some(serde_json::Value::Object(meta))
+            } else {
+                None
+            };
 
         let media_id = crate::snowflake::next_id();
         match sqlx::query_scalar!(
@@ -991,7 +1135,8 @@ async fn handle_create(
         // For each local recipient, upsert account_conversations.
         // participant_account_ids = everyone else in the conversation (not this recipient).
         for &local_id in &mentioned_local_ids {
-            let mut others: Vec<i64> = all_participant_ids.iter()
+            let mut others: Vec<i64> = all_participant_ids
+                .iter()
                 .copied()
                 .filter(|&id| id != local_id)
                 .collect();
@@ -1018,10 +1163,7 @@ async fn handle_create(
     let actor_domain = url::Url::parse(actor_uri)
         .ok()
         .and_then(|u| u.host_str().map(str::to_owned));
-    for tag in tags_arr
-        .iter()
-        .filter(|t| tag_type_is(t, "Emoji"))
-    {
+    for tag in tags_arr.iter().filter(|t| tag_type_is(t, "Emoji")) {
         let shortcode = match tag.get("name").and_then(|v| v.as_str()) {
             Some(n) => n.trim_matches(':').to_string(),
             None => continue,
@@ -1121,12 +1263,10 @@ async fn handle_create(
             // a reply to an account the viewer follows (whose post we only just
             // learned about) reaches the right followers instead of staying hidden
             // as an orphan reply.
-            if let Ok(Some(parent)) = sqlx::query!(
-                "SELECT id, account_id FROM statuses WHERE uri = $1",
-                uri,
-            )
-            .fetch_optional(&state.db)
-            .await
+            if let Ok(Some(parent)) =
+                sqlx::query!("SELECT id, account_id FROM statuses WHERE uri = $1", uri,)
+                    .fetch_optional(&state.db)
+                    .await
             {
                 let updated = sqlx::query!(
                     "UPDATE statuses SET in_reply_to_id = $2, in_reply_to_account_id = $3, updated_at = now() WHERE id = $1 AND in_reply_to_id IS NULL",
@@ -1137,7 +1277,8 @@ async fn handle_create(
                 if updated.map(|r| r.rows_affected() > 0).unwrap_or(false) {
                     let mut redis = state.redis.clone();
                     let db = state.db.clone();
-                    crate::feed::fanout_new_status(&mut redis, &db, child_author, child_id, &[]).await;
+                    crate::feed::fanout_new_status(&mut redis, &db, child_author, child_id, &[])
+                        .await;
                 }
             }
         });
@@ -1149,11 +1290,28 @@ async fn handle_create(
     let db = state.db.clone();
     if crate::feed::sync_fanout() {
         crate::feed::fanout_new_status(&mut redis, &db, account_id, inserted_id, &tag_ids).await;
-        crate::feed::fanout_to_lists(&mut redis, &db, account_id, inserted_id, in_reply_to_account_id, vis_str).await;
+        crate::feed::fanout_to_lists(
+            &mut redis,
+            &db,
+            account_id,
+            inserted_id,
+            in_reply_to_account_id,
+            vis_str,
+        )
+        .await;
     } else {
         tokio::spawn(async move {
-            crate::feed::fanout_new_status(&mut redis, &db, account_id, inserted_id, &tag_ids).await;
-            crate::feed::fanout_to_lists(&mut redis, &db, account_id, inserted_id, in_reply_to_account_id, vis_str).await;
+            crate::feed::fanout_new_status(&mut redis, &db, account_id, inserted_id, &tag_ids)
+                .await;
+            crate::feed::fanout_to_lists(
+                &mut redis,
+                &db,
+                account_id,
+                inserted_id,
+                in_reply_to_account_id,
+                vis_str,
+            )
+            .await;
         });
     }
 
@@ -1203,25 +1361,24 @@ async fn handle_delete(
             // Reject if the actor's domain doesn't match the object's domain —
             // prevents one server from deleting another server's content.
             if !same_host(actor_uri, uri) {
-                tracing::warn!(actor_uri, uri, "Delete: actor domain does not match object domain, ignoring");
+                tracing::warn!(
+                    actor_uri,
+                    uri,
+                    "Delete: actor domain does not match object domain, ignoring"
+                );
                 return Ok(());
             }
 
             // Delete(Note/Tombstone) — soft-delete the status
-            sqlx::query!(
-                "UPDATE statuses SET deleted_at = now() WHERE uri = $1",
-                uri,
-            )
-            .execute(&state.db)
-            .await?;
+            sqlx::query!("UPDATE statuses SET deleted_at = now() WHERE uri = $1", uri,)
+                .execute(&state.db)
+                .await?;
 
             // Create a tombstone so that a subsequent Create with the same URI is rejected.
-            let actor_id = sqlx::query_scalar!(
-                "SELECT id FROM accounts WHERE uri = $1",
-                actor_uri,
-            )
-            .fetch_optional(&state.db)
-            .await?;
+            let actor_id =
+                sqlx::query_scalar!("SELECT id FROM accounts WHERE uri = $1", actor_uri,)
+                    .fetch_optional(&state.db)
+                    .await?;
             if let Some(actor_id) = actor_id {
                 let tombstone_id = crate::snowflake::next_id();
                 let _ = sqlx::query!(
@@ -1284,7 +1441,9 @@ async fn handle_announce(
         original_id = fetch_remote_status(state, boosted_uri).await?;
     }
 
-    let Some(original_id) = original_id else { return Ok(()); };
+    let Some(original_id) = original_id else {
+        return Ok(());
+    };
 
     let published = activity
         .get("published")
@@ -1322,6 +1481,17 @@ async fn handle_announce(
     .execute(&state.db)
     .await;
 
+    // Notify the local author that a remote account boosted their post
+    // (Mastodon notifies via LocalNotificationWorker on an incoming Announce).
+    notify_status_author(
+        state,
+        original_id,
+        booster_id,
+        "reblog",
+        "boosted your post",
+    )
+    .await;
+
     Ok(())
 }
 
@@ -1331,7 +1501,10 @@ async fn handle_like(
     activity: &Value,
 ) -> AppResult<()> {
     let actor_uri = activity.get("actor").and_then(|a| a.as_str()).unwrap_or("");
-    let object_uri = activity.get("object").and_then(|o| o.as_str()).unwrap_or("");
+    let object_uri = activity
+        .get("object")
+        .and_then(|o| o.as_str())
+        .unwrap_or("");
 
     let mut status_id = sqlx::query_scalar!("SELECT id FROM statuses WHERE uri = $1", object_uri)
         .fetch_optional(&state.db)
@@ -1341,7 +1514,9 @@ async fn handle_like(
         status_id = fetch_remote_status(state, object_uri).await?;
     }
 
-    let Some(status_id) = status_id else { return Ok(()); };
+    let Some(status_id) = status_id else {
+        return Ok(());
+    };
 
     let account_id = match resolve_or_fetch_remote_account(state, actor_uri).await {
         Ok(id) => id,
@@ -1367,7 +1542,60 @@ async fn handle_like(
     .execute(&state.db)
     .await?;
 
+    // Notify the local author that a remote account favourited their post
+    // (Mastodon notifies the author via LocalNotificationWorker on an incoming
+    // Like). create_and_push no-ops for a remote recipient and dedups.
+    notify_status_author(
+        state,
+        status_id,
+        account_id,
+        "favourite",
+        "favourited your post",
+    )
+    .await;
+
     Ok(())
+}
+
+/// Notify a status's author that `actor_id` interacted with it (favourite or
+/// reblog from a remote account). No-ops if the author is remote.
+async fn notify_status_author(
+    state: &AppState,
+    status_id: i64,
+    actor_id: i64,
+    notification_type: &'static str,
+    verb: &str,
+) {
+    let Ok(Some(author_id)) = sqlx::query_scalar!(
+        "SELECT account_id FROM statuses WHERE id = $1 AND deleted_at IS NULL",
+        status_id,
+    )
+    .fetch_optional(&state.db)
+    .await
+    else {
+        return;
+    };
+    let Ok(Some(actor)) = sqlx::query_as!(
+        crate::db::models::Account,
+        "SELECT * FROM accounts WHERE id = $1",
+        actor_id,
+    )
+    .fetch_optional(&state.db)
+    .await
+    else {
+        return;
+    };
+    crate::push::create_and_push(
+        state,
+        author_id,
+        actor_id,
+        notification_type,
+        Some(status_id),
+        format!("{} {}", actor.display_name, verb),
+        actor.acct(),
+        crate::api::mastodon::convert::account_avatar_url_for(&actor),
+    )
+    .await;
 }
 
 async fn handle_accept_reject(
@@ -1549,7 +1777,9 @@ async fn handle_update(
     let object = match activity.get("object") {
         Some(o) if o.is_object() => o,
         Some(o) if o.is_string() => {
-            let Some(uri) = o.as_str() else { return Ok(()); };
+            let Some(uri) = o.as_str() else {
+                return Ok(());
+            };
             fetched_object = match crate::federation::fetch::signed_get_json(state, uri).await {
                 Ok(v) => v,
                 Err(_) => return Ok(()),
@@ -1583,16 +1813,36 @@ async fn handle_update(
                 return Ok(());
             }
 
-            let display_name = object.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
-            let note = object.get("summary").and_then(|s| s.as_str()).unwrap_or("").to_string();
-            let inbox_url = object.get("inbox").and_then(|i| i.as_str()).unwrap_or("").to_string();
+            let display_name = object
+                .get("name")
+                .and_then(|n| n.as_str())
+                .unwrap_or("")
+                .to_string();
+            let note = object
+                .get("summary")
+                .and_then(|s| s.as_str())
+                .unwrap_or("")
+                .to_string();
+            let inbox_url = object
+                .get("inbox")
+                .and_then(|i| i.as_str())
+                .unwrap_or("")
+                .to_string();
             let shared_inbox_url = object
-                .get("endpoints").and_then(|e| e.get("sharedInbox")).and_then(|s| s.as_str())
+                .get("endpoints")
+                .and_then(|e| e.get("sharedInbox"))
+                .and_then(|s| s.as_str())
                 .map(str::to_owned);
             let public_key = object
-                .get("publicKey").and_then(|k| k.get("publicKeyPem")).and_then(|p| p.as_str())
-                .unwrap_or("").to_string();
-            let locked = object.get("manuallyApprovesFollowers").and_then(|v| v.as_bool()).unwrap_or(false);
+                .get("publicKey")
+                .and_then(|k| k.get("publicKeyPem"))
+                .and_then(|p| p.as_str())
+                .unwrap_or("")
+                .to_string();
+            let locked = object
+                .get("manuallyApprovesFollowers")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             let avatar_remote_url = object
                 .get("icon")
                 .and_then(|i| if i.is_object() { i.get("url") } else { None })
@@ -1617,24 +1867,48 @@ async fn handle_update(
                        header_remote_url = COALESCE($9, header_remote_url),
                        updated_at = now()
                    WHERE uri = $1 AND domain IS NOT NULL"#,
-                actor_uri, display_name, note, inbox_url, shared_inbox_url, public_key, locked,
-                avatar_remote_url, header_remote_url,
+                actor_uri,
+                display_name,
+                note,
+                inbox_url,
+                shared_inbox_url,
+                public_key,
+                locked,
+                avatar_remote_url,
+                header_remote_url,
             )
             .execute(&state.db)
             .await?;
         }
         "Note" => {
             let note_uri = object.get("id").and_then(|i| i.as_str()).unwrap_or("");
-            if note_uri.is_empty() { return Ok(()); }
+            if note_uri.is_empty() {
+                return Ok(());
+            }
 
-            let text = object.get("content").and_then(|c| c.as_str()).unwrap_or("").to_string();
-            let spoiler_text = object.get("summary").and_then(|s| s.as_str()).unwrap_or("").to_string();
-            let sensitive = object.get("sensitive").and_then(|s| s.as_bool()).unwrap_or(false);
+            let text = object
+                .get("content")
+                .and_then(|c| c.as_str())
+                .unwrap_or("")
+                .to_string();
+            let spoiler_text = object
+                .get("summary")
+                .and_then(|s| s.as_str())
+                .unwrap_or("")
+                .to_string();
+            let sensitive = object
+                .get("sensitive")
+                .and_then(|s| s.as_bool())
+                .unwrap_or(false);
             let language = object
-                .get("contentMap").and_then(|m| m.as_object()).and_then(|m| m.keys().next())
+                .get("contentMap")
+                .and_then(|m| m.as_object())
+                .and_then(|m| m.keys().next())
                 .map(|s| s.to_string())
                 .filter(|s| ["ko", "en"].contains(&s.as_str()));
-            let edited_at = object.get("updated").and_then(|p| p.as_str())
+            let edited_at = object
+                .get("updated")
+                .and_then(|p| p.as_str())
                 .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                 .map(|t| t.with_timezone(&chrono::Utc).naive_utc());
 
@@ -1644,7 +1918,12 @@ async fn handle_update(
                        edited_at = COALESCE($6, edited_at), updated_at = now()
                    WHERE uri = $1 AND deleted_at IS NULL
                    RETURNING id, account_id"#,
-                note_uri, text, spoiler_text, sensitive, language, edited_at,
+                note_uri,
+                text,
+                spoiler_text,
+                sensitive,
+                language,
+                edited_at,
             )
             .fetch_optional(&state.db)
             .await?;
@@ -1654,20 +1933,32 @@ async fn handle_update(
                 return Ok(());
             }
 
-            let Some(row) = updated else { return Ok(()); };
+            let Some(row) = updated else {
+                return Ok(());
+            };
 
             // Replace media attachments
             sqlx::query!("DELETE FROM media_attachments WHERE status_id = $1", row.id)
-                .execute(&state.db).await?;
-            let attachments: Vec<Value> = object.get("attachment")
-                .and_then(|a| a.as_array()).cloned().unwrap_or_default();
+                .execute(&state.db)
+                .await?;
+            let attachments: Vec<Value> = object
+                .get("attachment")
+                .and_then(|a| a.as_array())
+                .cloned()
+                .unwrap_or_default();
             let mut media_ids: Vec<i64> = Vec::new();
             for att in &attachments {
                 let att_type_str = att.get("type").and_then(|v| v.as_str()).unwrap_or("");
                 let media_type_str = att.get("mediaType").and_then(|v| v.as_str()).unwrap_or("");
                 let att_type: i32 = match att_type_str {
                     "Image" => 0,
-                    "Video" => if media_type_str.contains("gif") { 1 } else { 2 },
+                    "Video" => {
+                        if media_type_str.contains("gif") {
+                            1
+                        } else {
+                            2
+                        }
+                    }
                     "Audio" => 3,
                     _ => 4,
                 };
@@ -1676,11 +1967,20 @@ async fn handle_update(
                     _ => continue,
                 };
                 let description = att.get("name").and_then(|v| v.as_str()).map(str::to_owned);
-                let blurhash = att.get("blurhash").and_then(|v| v.as_str()).map(str::to_owned);
-                let thumbnail_remote_url = att.get("icon")
+                let blurhash = att
+                    .get("blurhash")
+                    .and_then(|v| v.as_str())
+                    .map(str::to_owned);
+                let thumbnail_remote_url = att
+                    .get("icon")
                     .and_then(|i| if i.is_object() { i.get("url") } else { None })
-                    .and_then(|v| v.as_str()).map(str::to_owned);
-                let file_content_type = if media_type_str.is_empty() { None } else { Some(media_type_str.to_owned()) };
+                    .and_then(|v| v.as_str())
+                    .map(str::to_owned);
+                let file_content_type = if media_type_str.is_empty() {
+                    None
+                } else {
+                    Some(media_type_str.to_owned())
+                };
                 let media_id = crate::snowflake::next_id();
                 if let Ok(id) = sqlx::query_scalar!(
                     r#"INSERT INTO media_attachments (id, account_id, status_id, remote_url, description, blurhash, type, thumbnail_remote_url, file_content_type, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now(), now()) RETURNING id"#,
@@ -1688,23 +1988,34 @@ async fn handle_update(
                 ).fetch_one(&state.db).await { media_ids.push(id); }
             }
             if !media_ids.is_empty() {
-                let _ = sqlx::query!("UPDATE statuses SET ordered_media_attachment_ids = $1 WHERE id = $2", &media_ids, row.id)
-                    .execute(&state.db).await;
+                let _ = sqlx::query!(
+                    "UPDATE statuses SET ordered_media_attachment_ids = $1 WHERE id = $2",
+                    &media_ids,
+                    row.id
+                )
+                .execute(&state.db)
+                .await;
             }
 
             // Replace hashtags
             sqlx::query!("DELETE FROM statuses_tags WHERE status_id = $1", row.id)
-                .execute(&state.db).await?;
+                .execute(&state.db)
+                .await?;
             let tags_arr: Vec<Value> = match object.get("tag") {
                 Some(Value::Array(arr)) => arr.clone(),
                 Some(obj @ Value::Object(_)) => vec![obj.clone()],
                 _ => vec![],
             };
             for tag in tags_arr.iter().filter(|t| tag_type_is(t, "Hashtag")) {
-                let name = match tag.get("name").and_then(|v| v.as_str())
+                let name = match tag
+                    .get("name")
+                    .and_then(|v| v.as_str())
                     .map(|n| n.trim_start_matches('#').to_lowercase())
                     .filter(|n| !n.is_empty())
-                { Some(n) => n, None => continue };
+                {
+                    Some(n) => n,
+                    None => continue,
+                };
                 let tag_id = crate::snowflake::next_id();
                 if let Ok(Some(tid)) = sqlx::query_scalar!(
                     r#"INSERT INTO tags (id, name, last_status_at, created_at, updated_at) VALUES ($1,$2,now(),now(),now()) ON CONFLICT (lower(name)) DO UPDATE SET last_status_at = now(), updated_at = now() RETURNING id"#,
@@ -1762,12 +2073,10 @@ async fn sync_remote_poll(
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
         .map(|t| t.with_timezone(&chrono::Utc).naive_utc());
 
-    if let Some(poll_id) = sqlx::query_scalar!(
-        "SELECT id FROM polls WHERE status_id = $1",
-        status_id,
-    )
-    .fetch_optional(&state.db)
-    .await?
+    if let Some(poll_id) =
+        sqlx::query_scalar!("SELECT id FROM polls WHERE status_id = $1", status_id,)
+            .fetch_optional(&state.db)
+            .await?
     {
         sqlx::query!(
             r#"UPDATE polls
@@ -1838,7 +2147,11 @@ async fn handle_poll_vote_note(
         return Ok(false);
     };
 
-    if poll.expires_at.map(|e| e < chrono::Utc::now().naive_utc()).unwrap_or(false) {
+    if poll
+        .expires_at
+        .map(|e| e < chrono::Utc::now().naive_utc())
+        .unwrap_or(false)
+    {
         return Ok(true);
     }
 
@@ -1891,19 +2204,29 @@ async fn handle_poll_vote_note(
     Ok(true)
 }
 
-async fn handle_block(
-    state: &AppState,
-    activity: &Value,
-) -> AppResult<()> {
+async fn handle_block(state: &AppState, activity: &Value) -> AppResult<()> {
     let actor_uri = activity.get("actor").and_then(|a| a.as_str()).unwrap_or("");
-    let object_uri = activity.get("object").and_then(|o| {
-        if o.is_string() { o.as_str() } else { o.get("id").and_then(|i| i.as_str()) }
-    }).unwrap_or("");
+    let object_uri = activity
+        .get("object")
+        .and_then(|o| {
+            if o.is_string() {
+                o.as_str()
+            } else {
+                o.get("id").and_then(|i| i.as_str())
+            }
+        })
+        .unwrap_or("");
 
     // Only process if the blocked account is local
     let Some(target_id) = sqlx::query_scalar!(
-        "SELECT id FROM accounts WHERE uri = $1 AND domain IS NULL", object_uri
-    ).fetch_optional(&state.db).await? else { return Ok(()); };
+        "SELECT id FROM accounts WHERE uri = $1 AND domain IS NULL",
+        object_uri
+    )
+    .fetch_optional(&state.db)
+    .await?
+    else {
+        return Ok(());
+    };
 
     let blocker_id = resolve_or_fetch_remote_account(state, actor_uri).await?;
 
@@ -1929,13 +2252,17 @@ async fn handle_block(
     Ok(())
 }
 
-async fn handle_flag(
-    state: &AppState,
-    activity: &Value,
-) -> AppResult<()> {
+async fn handle_flag(state: &AppState, activity: &Value) -> AppResult<()> {
     let actor_uri = activity.get("actor").and_then(|a| a.as_str()).unwrap_or("");
-    let comment = activity.get("content").and_then(|c| c.as_str()).unwrap_or("").to_string();
-    let activity_uri = activity.get("id").and_then(|i| i.as_str()).map(str::to_owned);
+    let comment = activity
+        .get("content")
+        .and_then(|c| c.as_str())
+        .unwrap_or("")
+        .to_string();
+    let activity_uri = activity
+        .get("id")
+        .and_then(|i| i.as_str())
+        .map(str::to_owned);
 
     // object can be a mixed array of account URIs and status URIs, or a single string
     let objects = as_string_vec(activity.get("object"));
@@ -1950,15 +2277,23 @@ async fn handle_flag(
     let local_account_ids: Vec<i64> = sqlx::query_scalar!(
         "SELECT id FROM accounts WHERE uri = ANY($1) AND domain IS NULL",
         &objects as &[String],
-    ).fetch_all(&state.db).await.unwrap_or_default();
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
 
-    let Some(&target_account_id) = local_account_ids.first() else { return Ok(()); };
+    let Some(&target_account_id) = local_account_ids.first() else {
+        return Ok(());
+    };
 
     // Find local statuses among the objects
     let status_ids: Vec<i64> = sqlx::query_scalar!(
         "SELECT id FROM statuses WHERE uri = ANY($1) AND deleted_at IS NULL",
         &objects as &[String],
-    ).fetch_all(&state.db).await.unwrap_or_default();
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default();
 
     let report_id = crate::snowflake::next_id();
     sqlx::query!(
@@ -1971,16 +2306,22 @@ async fn handle_flag(
     Ok(())
 }
 
-async fn handle_move(
-    state: &AppState,
-    activity: &Value,
-) -> AppResult<()> {
+async fn handle_move(state: &AppState, activity: &Value) -> AppResult<()> {
     let actor_uri = activity.get("actor").and_then(|a| a.as_str()).unwrap_or("");
-    let target_uri = activity.get("object").and_then(|o| {
-        if o.is_string() { o.as_str() } else { o.get("id").and_then(|i| i.as_str()) }
-    }).unwrap_or("");
+    let target_uri = activity
+        .get("object")
+        .and_then(|o| {
+            if o.is_string() {
+                o.as_str()
+            } else {
+                o.get("id").and_then(|i| i.as_str())
+            }
+        })
+        .unwrap_or("");
 
-    if actor_uri.is_empty() || target_uri.is_empty() { return Ok(()); }
+    if actor_uri.is_empty() || target_uri.is_empty() {
+        return Ok(());
+    }
 
     // Fetch the new account to verify also_known_as contains the old actor URI
     let new_account_id = match resolve_or_fetch_remote_account(state, target_uri).await {
@@ -1992,21 +2333,35 @@ async fn handle_move(
     let also_known_as: Vec<String> = sqlx::query_scalar!(
         "SELECT also_known_as FROM accounts WHERE id = $1",
         new_account_id,
-    ).fetch_optional(&state.db).await?
-        .flatten().unwrap_or_default();
+    )
+    .fetch_optional(&state.db)
+    .await?
+    .flatten()
+    .unwrap_or_default();
 
     if !also_known_as.iter().any(|u| u == actor_uri) {
-        tracing::warn!(actor_uri, target_uri, "Move rejected: target alsoKnownAs does not include actor");
+        tracing::warn!(
+            actor_uri,
+            target_uri,
+            "Move rejected: target alsoKnownAs does not include actor"
+        );
         return Ok(());
     }
 
     // Set moved_to_account_id on the old account
     sqlx::query!(
         "UPDATE accounts SET moved_to_account_id = $1 WHERE uri = $2 AND domain IS NOT NULL",
-        new_account_id, actor_uri,
-    ).execute(&state.db).await?;
+        new_account_id,
+        actor_uri,
+    )
+    .execute(&state.db)
+    .await?;
 
-    tracing::debug!(actor_uri, target_uri, "processed Move: updated moved_to_account_id");
+    tracing::debug!(
+        actor_uri,
+        target_uri,
+        "processed Move: updated moved_to_account_id"
+    );
     Ok(())
 }
 
@@ -2032,9 +2387,18 @@ async fn upsert_remote_collection(
     if uri.is_empty() {
         return Ok(None);
     }
-    let name = coll.get("name").and_then(|v| v.as_str()).unwrap_or("Featured collection");
-    let sensitive = coll.get("sensitive").and_then(|v| v.as_bool()).unwrap_or(false);
-    let discoverable = coll.get("discoverable").and_then(|v| v.as_bool()).unwrap_or(true);
+    let name = coll
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Featured collection");
+    let sensitive = coll
+        .get("sensitive")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let discoverable = coll
+        .get("discoverable")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
     let id = sqlx::query_scalar!(
         r#"INSERT INTO collections
              (account_id, name, discoverable, local, sensitive, item_count, uri, created_at, updated_at)
@@ -2081,15 +2445,14 @@ async fn mirror_item_into(state: &AppState, collection_id: i64, item: &Value) ->
     refresh_collection_item_count(state, collection_id).await
 }
 
-async fn handle_add(
-    state: &AppState,
-    activity: &Value,
-) -> AppResult<()> {
+async fn handle_add(state: &AppState, activity: &Value) -> AppResult<()> {
     let actor_uri = activity.get("actor").and_then(|a| a.as_str()).unwrap_or("");
     let object_uri = json_uri(activity.get("object"));
     let target_uri = json_uri(activity.get("target"));
 
-    if actor_uri.is_empty() || object_uri.is_empty() { return Ok(()); }
+    if actor_uri.is_empty() || object_uri.is_empty() {
+        return Ok(());
+    }
 
     // Collection mirroring: Add(FeaturedCollection) / Add(FeaturedItem).
     if let Some(obj) = activity.get("object").filter(|o| o.is_object()) {
@@ -2126,18 +2489,25 @@ async fn handle_add(
     let featured_url = sqlx::query_scalar!(
         "SELECT featured_collection_url FROM accounts WHERE uri = $1",
         actor_uri,
-    ).fetch_optional(&state.db).await?.flatten().unwrap_or_default();
+    )
+    .fetch_optional(&state.db)
+    .await?
+    .flatten()
+    .unwrap_or_default();
 
-    if target_uri != featured_url { return Ok(()); }
+    if target_uri != featured_url {
+        return Ok(());
+    }
 
-    let account_id = sqlx::query_scalar!(
-        "SELECT id FROM accounts WHERE uri = $1",
-        actor_uri,
-    ).fetch_optional(&state.db).await?;
+    let account_id = sqlx::query_scalar!("SELECT id FROM accounts WHERE uri = $1", actor_uri,)
+        .fetch_optional(&state.db)
+        .await?;
     let status_id = sqlx::query_scalar!(
         "SELECT id FROM statuses WHERE uri = $1 AND deleted_at IS NULL",
         object_uri,
-    ).fetch_optional(&state.db).await?;
+    )
+    .fetch_optional(&state.db)
+    .await?;
 
     if let (Some(aid), Some(sid)) = (account_id, status_id) {
         let pin_id = crate::snowflake::next_id();
@@ -2150,14 +2520,18 @@ async fn handle_add(
     Ok(())
 }
 
-async fn handle_remove(
-    state: &AppState,
-    activity: &Value,
-) -> AppResult<()> {
+async fn handle_remove(state: &AppState, activity: &Value) -> AppResult<()> {
     let actor_uri = activity.get("actor").and_then(|a| a.as_str()).unwrap_or("");
-    let object_uri = activity.get("object").and_then(|o| {
-        if o.is_string() { o.as_str() } else { o.get("id").and_then(|i| i.as_str()) }
-    }).unwrap_or("");
+    let object_uri = activity
+        .get("object")
+        .and_then(|o| {
+            if o.is_string() {
+                o.as_str()
+            } else {
+                o.get("id").and_then(|i| i.as_str())
+            }
+        })
+        .unwrap_or("");
 
     // Collection mirroring: Remove(FeaturedCollection) deletes the mirrored
     // collection; Remove(FeaturedItem) deletes the mirrored item. Only the
@@ -2193,13 +2567,20 @@ async fn handle_remove(
     }
 
     let account_id = sqlx::query_scalar!("SELECT id FROM accounts WHERE uri = $1", actor_uri)
-        .fetch_optional(&state.db).await?;
+        .fetch_optional(&state.db)
+        .await?;
     let status_id = sqlx::query_scalar!("SELECT id FROM statuses WHERE uri = $1", object_uri)
-        .fetch_optional(&state.db).await?;
+        .fetch_optional(&state.db)
+        .await?;
 
     if let (Some(aid), Some(sid)) = (account_id, status_id) {
-        sqlx::query!("DELETE FROM status_pins WHERE account_id = $1 AND status_id = $2", aid, sid)
-            .execute(&state.db).await?;
+        sqlx::query!(
+            "DELETE FROM status_pins WHERE account_id = $1 AND status_id = $2",
+            aid,
+            sid
+        )
+        .execute(&state.db)
+        .await?;
     }
 
     Ok(())
@@ -2212,7 +2593,10 @@ async fn handle_quote_request(
 ) -> AppResult<()> {
     let req_id = activity.get("id").and_then(|v| v.as_str()).unwrap_or("");
     let actor_uri = activity.get("actor").and_then(|a| a.as_str()).unwrap_or("");
-    let object_uri = activity.get("object").and_then(|o| o.as_str()).unwrap_or("");
+    let object_uri = activity
+        .get("object")
+        .and_then(|o| o.as_str())
+        .unwrap_or("");
     let instrument_uri = json_uri(activity.get("instrument"));
 
     if req_id.is_empty() || object_uri.is_empty() || actor_uri.is_empty() {
@@ -2261,15 +2645,15 @@ async fn handle_quote_request(
     // quote_approval_policy 0 = public (auto-accept); anything else requires the
     // owner's manual approval, which we do not auto-grant -> reject.
     if status.quote_approval_policy != 0 {
-        let reject_id = format!("{actor_url}#rejects/quote_requests/{}", crate::snowflake::next_id());
-        if let Ok(r) = crate::federation::consent::reject(&reject_id, &actor_url, &quoter.uri, req_id) {
-            if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
-                state,
-                r,
-                vec![inbox],
-                key_id,
-            )
-            .await
+        let reject_id = format!(
+            "{actor_url}#rejects/quote_requests/{}",
+            crate::snowflake::next_id()
+        );
+        if let Ok(r) =
+            crate::federation::consent::reject(&reject_id, &actor_url, &quoter.uri, req_id)
+        {
+            if let Err(e) =
+                crate::federation::delivery::deliver_to_inboxes(state, r, vec![inbox], key_id).await
             {
                 tracing::warn!(error = %e, "failed to enqueue quote Reject");
             }
@@ -2287,13 +2671,15 @@ async fn handle_quote_request(
     .await?
     {
         Some(id) => id,
-        None => match fetch_remote_status(state, instrument_uri).await? {
-            Some(id) => id,
-            None => {
-                tracing::debug!(actor_uri, instrument_uri, "QuoteRequest accepted but quoting status could not be fetched; skipping stamp");
-                return Ok(());
+        None => {
+            match fetch_remote_status(state, instrument_uri).await? {
+                Some(id) => id,
+                None => {
+                    tracing::debug!(actor_uri, instrument_uri, "QuoteRequest accepted but quoting status could not be fetched; skipping stamp");
+                    return Ok(());
+                }
             }
-        },
+        }
     };
 
     // Upsert the quote and mark it accepted (one quote per quoting status).
@@ -2334,13 +2720,9 @@ async fn handle_quote_request(
         req_id,
         &authorization_uri,
     ) {
-        if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
-            state,
-            accept,
-            vec![inbox],
-            key_id,
-        )
-        .await
+        if let Err(e) =
+            crate::federation::delivery::deliver_to_inboxes(state, accept, vec![inbox], key_id)
+                .await
         {
             tracing::warn!(error = %e, "failed to enqueue quote Accept");
         }
@@ -2360,10 +2742,19 @@ async fn handle_feature_request(
     activity: &Value,
 ) -> AppResult<()> {
     let req_id = activity.get("id").and_then(|v| v.as_str()).unwrap_or("");
-    let account_uri = activity.get("object").and_then(|v| v.as_str()).unwrap_or("");
+    let account_uri = activity
+        .get("object")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let collection_uri = activity
         .get("instrument")
-        .and_then(|v| if v.is_string() { v.as_str() } else { v.get("id").and_then(|i| i.as_str()) })
+        .and_then(|v| {
+            if v.is_string() {
+                v.as_str()
+            } else {
+                v.get("id").and_then(|i| i.as_str())
+            }
+        })
         .unwrap_or("");
     if req_id.is_empty() || account_uri.is_empty() || collection_uri.is_empty() {
         return Ok(());
@@ -2390,7 +2781,13 @@ async fn handle_feature_request(
     };
     let owner_uri = coll
         .get("attributedTo")
-        .and_then(|v| if v.is_string() { v.as_str() } else { v.get("id").and_then(|i| i.as_str()) })
+        .and_then(|v| {
+            if v.is_string() {
+                v.as_str()
+            } else {
+                v.get("id").and_then(|i| i.as_str())
+            }
+        })
         .unwrap_or("");
     if owner_uri.is_empty() {
         return Ok(());
@@ -2398,9 +2795,18 @@ async fn handle_feature_request(
     let Ok(owner_id) = resolve_or_fetch_remote_account(state, owner_uri).await else {
         return Ok(());
     };
-    let name = coll.get("name").and_then(|v| v.as_str()).unwrap_or("Featured collection");
-    let sensitive = coll.get("sensitive").and_then(|v| v.as_bool()).unwrap_or(false);
-    let discoverable = coll.get("discoverable").and_then(|v| v.as_bool()).unwrap_or(true);
+    let name = coll
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("Featured collection");
+    let sensitive = coll
+        .get("sensitive")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let discoverable = coll
+        .get("discoverable")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
 
     // Upsert the remote collection (local = false).
     let collection_id = sqlx::query_scalar!(
@@ -2459,13 +2865,11 @@ async fn handle_feature_request(
     )
     .fetch_one(&state.db)
     .await?;
-    let has_signing_key = sqlx::query_scalar!(
-        "SELECT private_key FROM accounts WHERE id = $1",
-        local.id,
-    )
-    .fetch_one(&state.db)
-    .await?
-    .is_some_and(|s| !s.is_empty());
+    let has_signing_key =
+        sqlx::query_scalar!("SELECT private_key FROM accounts WHERE id = $1", local.id,)
+            .fetch_one(&state.db)
+            .await?
+            .is_some_and(|s| !s.is_empty());
     if !has_signing_key {
         return Ok(());
     }
@@ -2476,7 +2880,8 @@ async fn handle_feature_request(
         owner.inbox_url
     };
     if !inbox.is_empty() {
-        let actor_url = crate::federation::tag::account_uri(domain, local.id, local.id_scheme, &local.username);
+        let actor_url =
+            crate::federation::tag::account_uri(domain, local.id, local.id_scheme, &local.username);
         let accept_id = format!("{actor_url}#accepts/feature_requests/{item_id}");
         let owner_uri = owner.uri;
         if let Ok(accept) = crate::federation::consent::accept(
@@ -2487,13 +2892,9 @@ async fn handle_feature_request(
             &authorization_uri,
         ) {
             let key_id = format!("{actor_url}#main-key");
-            if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
-                state,
-                accept,
-                vec![inbox],
-                key_id,
-            )
-            .await
+            if let Err(e) =
+                crate::federation::delivery::deliver_to_inboxes(state, accept, vec![inbox], key_id)
+                    .await
             {
                 tracing::warn!(error = %e, "failed to enqueue feature Accept");
             }
@@ -2518,7 +2919,11 @@ pub async fn fetch_remote_status(state: &AppState, uri: &str) -> AppResult<Optio
 /// and quoted posts), to avoid unbounded fetch chains.
 const MAX_FETCH_DEPTH: u8 = 2;
 
-async fn fetch_remote_status_depth(state: &AppState, uri: &str, depth: u8) -> AppResult<Option<i64>> {
+async fn fetch_remote_status_depth(
+    state: &AppState,
+    uri: &str,
+    depth: u8,
+) -> AppResult<Option<i64>> {
     if uri.is_empty() {
         return Ok(None);
     }
@@ -2542,11 +2947,14 @@ async fn fetch_remote_status_depth(state: &AppState, uri: &str, depth: u8) -> Ap
         "Create" | "Update" => match fetched.get("object") {
             Some(o) if o.is_object() => o,
             Some(o) if o.is_string() => {
-                let Some(object_uri) = o.as_str() else { return Ok(None); };
-                nested_fetched = match crate::federation::fetch::signed_get_json(state, object_uri).await {
-                    Ok(v) => v,
-                    Err(_) => return Ok(None),
+                let Some(object_uri) = o.as_str() else {
+                    return Ok(None);
                 };
+                nested_fetched =
+                    match crate::federation::fetch::signed_get_json(state, object_uri).await {
+                        Ok(v) => v,
+                        Err(_) => return Ok(None),
+                    };
                 &nested_fetched
             }
             _ => return Ok(None),
@@ -2569,10 +2977,24 @@ async fn fetch_remote_status_depth(state: &AppState, uri: &str, depth: u8) -> Ap
         return Ok(None);
     };
 
-    let text = object.get("content").and_then(|c| c.as_str()).unwrap_or("").to_string();
-    let spoiler_text = object.get("summary").and_then(|s| s.as_str()).unwrap_or("").to_string();
-    let sensitive = object.get("sensitive").and_then(|s| s.as_bool()).unwrap_or(false);
-    let url = object.get("url").and_then(|u| u.as_str()).map(str::to_owned);
+    let text = object
+        .get("content")
+        .and_then(|c| c.as_str())
+        .unwrap_or("")
+        .to_string();
+    let spoiler_text = object
+        .get("summary")
+        .and_then(|s| s.as_str())
+        .unwrap_or("")
+        .to_string();
+    let sensitive = object
+        .get("sensitive")
+        .and_then(|s| s.as_bool())
+        .unwrap_or(false);
+    let url = object
+        .get("url")
+        .and_then(|u| u.as_str())
+        .map(str::to_owned);
     let created_at = object
         .get("published")
         .and_then(|p| p.as_str())
@@ -2592,27 +3014,30 @@ async fn fetch_remote_status_depth(state: &AppState, uri: &str, depth: u8) -> Ap
 
     // Link in-reply-to: use the local copy if present, otherwise fetch it once.
     let in_reply_to_uri = object.get("inReplyTo").and_then(|v| v.as_str());
-    let (in_reply_to_id, in_reply_to_account_id): (Option<i64>, Option<i64>) =
-        if let Some(irt) = in_reply_to_uri {
-            let mut found: Option<(i64, i64)> = sqlx::query!(
-                "SELECT id, account_id FROM statuses WHERE uri = $1 AND deleted_at IS NULL",
-                irt,
-            )
-            .fetch_optional(&state.db)
-            .await?
-            .map(|r| (r.id, r.account_id));
-            if found.is_none() && depth < MAX_FETCH_DEPTH {
-                if let Some(pid) = Box::pin(fetch_remote_status_depth(state, irt, depth + 1)).await? {
-                    found = sqlx::query!("SELECT id, account_id FROM statuses WHERE id = $1", pid)
-                        .fetch_optional(&state.db)
-                        .await?
-                        .map(|r| (r.id, r.account_id));
-                }
+    let (in_reply_to_id, in_reply_to_account_id): (Option<i64>, Option<i64>) = if let Some(irt) =
+        in_reply_to_uri
+    {
+        let mut found: Option<(i64, i64)> = sqlx::query!(
+            "SELECT id, account_id FROM statuses WHERE uri = $1 AND deleted_at IS NULL",
+            irt,
+        )
+        .fetch_optional(&state.db)
+        .await?
+        .map(|r| (r.id, r.account_id));
+        if found.is_none() && depth < MAX_FETCH_DEPTH {
+            if let Some(pid) = Box::pin(fetch_remote_status_depth(state, irt, depth + 1)).await? {
+                found = sqlx::query!("SELECT id, account_id FROM statuses WHERE id = $1", pid)
+                    .fetch_optional(&state.db)
+                    .await?
+                    .map(|r| (r.id, r.account_id));
             }
-            found.map(|(id, aid)| (Some(id), Some(aid))).unwrap_or((None, None))
-        } else {
-            (None, None)
-        };
+        }
+        found
+            .map(|(id, aid)| (Some(id), Some(aid)))
+            .unwrap_or((None, None))
+    } else {
+        (None, None)
+    };
 
     let status_id = crate::snowflake::next_id();
     let inserted = sqlx::query_scalar!(
@@ -2692,20 +3117,37 @@ async fn fetch_remote_status_depth(state: &AppState, uri: &str, depth: u8) -> Ap
     }
 
     // Media attachments.
-    for att in object.get("attachment").and_then(|a| a.as_array()).into_iter().flatten() {
+    for att in object
+        .get("attachment")
+        .and_then(|a| a.as_array())
+        .into_iter()
+        .flatten()
+    {
         let media_type_str = att.get("mediaType").and_then(|v| v.as_str()).unwrap_or("");
         let att_type: i32 = match att.get("type").and_then(|v| v.as_str()).unwrap_or("") {
             "Image" => 0,
-            "Video" => if media_type_str.contains("gif") { 1 } else { 2 },
+            "Video" => {
+                if media_type_str.contains("gif") {
+                    1
+                } else {
+                    2
+                }
+            }
             "Audio" => 3,
             _ => 4,
         };
-        let Some(remote_url) = att.get("url").and_then(|v| v.as_str()).filter(|u| !u.is_empty())
+        let Some(remote_url) = att
+            .get("url")
+            .and_then(|v| v.as_str())
+            .filter(|u| !u.is_empty())
         else {
             continue;
         };
         let description = att.get("name").and_then(|v| v.as_str()).map(str::to_owned);
-        let blurhash = att.get("blurhash").and_then(|v| v.as_str()).map(str::to_owned);
+        let blurhash = att
+            .get("blurhash")
+            .and_then(|v| v.as_str())
+            .map(str::to_owned);
         let file_content_type = (!media_type_str.is_empty()).then(|| media_type_str.to_owned());
         let _ = sqlx::query!(
             r#"INSERT INTO media_attachments
@@ -2730,16 +3172,10 @@ async fn fetch_remote_status_depth(state: &AppState, uri: &str, depth: u8) -> Ap
 }
 
 /// Looks up a remote account by URI, fetching it from the remote server if unknown.
-pub async fn resolve_or_fetch_remote_account(
-    state: &AppState,
-    actor_uri: &str,
-) -> AppResult<i64> {
-    if let Some(id) = sqlx::query_scalar!(
-        "SELECT id FROM accounts WHERE uri = $1",
-        actor_uri
-    )
-    .fetch_optional(&state.db)
-    .await?
+pub async fn resolve_or_fetch_remote_account(state: &AppState, actor_uri: &str) -> AppResult<i64> {
+    if let Some(id) = sqlx::query_scalar!("SELECT id FROM accounts WHERE uri = $1", actor_uri)
+        .fetch_optional(&state.db)
+        .await?
     {
         return Ok(id);
     }
@@ -2900,7 +3336,10 @@ fn attachment_url(value: &Value) -> Option<(String, Option<String>)> {
                 .get("href")
                 .and_then(|v| v.as_str())
                 .filter(|s| !s.is_empty())?;
-            let media_type = o.get("mediaType").and_then(|v| v.as_str()).map(str::to_owned);
+            let media_type = o
+                .get("mediaType")
+                .and_then(|v| v.as_str())
+                .map(str::to_owned);
             Some((href.to_string(), media_type))
         }
         Value::Array(arr) => {

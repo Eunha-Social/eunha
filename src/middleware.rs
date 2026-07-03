@@ -57,16 +57,22 @@ impl AuthenticatedUser {
             }
         }
         // "follow" covers all social-graph operations (read + write on follows/blocks/mutes)
-        if matches!(required, "write:follows" | "write:blocks" | "write:mutes"
-                             | "read:follows" | "read:blocks" | "read:mutes")
-            && self.scopes.iter().any(|s| s == "follow") {
-                return true;
-            }
+        if matches!(
+            required,
+            "write:follows"
+                | "write:blocks"
+                | "write:mutes"
+                | "read:follows"
+                | "read:blocks"
+                | "read:mutes"
+        ) && self.scopes.iter().any(|s| s == "follow")
+        {
+            return true;
+        }
         // "profile" is a narrow scope that covers read:accounts (for verify_credentials)
-        if required == "read:accounts"
-            && self.scopes.iter().any(|s| s == "profile") {
-                return true;
-            }
+        if required == "read:accounts" && self.scopes.iter().any(|s| s == "profile") {
+            return true;
+        }
         false
     }
 }
@@ -74,11 +80,7 @@ impl AuthenticatedUser {
 /// Bearer token authentication. Attaches `AuthenticatedUser` if a valid token
 /// is present; passes through unauthenticated requests so endpoints can decide
 /// whether auth is required.
-pub async fn authenticate(
-    State(state): State<AppState>,
-    mut req: Request,
-    next: Next,
-) -> Response {
+pub async fn authenticate(State(state): State<AppState>, mut req: Request, next: Next) -> Response {
     if let Some(token) = extract_bearer(&req) {
         if let Some(tok) = sqlx::query!(
             r#"SELECT t.id, u.account_id, t.application_id, t.scopes,
@@ -93,15 +95,22 @@ pub async fn authenticate(
         .ok()
         .flatten()
         {
-            let valid = tok.revoked_at.is_none()
-                && token_not_expired(tok.created_at, tok.expires_in);
+            let valid =
+                tok.revoked_at.is_none() && token_not_expired(tok.created_at, tok.expires_in);
 
             if valid {
                 let user = AuthenticatedUser {
                     account_id: tok.account_id,
                     user_id: tok.user_id,
                     token_id: tok.id,
-                    scopes: tok.scopes.as_deref().unwrap_or("read").split(|c: char| c.is_whitespace() || c == ',').filter(|s| !s.is_empty()).map(str::to_owned).collect(),
+                    scopes: tok
+                        .scopes
+                        .as_deref()
+                        .unwrap_or("read")
+                        .split(|c: char| c.is_whitespace() || c == ',')
+                        .filter(|s| !s.is_empty())
+                        .map(str::to_owned)
+                        .collect(),
                     application_id: tok.application_id,
                 };
                 req.extensions_mut().insert(user);
@@ -133,7 +142,11 @@ pub async fn log_failures(req: Request, next: Next) -> Response {
         match axum::body::to_bytes(body, 4 * 1024 * 1024).await {
             Ok(bytes) => {
                 let preview = if bytes.len() > 2048 {
-                    format!("{}…({} bytes)", String::from_utf8_lossy(&bytes[..2048]), bytes.len())
+                    format!(
+                        "{}…({} bytes)",
+                        String::from_utf8_lossy(&bytes[..2048]),
+                        bytes.len()
+                    )
                 } else {
                     String::from_utf8_lossy(&bytes).into_owned()
                 };
@@ -173,6 +186,8 @@ fn extract_bearer(req: &Request) -> Option<String> {
 
 fn token_not_expired(created_at: chrono::NaiveDateTime, expires_in: Option<i32>) -> bool {
     expires_in
-        .map(|seconds| created_at + chrono::Duration::seconds(seconds as i64) > chrono::Utc::now().naive_utc())
+        .map(|seconds| {
+            created_at + chrono::Duration::seconds(seconds as i64) > chrono::Utc::now().naive_utc()
+        })
         .unwrap_or(true)
 }

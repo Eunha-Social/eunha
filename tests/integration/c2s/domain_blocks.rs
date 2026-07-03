@@ -7,7 +7,10 @@ use crate::helpers::TestContext;
 async fn test_domain_blocks_empty_initially() {
     let ctx = TestContext::new("dblk-empty").await;
 
-    let resp = ctx.api.get("/api/v1/domain_blocks", Some(&ctx.alice_token)).await;
+    let resp = ctx
+        .api
+        .get("/api/v1/domain_blocks", Some(&ctx.alice_token))
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
 
     let body: Vec<String> = resp.json().await.unwrap();
@@ -38,9 +41,15 @@ async fn test_domain_blocks_add_and_list() {
         .await;
     assert_eq!(post_resp.status(), StatusCode::OK);
 
-    let resp = ctx.api.get("/api/v1/domain_blocks", Some(&ctx.alice_token)).await;
+    let resp = ctx
+        .api
+        .get("/api/v1/domain_blocks", Some(&ctx.alice_token))
+        .await;
     let body: Vec<String> = resp.json().await.unwrap();
-    assert!(body.contains(&"evil.example".to_string()), "blocked domain not listed");
+    assert!(
+        body.contains(&"evil.example".to_string()),
+        "blocked domain not listed"
+    );
 }
 
 /// Blocking a domain clears the blocker's notifications and pending follow
@@ -75,23 +84,41 @@ async fn test_domain_block_clears_notifications_and_requests() {
     ).execute(&ctx.db).await.unwrap();
 
     // Alice blocks the domain.
-    let resp = ctx.api.post_json(
-        "/api/v1/domain_blocks",
-        Some(&ctx.alice_token),
-        &serde_json::json!({ "domain": "evil.example" }),
-    ).await;
+    let resp = ctx
+        .api
+        .post_json(
+            "/api/v1/domain_blocks",
+            Some(&ctx.alice_token),
+            &serde_json::json!({ "domain": "evil.example" }),
+        )
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
 
     let carol = carol_id.to_string();
-    let notifs: Vec<serde_json::Value> = ctx.api.get("/api/v1/notifications", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
+    let notifs: Vec<serde_json::Value> = ctx
+        .api
+        .get("/api/v1/notifications", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
     assert!(
-        !notifs.iter().any(|n| n["account"]["id"].as_str() == Some(carol.as_str())),
+        !notifs
+            .iter()
+            .any(|n| n["account"]["id"].as_str() == Some(carol.as_str())),
         "notification from blocked domain should be cleared",
     );
-    let reqs: Vec<serde_json::Value> = ctx.api.get("/api/v1/follow_requests", Some(&ctx.alice_token))
-        .await.json().await.unwrap();
-    assert!(reqs.is_empty(), "pending follow request from blocked domain should be removed");
+    let reqs: Vec<serde_json::Value> = ctx
+        .api
+        .get("/api/v1/follow_requests", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        reqs.is_empty(),
+        "pending follow request from blocked domain should be removed"
+    );
 }
 
 /// POST is idempotent — blocking an already-blocked domain returns 200.
@@ -118,7 +145,10 @@ async fn test_domain_blocks_idempotent() {
         .json()
         .await
         .unwrap();
-    assert_eq!(list.iter().filter(|d| d.as_str() == "spam.example").count(), 1);
+    assert_eq!(
+        list.iter().filter(|d| d.as_str() == "spam.example").count(),
+        1
+    );
 }
 
 /// DELETE /api/v1/domain_blocks removes the domain from the list.
@@ -151,7 +181,10 @@ async fn test_domain_blocks_delete() {
         .json()
         .await
         .unwrap();
-    assert!(!list.contains(&"gone.example".to_string()), "domain still blocked after delete");
+    assert!(
+        !list.contains(&"gone.example".to_string()),
+        "domain still blocked after delete"
+    );
 }
 
 /// DELETE of a non-blocked domain returns 200 (idempotent).

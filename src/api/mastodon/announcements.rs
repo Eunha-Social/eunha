@@ -4,13 +4,9 @@ use axum::{
     Json,
 };
 
-use crate::{
-    error::AppResult,
-    middleware::AuthenticatedUser,
-    state::AppState,
-};
 use super::formatting::text_to_html;
 use super::types::{Announcement, AnnouncementReaction};
+use crate::{error::AppResult, middleware::AuthenticatedUser, state::AppState};
 
 // ── GET /api/v1/announcements ─────────────────────────────────────────────
 
@@ -83,13 +79,16 @@ pub async fn get_announcements(
     for row in all_reactions {
         let me = my_reactions.contains(&(row.announcement_id, row.name.clone()));
         let url = row.image_remote_url;
-        reactions_by_ann.entry(row.announcement_id).or_default().push(AnnouncementReaction {
-            name: row.name,
-            count: row.count,
-            me,
-            url: url.clone(),
-            static_url: url,
-        });
+        reactions_by_ann
+            .entry(row.announcement_id)
+            .or_default()
+            .push(AnnouncementReaction {
+                name: row.name,
+                count: row.count,
+                me,
+                url: url.clone(),
+                static_url: url,
+            });
     }
 
     let mut result = Vec::with_capacity(rows.len());
@@ -100,9 +99,16 @@ pub async fn get_announcements(
             all_day: r.all_day,
             starts_at: r.starts_at.map(super::convert::mastodon_date),
             ends_at: r.ends_at.map(super::convert::mastodon_date),
-            published_at: r.published_at.map(super::convert::mastodon_date).unwrap_or_default(),
+            published_at: r
+                .published_at
+                .map(super::convert::mastodon_date)
+                .unwrap_or_default(),
             updated_at: super::convert::mastodon_date(r.updated_at),
-            read: if viewer_id.is_some() { Some(dismissed_set.contains(&r.id)) } else { None },
+            read: if viewer_id.is_some() {
+                Some(dismissed_set.contains(&r.id))
+            } else {
+                None
+            },
             reactions: reactions_by_ann.remove(&r.id).unwrap_or_default(),
             statuses: vec![],
             tags: vec![],
@@ -180,7 +186,9 @@ pub async fn add_reaction(
     // ReactionValidator: a name that is neither a known custom emoji nor a
     // supported unicode emoji is rejected (422).
     if custom_emoji_id.is_none() && emojis::get(&name).is_none() {
-        return Err(crate::error::AppError::Unprocessable("Unrecognized emoji".into()));
+        return Err(crate::error::AppError::Unprocessable(
+            "Unrecognized emoji".into(),
+        ));
     }
 
     // ReactionValidator LIMIT = 8 distinct reaction names per announcement,
@@ -201,7 +209,9 @@ pub async fn add_reaction(
         .await?
         .unwrap_or(0);
         if distinct >= 8 {
-            return Err(crate::error::AppError::Unprocessable("Reaction limit reached".into()));
+            return Err(crate::error::AppError::Unprocessable(
+                "Reaction limit reached".into(),
+            ));
         }
     }
 

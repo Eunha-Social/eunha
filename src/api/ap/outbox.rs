@@ -7,12 +7,8 @@ use axum::{
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::{
-    error::AppResult,
-    middleware::ResolvedInstance,
-    state::AppState,
-};
 use super::objects::CONTENT_TYPE;
+use crate::{error::AppResult, middleware::ResolvedInstance, state::AppState};
 
 #[derive(Deserialize)]
 pub struct OutboxQuery {
@@ -27,7 +23,13 @@ pub async fn get_outbox(
     Path(username): Path<String>,
     Query(q): Query<OutboxQuery>,
 ) -> AppResult<Response> {
-    outbox_for(&state, &instance.domain, super::objects::AccountRef::Username(&username), q).await
+    outbox_for(
+        &state,
+        &instance.domain,
+        super::objects::AccountRef::Username(&username),
+        q,
+    )
+    .await
 }
 
 /// Numeric-scheme outbox (`/ap/users/{id}/outbox`).
@@ -37,7 +39,13 @@ pub async fn get_outbox_by_id(
     Path(id): Path<i64>,
     Query(q): Query<OutboxQuery>,
 ) -> AppResult<Response> {
-    outbox_for(&state, &instance.domain, super::objects::AccountRef::Id(id), q).await
+    outbox_for(
+        &state,
+        &instance.domain,
+        super::objects::AccountRef::Id(id),
+        q,
+    )
+    .await
 }
 
 async fn outbox_for(
@@ -71,7 +79,12 @@ async fn outbox_for(
             "first": format!("{}?page=true", base_url),
             "last": format!("{}?page=true&min_id=0", base_url),
         });
-        return Ok((StatusCode::OK, [(header::CONTENT_TYPE, CONTENT_TYPE)], Json(outbox)).into_response());
+        return Ok((
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, CONTENT_TYPE)],
+            Json(outbox),
+        )
+            .into_response());
     }
 
     // Only self-authored, public/unlisted, non-boost statuses appear in the outbox.
@@ -113,5 +126,10 @@ async fn outbox_for(
         "orderedItems": items,
     });
 
-    Ok((StatusCode::OK, [(header::CONTENT_TYPE, CONTENT_TYPE)], Json(page)).into_response())
+    Ok((
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, CONTENT_TYPE)],
+        Json(page),
+    )
+        .into_response())
 }

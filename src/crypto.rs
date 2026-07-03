@@ -4,7 +4,11 @@ pub fn verify_password(password: &str, hash: &str) -> AppResult<()> {
     if hash.starts_with("$2a$") || hash.starts_with("$2b$") || hash.starts_with("$2y$") {
         let ok = bcrypt::verify(password, hash)
             .map_err(|_| AppError::Internal(anyhow::anyhow!("bcrypt error")))?;
-        if ok { Ok(()) } else { Err(AppError::Unauthorized) }
+        if ok {
+            Ok(())
+        } else {
+            Err(AppError::Unauthorized)
+        }
     } else {
         use argon2::PasswordVerifier;
         let parsed = argon2::PasswordHash::new(hash)
@@ -24,11 +28,11 @@ pub fn generate_token(len: usize) -> String {
 }
 
 pub fn generate_rsa_keypair() -> AppResult<(String, String)> {
-    use rsa::RsaPrivateKey;
-    use rsa::pkcs8::EncodePrivateKey;
     use pkcs8::spki::EncodePublicKey;
     use pkcs8::LineEnding;
+    use rsa::pkcs8::EncodePrivateKey;
     use rsa::rand_core::OsRng;
+    use rsa::RsaPrivateKey;
 
     let priv_key = RsaPrivateKey::new(&mut OsRng, 2048)
         .map_err(|e| AppError::Internal(anyhow::anyhow!("RSA keygen failed: {e}")))?;
@@ -49,8 +53,8 @@ pub fn generate_rsa_keypair() -> AppResult<(String, String)> {
 }
 
 pub fn hash_password(password: &str) -> AppResult<String> {
-    use argon2::{Argon2, PasswordHasher};
     use argon2::password_hash::{rand_core::OsRng, SaltString};
+    use argon2::{Argon2, PasswordHasher};
 
     let salt = SaltString::generate(&mut OsRng);
     Argon2::default()

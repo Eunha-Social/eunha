@@ -7,7 +7,11 @@ pub struct EmailSender {
 
 impl EmailSender {
     pub fn new(http: reqwest::Client, api_key: String, from: String) -> Self {
-        Self { http, api_key, from }
+        Self {
+            http,
+            api_key,
+            from,
+        }
     }
 
     /// `code` — when non-empty, displayed prominently for manual entry.
@@ -140,7 +144,8 @@ impl EmailSender {
             "subject": subject,
             "html": html,
         });
-        let resp = self.http
+        let resp = self
+            .http
             .post("https://api.resend.com/emails")
             .bearer_auth(&self.api_key)
             .json(&payload)

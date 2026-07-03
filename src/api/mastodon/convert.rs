@@ -1,8 +1,8 @@
-/// Conversions from DB models → Mastodon API types.
-use std::sync::OnceLock;
-use crate::db::models;
 use super::formatting::{format_field_value, mention_map_from_api, render_content};
 use super::types;
+use crate::db::models;
+/// Conversions from DB models → Mastodon API types.
+use std::sync::OnceLock;
 
 static DEFAULT_AVATAR: OnceLock<String> = OnceLock::new();
 static DEFAULT_HEADER: OnceLock<String> = OnceLock::new();
@@ -30,11 +30,17 @@ pub fn init_media_defaults(avatar: String, header: String) {
 }
 
 pub(super) fn missing_avatar() -> &'static str {
-    DEFAULT_AVATAR.get().map(|s| s.as_str()).unwrap_or("avatars/original/missing.png")
+    DEFAULT_AVATAR
+        .get()
+        .map(|s| s.as_str())
+        .unwrap_or("avatars/original/missing.png")
 }
 
 pub(super) fn missing_header() -> &'static str {
-    DEFAULT_HEADER.get().map(|s| s.as_str()).unwrap_or("headers/original/missing.png")
+    DEFAULT_HEADER
+        .get()
+        .map(|s| s.as_str())
+        .unwrap_or("headers/original/missing.png")
 }
 
 fn media_base_url() -> &'static str {
@@ -57,7 +63,12 @@ fn account_avatar_url(a: &models::Account) -> String {
     }
     if let Some(filename) = &a.avatar_file_name {
         if !filename.is_empty() {
-            return format!("{}/accounts/avatars/{}/original/{}", media_base_url(), crate::media::int_to_path(a.id), filename);
+            return format!(
+                "{}/accounts/avatars/{}/original/{}",
+                media_base_url(),
+                crate::media::int_to_path(a.id),
+                filename
+            );
         }
     }
     missing_avatar().to_string()
@@ -69,7 +80,12 @@ fn account_header_url(a: &models::Account) -> String {
     }
     if let Some(filename) = &a.header_file_name {
         if !filename.is_empty() {
-            return format!("{}/accounts/headers/{}/original/{}", media_base_url(), crate::media::int_to_path(a.id), filename);
+            return format!(
+                "{}/accounts/headers/{}/original/{}",
+                media_base_url(),
+                crate::media::int_to_path(a.id),
+                filename
+            );
         }
     }
     missing_header().to_string()
@@ -78,24 +94,45 @@ fn account_header_url(a: &models::Account) -> String {
 pub fn media_url(m: &models::MediaAttachment) -> Option<String> {
     if let Some(filename) = &m.file_file_name {
         if !filename.is_empty() {
-            return Some(format!("{}/media_attachments/files/{}/original/{}", media_base_url(), crate::media::int_to_path(m.id), filename));
+            return Some(format!(
+                "{}/media_attachments/files/{}/original/{}",
+                media_base_url(),
+                crate::media::int_to_path(m.id),
+                filename
+            ));
         }
     }
-    m.remote_url.as_deref().filter(|s| !s.is_empty()).map(str::to_string)
+    m.remote_url
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
 }
 
 pub fn media_preview_url(m: &models::MediaAttachment) -> Option<String> {
     if let Some(filename) = &m.thumbnail_file_name {
         if !filename.is_empty() {
-            return Some(format!("{}/media_attachments/files/{}/small/{}", media_base_url(), crate::media::int_to_path(m.id), filename));
+            return Some(format!(
+                "{}/media_attachments/files/{}/small/{}",
+                media_base_url(),
+                crate::media::int_to_path(m.id),
+                filename
+            ));
         }
     }
     if let Some(filename) = &m.file_file_name {
         if !filename.is_empty() {
-            return Some(format!("{}/media_attachments/files/{}/small/{}", media_base_url(), crate::media::int_to_path(m.id), filename));
+            return Some(format!(
+                "{}/media_attachments/files/{}/small/{}",
+                media_base_url(),
+                crate::media::int_to_path(m.id),
+                filename
+            ));
         }
     }
-    m.thumbnail_remote_url.as_deref().filter(|s| !s.is_empty()).map(str::to_string)
+    m.thumbnail_remote_url
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
 }
 
 pub trait MastodonTimestamp {
@@ -144,21 +181,49 @@ pub fn account_from_db(a: &models::Account) -> types::Account {
         id: a.id.to_string(),
         username: a.username.clone(),
         acct: a.acct(),
-        display_name: if suspended { String::new() } else { a.display_name.clone() },
+        display_name: if suspended {
+            String::new()
+        } else {
+            a.display_name.clone()
+        },
         locked: if suspended { false } else { a.locked },
         bot: !suspended && a.actor_type.as_deref() == Some("Service"),
         group: !suspended && a.actor_type.as_deref() == Some("Group"),
-        discoverable: if suspended { Some(false) } else { a.discoverable },
+        discoverable: if suspended {
+            Some(false)
+        } else {
+            a.discoverable
+        },
         indexable: !suspended && a.indexable,
         hide_collections: a.hide_collections,
         created_at: a.created_at.format("%Y-%m-%dT00:00:00.000Z").to_string(),
-        note: if suspended { String::new() } else { a.note.clone() },
+        note: if suspended {
+            String::new()
+        } else {
+            a.note.clone()
+        },
         url,
         uri,
-        avatar: if suspended { missing_avatar().to_string() } else { account_avatar_url(a) },
-        avatar_static: if suspended { missing_avatar().to_string() } else { account_avatar_url(a) },
-        header: if suspended { missing_header().to_string() } else { account_header_url(a) },
-        header_static: if suspended { missing_header().to_string() } else { account_header_url(a) },
+        avatar: if suspended {
+            missing_avatar().to_string()
+        } else {
+            account_avatar_url(a)
+        },
+        avatar_static: if suspended {
+            missing_avatar().to_string()
+        } else {
+            account_avatar_url(a)
+        },
+        header: if suspended {
+            missing_header().to_string()
+        } else {
+            account_header_url(a)
+        },
+        header_static: if suspended {
+            missing_header().to_string()
+        } else {
+            account_header_url(a)
+        },
         followers_count: 0,
         following_count: 0,
         statuses_count: 0,
@@ -168,19 +233,30 @@ pub fn account_from_db(a: &models::Account) -> types::Account {
             vec![]
         } else if a.domain.is_none() {
             // Local accounts: format field values as HTML (linkify URLs) matching Mastodon's FieldSerializer
-            fields_from_db(a.fields.as_ref().unwrap_or(&serde_json::json!([]))).into_iter().map(|f| types::Field {
-                name: f.name,
-                value: format_field_value(&f.value),
-                verified_at: f.verified_at,
-            }).collect()
+            fields_from_db(a.fields.as_ref().unwrap_or(&serde_json::json!([])))
+                .into_iter()
+                .map(|f| types::Field {
+                    name: f.name,
+                    value: format_field_value(&f.value),
+                    verified_at: f.verified_at,
+                })
+                .collect()
         } else {
             fields_from_db(a.fields.as_ref().unwrap_or(&serde_json::json!([])))
         },
         roles: vec![],
         moved: None,
         suspended: if suspended { Some(true) } else { None },
-        limited: if a.silenced_at.is_some() { Some(true) } else { None },
-        noindex: if a.domain.is_none() { Some(!a.indexable) } else { None },
+        limited: if a.silenced_at.is_some() {
+            Some(true)
+        } else {
+            None
+        },
+        noindex: if a.domain.is_none() {
+            Some(!a.indexable)
+        } else {
+            None
+        },
         memorial: if a.memorial { Some(true) } else { None },
         mute_expires_at: None,
         source: None,
@@ -211,8 +287,16 @@ pub fn media_from_db(m: &models::MediaAttachment) -> types::MediaAttachment {
         media_type: super::media::media_type_str(m.r#type).to_string(),
         url: media_url(m),
         preview_url: media_preview_url(m),
-        remote_url: m.remote_url.as_deref().filter(|s| !s.is_empty()).map(str::to_string),
-        preview_remote_url: m.thumbnail_remote_url.as_deref().filter(|s| !s.is_empty()).map(str::to_string),
+        remote_url: m
+            .remote_url
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
+        preview_remote_url: m
+            .thumbnail_remote_url
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
         text_url: None,
         description: m.description.clone(),
         blurhash: m.blurhash.clone(),
@@ -230,7 +314,9 @@ fn render_status_content(
 ) -> String {
     if account.domain.is_none() {
         // Local: text is raw plaintext, render to annotated HTML
-        let domain = s.uri.as_deref()
+        let domain = s
+            .uri
+            .as_deref()
             .and_then(|uri| uri.strip_prefix("https://"))
             .and_then(|rest| rest.split('/').next())
             .unwrap_or("");
@@ -278,12 +364,25 @@ pub fn status_from_db(
     s: &models::Status,
     account: &models::Account,
     media: Vec<models::MediaAttachment>,
-    reblog: Option<(models::Status, models::Account, Vec<models::MediaAttachment>)>,
+    reblog: Option<(
+        models::Status,
+        models::Account,
+        Vec<models::MediaAttachment>,
+    )>,
     viewer_context: Option<StatusViewerContext>,
     mentions: &[types::StatusMention],
     reblog_mentions: &[types::StatusMention],
 ) -> types::Status {
-    status_from_db_with_app(s, account, media, reblog, viewer_context, None, mentions, reblog_mentions)
+    status_from_db_with_app(
+        s,
+        account,
+        media,
+        reblog,
+        viewer_context,
+        None,
+        mentions,
+        reblog_mentions,
+    )
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -291,7 +390,11 @@ pub fn status_from_db_with_app(
     s: &models::Status,
     account: &models::Account,
     media: Vec<models::MediaAttachment>,
-    reblog: Option<(models::Status, models::Account, Vec<models::MediaAttachment>)>,
+    reblog: Option<(
+        models::Status,
+        models::Account,
+        Vec<models::MediaAttachment>,
+    )>,
     viewer_context: Option<StatusViewerContext>,
     application: Option<types::Application>,
     mentions: &[types::StatusMention],
@@ -299,7 +402,15 @@ pub fn status_from_db_with_app(
 ) -> types::Status {
     let content = render_status_content(s, account, mentions);
     let reblog_status = reblog.map(|(rs, ra, rm)| {
-        Box::new(status_from_db(&rs, &ra, rm, None, viewer_context.clone(), reblog_mentions, &[]))
+        Box::new(status_from_db(
+            &rs,
+            &ra,
+            rm,
+            None,
+            viewer_context.clone(),
+            reblog_mentions,
+            &[],
+        ))
     });
 
     // Mastodon: the author always sees their own raw `sensitive` flag; sensitization
@@ -353,12 +464,17 @@ pub fn status_from_db_with_app(
             // Local status: human permalink is /@username/{id}; prefer a stored
             // non-AP url, otherwise derive from the (id_scheme-independent) username.
             Some(
-                s.url.clone().filter(|u| !u.is_empty() && Some(u.as_str()) != s.uri.as_deref())
-                    .unwrap_or_else(|| format!("https://{}/@{}/{}", local_domain(), account.username, s.id)),
+                s.url
+                    .clone()
+                    .filter(|u| !u.is_empty() && Some(u.as_str()) != s.uri.as_deref())
+                    .unwrap_or_else(|| {
+                        format!("https://{}/@{}/{}", local_domain(), account.username, s.id)
+                    }),
             )
         } else {
             let uri_str = s.uri.as_deref();
-            s.url.as_deref()
+            s.url
+                .as_deref()
                 .filter(|&u| uri_str != Some(u))
                 .map(String::from)
                 .or_else(|| status_url_from_uri(uri_str?))
@@ -367,12 +483,15 @@ pub fn status_from_db_with_app(
         reblogs_count: 0,
         favourites_count: 0,
         quotes_count: 0,
-        edited_at: s.edited_at.map(|t| t.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
+        edited_at: s
+            .edited_at
+            .map(|t| t.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()),
         content,
         reblog: reblog_status,
         application,
         account: account_from_db(account),
-        media_attachments: media.iter()
+        media_attachments: media
+            .iter()
             .map(media_from_db)
             .filter(|m| m.url.is_some() || m.remote_url.as_deref().is_some_and(|u| !u.is_empty()))
             .collect(),

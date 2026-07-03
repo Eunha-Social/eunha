@@ -6,12 +6,6 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::{
-    db::models::{Account, Notification as DbNotification},
-    error::{AppError, AppResult},
-    middleware::AuthenticatedUser,
-    state::AppState,
-};
 use super::{
     accounts::{
         batch_account_emojis, batch_account_roles, batch_accounts_to_api, batch_reblog_data,
@@ -25,6 +19,12 @@ use super::{
         NotificationPolicy, NotificationPolicySummary, NotificationPolicyV1, NotificationRequest,
         PaginationParams, PartialAccount,
     },
+};
+use crate::{
+    db::models::{Account, Notification as DbNotification},
+    error::{AppError, AppResult},
+    middleware::AuthenticatedUser,
+    state::AppState,
 };
 
 async fn fetch_reports_map(
@@ -47,41 +47,51 @@ async fn fetch_reports_map(
     .fetch_all(&state.db)
     .await?;
 
-    let target_ids: Vec<i64> = rows.iter()
+    let target_ids: Vec<i64> = rows
+        .iter()
         .map(|r| r.target_account_id)
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .collect();
     let target_accounts: std::collections::HashMap<i64, Account> = if !target_ids.is_empty() {
-        sqlx::query_as!(Account, "SELECT * FROM accounts WHERE id = ANY($1::bigint[])", &target_ids)
-            .fetch_all(&state.db)
-            .await
-            .unwrap_or_default()
-            .into_iter()
-            .map(|a| (a.id, a))
-            .collect()
+        sqlx::query_as!(
+            Account,
+            "SELECT * FROM accounts WHERE id = ANY($1::bigint[])",
+            &target_ids
+        )
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|a| (a.id, a))
+        .collect()
     } else {
         std::collections::HashMap::new()
     };
     let ta_vec: Vec<Account> = target_accounts.values().cloned().collect();
     let ta_emojis_map = batch_account_emojis(state, &ta_vec).await;
     for r in rows {
-        let Some(ta) = target_accounts.get(&r.target_account_id) else { continue };
+        let Some(ta) = target_accounts.get(&r.target_account_id) else {
+            continue;
+        };
         let mut ta_api = account_from_db(ta);
         ta_api.emojis = ta_emojis_map.get(&ta.id).cloned().unwrap_or_default();
-        map.insert(r.id, super::types::Report {
-            id: r.id.to_string(),
-            action_taken: r.action_taken_at.is_some(),
-            action_taken_at: r.action_taken_at.map(super::convert::mastodon_date),
-            category: r.category,
-            comment: r.comment,
-            forwarded: r.forwarded,
-            created_at: super::convert::mastodon_date(r.created_at),
-            status_ids: r.status_ids.iter().map(|i| i.to_string()).collect(),
-            rule_ids: vec![],
-            collection_ids: vec![],
-            target_account: ta_api,
-        });
+        map.insert(
+            r.id,
+            super::types::Report {
+                id: r.id.to_string(),
+                action_taken: r.action_taken_at.is_some(),
+                action_taken_at: r.action_taken_at.map(super::convert::mastodon_date),
+                category: r.category,
+                comment: r.comment,
+                forwarded: r.forwarded,
+                created_at: super::convert::mastodon_date(r.created_at),
+                status_ids: r.status_ids.iter().map(|i| i.to_string()).collect(),
+                rule_ids: vec![],
+                collection_ids: vec![],
+                target_account: ta_api,
+            },
+        );
     }
     Ok(map)
 }
@@ -132,9 +142,18 @@ pub async fn get_notifications(
 ) -> AppResult<impl IntoResponse> {
     auth.require_scope("read:notifications")?;
     let limit = pagination.limit_clamped(40, 80);
-    let max_id = pagination.max_id.as_deref().and_then(|s| s.parse::<i64>().ok());
-    let since_id = pagination.since_id.as_deref().and_then(|s| s.parse::<i64>().ok());
-    let min_id = pagination.min_id.as_deref().and_then(|s| s.parse::<i64>().ok());
+    let max_id = pagination
+        .max_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
+    let since_id = pagination
+        .since_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
+    let min_id = pagination
+        .min_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
 
     let (types, exclude_types, account_id, include_filtered) = parse_notif_filters(qs.as_deref());
     // Mastodon excludes filtered notifications by default; include all when include_filtered=true
@@ -194,7 +213,8 @@ pub async fn get_notifications(
         return Ok((HeaderMap::new(), Json(vec![])));
     }
 
-    let from_account_ids: Vec<i64> = notifications.iter()
+    let from_account_ids: Vec<i64> = notifications
+        .iter()
         .map(|n| n.from_account_id)
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
@@ -210,17 +230,24 @@ pub async fn get_notifications(
         from_accounts_vec.into_iter().map(|a| (a.id, a)).collect();
     let (from_account_emojis_map, from_account_roles_map) = {
         let accs: Vec<Account> = from_account_map.values().cloned().collect();
-        (batch_account_emojis(&state, &accs).await, batch_account_roles(&state, &accs).await)
+        (
+            batch_account_emojis(&state, &accs).await,
+            batch_account_roles(&state, &accs).await,
+        )
     };
 
     let notif_ids_v1: Vec<i64> = notifications.iter().map(|n| n.id).collect();
     let notif_status_map_v1 = batch_notification_status_ids(&state, &notif_ids_v1).await;
-    let notif_status_ids: Vec<i64> = notif_status_map_v1.values().copied()
+    let notif_status_ids: Vec<i64> = notif_status_map_v1
+        .values()
+        .copied()
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .collect();
 
-    let status_api_map: std::collections::HashMap<i64, super::types::Status> = if !notif_status_ids.is_empty() {
+    let status_api_map: std::collections::HashMap<i64, super::types::Status> = if !notif_status_ids
+        .is_empty()
+    {
         let statuses: Vec<crate::db::models::Status> = sqlx::query_as!(
             crate::db::models::Status,
             "SELECT * FROM statuses WHERE id = ANY($1::bigint[]) AND deleted_at IS NULL",
@@ -229,7 +256,8 @@ pub async fn get_notifications(
         .fetch_all(&state.db)
         .await?;
 
-        let stat_account_ids: Vec<i64> = statuses.iter()
+        let stat_account_ids: Vec<i64> = statuses
+            .iter()
             .map(|s| s.account_id)
             .collect::<std::collections::HashSet<_>>()
             .into_iter()
@@ -252,17 +280,27 @@ pub async fn get_notifications(
         enrich_ids.extend_from_slice(&reblog_ids);
         let tags_map = batch_statuses_tags(&state, &enrich_ids).await?;
         let mentions_map = batch_status_mentions(&state, &enrich_ids).await?;
-        let all_statuses_for_emoji: Vec<crate::db::models::Status> = statuses.iter().cloned()
+        let all_statuses_for_emoji: Vec<crate::db::models::Status> = statuses
+            .iter()
+            .cloned()
             .chain(reblog_map.values().map(|(rs, _, _)| rs.clone()))
             .collect();
         let emojis_map = batch_status_emojis(&state, &all_statuses_for_emoji).await?;
         let polls_map = batch_status_polls(&state, &enrich_ids, Some(auth.account_id)).await?;
         let cards_map = batch_status_cards(&state, &enrich_ids).await?;
-        let viewer_ctxs = super::statuses::batch_viewer_contexts(&state, auth.account_id, &all_ids).await?;
-        let notif_filter_map = super::timelines::compute_filter_results(&state, auth.account_id, &statuses, "notifications").await;
+        let viewer_ctxs =
+            super::statuses::batch_viewer_contexts(&state, auth.account_id, &all_ids).await?;
+        let notif_filter_map = super::timelines::compute_filter_results(
+            &state,
+            auth.account_id,
+            &statuses,
+            "notifications",
+        )
+        .await;
         let all_accounts_for_emoji: Vec<Account> = {
             let mut seen = std::collections::HashSet::new();
-            stat_account_map.values()
+            stat_account_map
+                .values()
                 .chain(reblog_map.values().map(|(_, ra, _)| ra))
                 .filter(|a| seen.insert(a.id))
                 .cloned()
@@ -276,18 +314,27 @@ pub async fn get_notifications(
             if notif_filter_map.get(&s.id).is_some_and(|(hide, _)| *hide) {
                 continue;
             }
-            let Some(account) = stat_account_map.get(&s.account_id) else { continue };
+            let Some(account) = stat_account_map.get(&s.account_id) else {
+                continue;
+            };
             let media = media_map.get(&s.id).cloned().unwrap_or_default();
             let reblog = reblog_map.get(&s.id).cloned();
             let mentions = mentions_map.get(&s.id).cloned().unwrap_or_default();
-            let rb_mentions = reblog.as_ref()
+            let rb_mentions = reblog
+                .as_ref()
                 .and_then(|(rs, _, _)| mentions_map.get(&rs.id))
                 .cloned()
                 .unwrap_or_default();
             let ctx = viewer_ctxs.get(&s.id).cloned();
             let mut api = status_from_db(s, account, media, reblog, ctx, &mentions, &rb_mentions);
-            api.account.emojis = stat_account_emojis_map.get(&account.id).cloned().unwrap_or_default();
-            api.account.roles = stat_account_roles_map.get(&account.id).cloned().unwrap_or_default();
+            api.account.emojis = stat_account_emojis_map
+                .get(&account.id)
+                .cloned()
+                .unwrap_or_default();
+            api.account.roles = stat_account_roles_map
+                .get(&account.id)
+                .cloned()
+                .unwrap_or_default();
             api.tags = tags_map.get(&s.id).cloned().unwrap_or_default();
             api.mentions = mentions;
             api.emojis = emojis_map.get(&s.id).cloned().unwrap_or_default();
@@ -296,8 +343,14 @@ pub async fn get_notifications(
             if let Some(ref mut rb) = api.reblog {
                 let rid: i64 = rb.id.parse().unwrap_or(0);
                 let rb_id: i64 = rb.account.id.parse().unwrap_or(0);
-                rb.account.emojis = stat_account_emojis_map.get(&rb_id).cloned().unwrap_or_default();
-                rb.account.roles = stat_account_roles_map.get(&rb_id).cloned().unwrap_or_default();
+                rb.account.emojis = stat_account_emojis_map
+                    .get(&rb_id)
+                    .cloned()
+                    .unwrap_or_default();
+                rb.account.roles = stat_account_roles_map
+                    .get(&rb_id)
+                    .cloned()
+                    .unwrap_or_default();
                 rb.tags = tags_map.get(&rid).cloned().unwrap_or_default();
                 rb.mentions = rb_mentions;
                 rb.emojis = emojis_map.get(&rid).cloned().unwrap_or_default();
@@ -319,9 +372,12 @@ pub async fn get_notifications(
     };
 
     // Batch-fetch reports for admin.report notifications (via activity_id/activity_type polymorphic association)
-    let report_ids: Vec<i64> = notifications.iter()
+    let report_ids: Vec<i64> = notifications
+        .iter()
         .filter_map(|n| {
-            if n.r#type.as_deref() == Some("admin.report") && n.activity_type.as_deref() == Some("Report") {
+            if n.r#type.as_deref() == Some("admin.report")
+                && n.activity_type.as_deref() == Some("Report")
+            {
                 n.activity_id
             } else {
                 None
@@ -334,13 +390,28 @@ pub async fn get_notifications(
 
     let mut result = Vec::with_capacity(notifications.len());
     for n in &notifications {
-        let Some(account) = from_account_map.get(&n.from_account_id) else { continue };
-        let status = notif_status_map_v1.get(&n.id).and_then(|sid| status_api_map.get(sid)).cloned();
-        let report_id = if n.activity_type.as_deref() == Some("Report") { n.activity_id } else { None };
+        let Some(account) = from_account_map.get(&n.from_account_id) else {
+            continue;
+        };
+        let status = notif_status_map_v1
+            .get(&n.id)
+            .and_then(|sid| status_api_map.get(sid))
+            .cloned();
+        let report_id = if n.activity_type.as_deref() == Some("Report") {
+            n.activity_id
+        } else {
+            None
+        };
         let report = report_id.and_then(|rid| report_map.get(&rid)).cloned();
         let mut notif_account = account_from_db(account);
-        notif_account.emojis = from_account_emojis_map.get(&account.id).cloned().unwrap_or_default();
-        notif_account.roles = from_account_roles_map.get(&account.id).cloned().unwrap_or_default();
+        notif_account.emojis = from_account_emojis_map
+            .get(&account.id)
+            .cloned()
+            .unwrap_or_default();
+        notif_account.roles = from_account_roles_map
+            .get(&account.id)
+            .cloned()
+            .unwrap_or_default();
         result.push(Notification {
             id: n.id.to_string(),
             notification_type: n.r#type.clone().unwrap_or_default(),
@@ -417,7 +488,8 @@ pub async fn dismiss_notification(
     auth.require_scope("write:notifications")?;
     let deleted = sqlx::query!(
         "DELETE FROM notifications WHERE id = $1 AND account_id = $2",
-        id, auth.account_id,
+        id,
+        auth.account_id,
     )
     .execute(&state.db)
     .await?;
@@ -438,7 +510,11 @@ const SAMPLE_ACCOUNTS_SIZE: usize = 8;
 /// `follow`/`admin.sign_up` group by type, everything else stays ungrouped.
 /// (The 12h hour-bucket split Mastodon adds is omitted; same-target
 /// notifications simply share one group.)
-fn notification_group_key(notif_type: &str, target_status_id: Option<i64>, notif_id: i64) -> String {
+fn notification_group_key(
+    notif_type: &str,
+    target_status_id: Option<i64>,
+    notif_id: i64,
+) -> String {
     match notif_type {
         "favourite" | "reblog" => match target_status_id {
             Some(sid) => format!("{notif_type}-{sid}"),
@@ -459,11 +535,13 @@ async fn notifications_for_group_key(
 ) -> AppResult<Vec<DbNotification>> {
     if let Some(id_str) = group_key.strip_prefix("ungrouped-") {
         let id: i64 = id_str.parse().map_err(|_| AppError::NotFound)?;
-        return Ok(sqlx::query_as("SELECT * FROM notifications WHERE id = $1 AND account_id = $2")
-            .bind(id)
-            .bind(account_id)
-            .fetch_all(&state.db)
-            .await?);
+        return Ok(
+            sqlx::query_as("SELECT * FROM notifications WHERE id = $1 AND account_id = $2")
+                .bind(id)
+                .bind(account_id)
+                .fetch_all(&state.db)
+                .await?,
+        );
     }
     if group_key == "follow" || group_key == "admin.sign_up" {
         return Ok(sqlx::query_as(
@@ -504,16 +582,26 @@ pub async fn get_notifications_v2(
 ) -> AppResult<Json<NotificationGroupsResponse>> {
     auth.require_scope("read:notifications")?;
     let limit = pagination.limit_clamped(40, 80);
-    let max_id = pagination.max_id.as_deref().and_then(|s| s.parse::<i64>().ok());
-    let since_id = pagination.since_id.as_deref().and_then(|s| s.parse::<i64>().ok());
+    let max_id = pagination
+        .max_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
+    let since_id = pagination
+        .since_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
 
-    let expand_accounts = qs.as_deref()
+    let expand_accounts = qs
+        .as_deref()
         .and_then(|q| {
             q.split('&').find_map(|part| {
                 let (k, v) = part.split_once('=')?;
-                
-                
-                if k == "expand_accounts" { Some(v.to_string()) } else { None }
+
+                if k == "expand_accounts" {
+                    Some(v.to_string())
+                } else {
+                    None
+                }
             })
         })
         .unwrap_or_default();
@@ -546,7 +634,8 @@ pub async fn get_notifications_v2(
     .await?;
 
     // Batch-fetch from_accounts
-    let from_account_ids: Vec<i64> = notifications.iter()
+    let from_account_ids: Vec<i64> = notifications
+        .iter()
         .map(|n| n.from_account_id)
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
@@ -562,13 +651,19 @@ pub async fn get_notifications_v2(
         from_accounts_vec.into_iter().map(|a| (a.id, a)).collect();
     let (from_account_emojis_map_v2, from_account_roles_map_v2) = {
         let accs: Vec<Account> = from_account_map.values().cloned().collect();
-        (batch_account_emojis(&state, &accs).await, batch_account_roles(&state, &accs).await)
+        (
+            batch_account_emojis(&state, &accs).await,
+            batch_account_roles(&state, &accs).await,
+        )
     };
 
     // Batch-fetch reports for admin.report groups (via activity_id/activity_type)
-    let report_ids_v2: Vec<i64> = notifications.iter()
+    let report_ids_v2: Vec<i64> = notifications
+        .iter()
         .filter_map(|n| {
-            if n.r#type.as_deref() == Some("admin.report") && n.activity_type.as_deref() == Some("Report") {
+            if n.r#type.as_deref() == Some("admin.report")
+                && n.activity_type.as_deref() == Some("Report")
+            {
                 n.activity_id
             } else {
                 None
@@ -577,21 +672,26 @@ pub async fn get_notifications_v2(
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .collect();
-    let report_map_v2: std::collections::HashMap<i64, super::types::Report> = if !report_ids_v2.is_empty() {
-        fetch_reports_map(&state, &report_ids_v2).await?
-    } else {
-        std::collections::HashMap::new()
-    };
+    let report_map_v2: std::collections::HashMap<i64, super::types::Report> =
+        if !report_ids_v2.is_empty() {
+            fetch_reports_map(&state, &report_ids_v2).await?
+        } else {
+            std::collections::HashMap::new()
+        };
 
     // Batch-fetch statuses
     let notif_ids_v2: Vec<i64> = notifications.iter().map(|n| n.id).collect();
     let notif_status_map_v2 = batch_notification_status_ids(&state, &notif_ids_v2).await;
-    let notif_status_ids: Vec<i64> = notif_status_map_v2.values().copied()
+    let notif_status_ids: Vec<i64> = notif_status_map_v2
+        .values()
+        .copied()
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .collect();
 
-    let status_api_map: std::collections::HashMap<i64, super::types::Status> = if !notif_status_ids.is_empty() {
+    let status_api_map: std::collections::HashMap<i64, super::types::Status> = if !notif_status_ids
+        .is_empty()
+    {
         let statuses: Vec<crate::db::models::Status> = sqlx::query_as!(
             crate::db::models::Status,
             "SELECT * FROM statuses WHERE id = ANY($1::bigint[]) AND deleted_at IS NULL",
@@ -600,7 +700,8 @@ pub async fn get_notifications_v2(
         .fetch_all(&state.db)
         .await?;
 
-        let stat_account_ids: Vec<i64> = statuses.iter()
+        let stat_account_ids: Vec<i64> = statuses
+            .iter()
             .map(|s| s.account_id)
             .collect::<std::collections::HashSet<_>>()
             .into_iter()
@@ -623,42 +724,63 @@ pub async fn get_notifications_v2(
         enrich_ids.extend_from_slice(&reblog_ids);
         let tags_map = batch_statuses_tags(&state, &enrich_ids).await?;
         let mentions_map = batch_status_mentions(&state, &enrich_ids).await?;
-        let all_statuses_for_emoji: Vec<crate::db::models::Status> = statuses.iter().cloned()
+        let all_statuses_for_emoji: Vec<crate::db::models::Status> = statuses
+            .iter()
+            .cloned()
             .chain(reblog_map.values().map(|(rs, _, _)| rs.clone()))
             .collect();
         let emojis_map = batch_status_emojis(&state, &all_statuses_for_emoji).await?;
         let polls_map = batch_status_polls(&state, &enrich_ids, Some(auth.account_id)).await?;
         let cards_map = batch_status_cards(&state, &enrich_ids).await?;
-        let viewer_ctxs = super::statuses::batch_viewer_contexts(&state, auth.account_id, &all_ids).await?;
-        let notif_filter_map = super::timelines::compute_filter_results(&state, auth.account_id, &statuses, "notifications").await;
+        let viewer_ctxs =
+            super::statuses::batch_viewer_contexts(&state, auth.account_id, &all_ids).await?;
+        let notif_filter_map = super::timelines::compute_filter_results(
+            &state,
+            auth.account_id,
+            &statuses,
+            "notifications",
+        )
+        .await;
         let all_accounts_for_emoji_v2: Vec<Account> = {
             let mut seen = std::collections::HashSet::new();
-            stat_account_map.values()
+            stat_account_map
+                .values()
                 .chain(reblog_map.values().map(|(_, ra, _)| ra))
                 .filter(|a| seen.insert(a.id))
                 .cloned()
                 .collect()
         };
-        let stat_account_emojis_map_v2 = batch_account_emojis(&state, &all_accounts_for_emoji_v2).await;
-        let stat_account_roles_map_v2 = batch_account_roles(&state, &all_accounts_for_emoji_v2).await;
+        let stat_account_emojis_map_v2 =
+            batch_account_emojis(&state, &all_accounts_for_emoji_v2).await;
+        let stat_account_roles_map_v2 =
+            batch_account_roles(&state, &all_accounts_for_emoji_v2).await;
 
         let mut map = std::collections::HashMap::new();
         for s in &statuses {
             if notif_filter_map.get(&s.id).is_some_and(|(hide, _)| *hide) {
                 continue;
             }
-            let Some(account) = stat_account_map.get(&s.account_id) else { continue };
+            let Some(account) = stat_account_map.get(&s.account_id) else {
+                continue;
+            };
             let media = media_map.get(&s.id).cloned().unwrap_or_default();
             let reblog = reblog_map.get(&s.id).cloned();
             let mentions = mentions_map.get(&s.id).cloned().unwrap_or_default();
-            let rb_mentions = reblog.as_ref()
+            let rb_mentions = reblog
+                .as_ref()
                 .and_then(|(rs, _, _)| mentions_map.get(&rs.id))
                 .cloned()
                 .unwrap_or_default();
             let ctx = viewer_ctxs.get(&s.id).cloned();
             let mut api = status_from_db(s, account, media, reblog, ctx, &mentions, &rb_mentions);
-            api.account.emojis = stat_account_emojis_map_v2.get(&account.id).cloned().unwrap_or_default();
-            api.account.roles = stat_account_roles_map_v2.get(&account.id).cloned().unwrap_or_default();
+            api.account.emojis = stat_account_emojis_map_v2
+                .get(&account.id)
+                .cloned()
+                .unwrap_or_default();
+            api.account.roles = stat_account_roles_map_v2
+                .get(&account.id)
+                .cloned()
+                .unwrap_or_default();
             api.tags = tags_map.get(&s.id).cloned().unwrap_or_default();
             api.mentions = mentions;
             api.emojis = emojis_map.get(&s.id).cloned().unwrap_or_default();
@@ -667,8 +789,14 @@ pub async fn get_notifications_v2(
             if let Some(ref mut rb) = api.reblog {
                 let rid: i64 = rb.id.parse().unwrap_or(0);
                 let rb_id: i64 = rb.account.id.parse().unwrap_or(0);
-                rb.account.emojis = stat_account_emojis_map_v2.get(&rb_id).cloned().unwrap_or_default();
-                rb.account.roles = stat_account_roles_map_v2.get(&rb_id).cloned().unwrap_or_default();
+                rb.account.emojis = stat_account_emojis_map_v2
+                    .get(&rb_id)
+                    .cloned()
+                    .unwrap_or_default();
+                rb.account.roles = stat_account_roles_map_v2
+                    .get(&rb_id)
+                    .cloned()
+                    .unwrap_or_default();
                 rb.tags = tags_map.get(&rid).cloned().unwrap_or_default();
                 rb.mentions = rb_mentions;
                 rb.emojis = emojis_map.get(&rid).cloned().unwrap_or_default();
@@ -694,8 +822,14 @@ pub async fn get_notifications_v2(
         std::collections::HashMap::new();
     for a in from_account_map.values() {
         let mut api_account = account_from_db(a);
-        api_account.emojis = from_account_emojis_map_v2.get(&a.id).cloned().unwrap_or_default();
-        api_account.roles = from_account_roles_map_v2.get(&a.id).cloned().unwrap_or_default();
+        api_account.emojis = from_account_emojis_map_v2
+            .get(&a.id)
+            .cloned()
+            .unwrap_or_default();
+        api_account.roles = from_account_roles_map_v2
+            .get(&a.id)
+            .cloned()
+            .unwrap_or_default();
         accounts_map.insert(a.id.to_string(), api_account);
     }
     let mut statuses_resp_map: std::collections::HashMap<String, super::types::Status> =
@@ -723,12 +857,15 @@ pub async fn get_notifications_v2(
             a.page_min_id = n.id; // DESC order → each later member is older
         } else {
             order.push(gk.clone());
-            acc_map.insert(gk, GroupAcc {
-                rep_index: idx,
-                count: 1,
-                sample_account_ids: vec![n.from_account_id.to_string()],
-                page_min_id: n.id,
-            });
+            acc_map.insert(
+                gk,
+                GroupAcc {
+                    rep_index: idx,
+                    count: 1,
+                    sample_account_ids: vec![n.from_account_id.to_string()],
+                    page_min_id: n.id,
+                },
+            );
         }
     }
 
@@ -745,8 +882,14 @@ pub async fn get_notifications_v2(
             }
         });
 
-        let report_id_v2 = if n.activity_type.as_deref() == Some("Report") { n.activity_id } else { None };
-        let report = report_id_v2.and_then(|rid| report_map_v2.get(&rid)).cloned();
+        let report_id_v2 = if n.activity_type.as_deref() == Some("Report") {
+            n.activity_id
+        } else {
+            None
+        };
+        let report = report_id_v2
+            .and_then(|rid| report_map_v2.get(&rid))
+            .cloned();
 
         groups.push(NotificationGroup {
             group_key: gk.clone(),
@@ -769,15 +912,20 @@ pub async fn get_notifications_v2(
 
     let accounts_vec: Vec<_> = accounts_map.into_values().collect();
     let partial_accounts = if expand_accounts == "partial_avatars" {
-        Some(accounts_vec.iter().map(|a| PartialAccount {
-            id: a.id.clone(),
-            acct: a.acct.clone(),
-            locked: a.locked,
-            bot: a.bot,
-            url: a.url.clone(),
-            avatar: a.avatar.clone(),
-            avatar_static: a.avatar_static.clone(),
-        }).collect())
+        Some(
+            accounts_vec
+                .iter()
+                .map(|a| PartialAccount {
+                    id: a.id.clone(),
+                    acct: a.acct.clone(),
+                    locked: a.locked,
+                    bot: a.bot,
+                    url: a.url.clone(),
+                    avatar: a.avatar.clone(),
+                    avatar_static: a.avatar_static.clone(),
+                })
+                .collect(),
+        )
     } else {
         None
     };
@@ -801,7 +949,9 @@ pub async fn get_notification_group(
     let notifs = notifications_for_group_key(&state, auth.account_id, &group_key).await?;
     let rep = notifs.first().ok_or(AppError::NotFound)?;
 
-    let report = if rep.r#type.as_deref() == Some("admin.report") && rep.activity_type.as_deref() == Some("Report") {
+    let report = if rep.r#type.as_deref() == Some("admin.report")
+        && rep.activity_type.as_deref() == Some("Report")
+    {
         if let Some(rid) = rep.activity_id {
             fetch_reports_map(&state, &[rid]).await?.remove(&rid)
         } else {
@@ -812,7 +962,8 @@ pub async fn get_notification_group(
     };
 
     let status_id_for_group = batch_notification_status_ids(&state, &[rep.id]).await;
-    let sample_account_ids: Vec<String> = notifs.iter()
+    let sample_account_ids: Vec<String> = notifs
+        .iter()
         .take(SAMPLE_ACCOUNTS_SIZE)
         .map(|n| n.from_account_id.to_string())
         .collect();
@@ -892,7 +1043,10 @@ pub async fn get_notification_group_accounts(
     let account_map: std::collections::HashMap<i64, Account> =
         accounts.into_iter().map(|a| (a.id, a)).collect();
 
-    let ordered: Vec<Account> = ordered_ids.iter().filter_map(|id| account_map.get(id).cloned()).collect();
+    let ordered: Vec<Account> = ordered_ids
+        .iter()
+        .filter_map(|id| account_map.get(id).cloned())
+        .collect();
     Ok(Json(batch_accounts_to_api(&state, &ordered).await))
 }
 
@@ -931,7 +1085,9 @@ pub async fn get_notifications_unread_count(
                SELECT 1 FROM notifications n
                JOIN accounts a ON a.id = n.from_account_id AND a.suspended_at IS NULL
                WHERE n.account_id = $1 AND n.id > $2 AND NOT n.filtered LIMIT $3) sub"#,
-            auth.account_id, last_id, limit,
+            auth.account_id,
+            last_id,
+            limit,
         )
         .fetch_one(&state.db)
         .await?
@@ -942,7 +1098,8 @@ pub async fn get_notifications_unread_count(
                SELECT 1 FROM notifications n
                JOIN accounts a ON a.id = n.from_account_id AND a.suspended_at IS NULL
                WHERE n.account_id = $1 AND NOT n.filtered LIMIT $2) sub"#,
-            auth.account_id, limit,
+            auth.account_id,
+            limit,
         )
         .fetch_one(&state.db)
         .await?
@@ -955,7 +1112,11 @@ pub async fn get_notifications_unread_count(
 // ── GET /api/v2/notifications/policy ─────────────────────────────────────
 
 fn bool_to_policy(b: bool) -> String {
-    if b { "filter".to_string() } else { "accept".to_string() }
+    if b {
+        "filter".to_string()
+    } else {
+        "accept".to_string()
+    }
 }
 
 fn policy_to_bool(s: &str) -> bool {
@@ -978,11 +1139,29 @@ pub async fn get_notification_policy(
     .await?;
 
     // Mastodon's NotificationPolicy defaults for_private_mentions to :filter.
-    let (nf_not_following, nf_not_followers, nf_new_accounts, nf_private_mentions, nf_limited_accounts) =
-        policy.map(|p| (p.for_not_following != 0, p.for_not_followers != 0, p.for_new_accounts != 0, p.for_private_mentions != 0, p.for_limited_accounts != 0))
+    let (
+        nf_not_following,
+        nf_not_followers,
+        nf_new_accounts,
+        nf_private_mentions,
+        nf_limited_accounts,
+    ) = policy
+        .map(|p| {
+            (
+                p.for_not_following != 0,
+                p.for_not_followers != 0,
+                p.for_new_accounts != 0,
+                p.for_private_mentions != 0,
+                p.for_limited_accounts != 0,
+            )
+        })
         .unwrap_or((false, false, false, true, false));
 
-    let any_filter = nf_not_following || nf_not_followers || nf_new_accounts || nf_private_mentions || nf_limited_accounts;
+    let any_filter = nf_not_following
+        || nf_not_followers
+        || nf_new_accounts
+        || nf_private_mentions
+        || nf_limited_accounts;
 
     let (pending_requests, pending_notifs) = if any_filter {
         let pending_requests: i64 = sqlx::query_scalar!(
@@ -1034,11 +1213,26 @@ pub async fn update_notification_policy(
     Json(form): Json<UpdateNotificationPolicyForm>,
 ) -> AppResult<Json<NotificationPolicy>> {
     auth.require_scope("write:notifications")?;
-    let filter_not_following    = form.for_not_following.as_deref().map(|s| if policy_to_bool(s) { 1i32 } else { 0i32 });
-    let filter_not_followers    = form.for_not_followers.as_deref().map(|s| if policy_to_bool(s) { 1i32 } else { 0i32 });
-    let filter_new_accounts     = form.for_new_accounts.as_deref().map(|s| if policy_to_bool(s) { 1i32 } else { 0i32 });
-    let filter_private_mentions = form.for_private_mentions.as_deref().map(|s| if policy_to_bool(s) { 1i32 } else { 0i32 });
-    let filter_limited_accounts = form.for_limited_accounts.as_deref().map(|s| if policy_to_bool(s) { 1i32 } else { 0i32 });
+    let filter_not_following =
+        form.for_not_following
+            .as_deref()
+            .map(|s| if policy_to_bool(s) { 1i32 } else { 0i32 });
+    let filter_not_followers =
+        form.for_not_followers
+            .as_deref()
+            .map(|s| if policy_to_bool(s) { 1i32 } else { 0i32 });
+    let filter_new_accounts =
+        form.for_new_accounts
+            .as_deref()
+            .map(|s| if policy_to_bool(s) { 1i32 } else { 0i32 });
+    let filter_private_mentions =
+        form.for_private_mentions
+            .as_deref()
+            .map(|s| if policy_to_bool(s) { 1i32 } else { 0i32 });
+    let filter_limited_accounts =
+        form.for_limited_accounts
+            .as_deref()
+            .map(|s| if policy_to_bool(s) { 1i32 } else { 0i32 });
     sqlx::query!(
         r#"INSERT INTO notification_policies (account_id, for_not_following, for_not_followers, for_new_accounts, for_private_mentions, for_limited_accounts, created_at, updated_at)
            VALUES ($1, COALESCE($2, 0), COALESCE($3, 0), COALESCE($4, 0), COALESCE($5, 1), COALESCE($6, 1), now(), now())
@@ -1079,14 +1273,19 @@ pub async fn get_notification_policy_v1(
 
     // Mastodon's NotificationPolicy defaults for_private_mentions to :filter.
     let (filter_not_following, filter_not_followers, filter_new_accounts, filter_private_mentions) =
-        policy.map_or((false, false, false, true), |p| (
-            p.for_not_following != 0,
-            p.for_not_followers != 0,
-            p.for_new_accounts != 0,
-            p.for_private_mentions != 0,
-        ));
+        policy.map_or((false, false, false, true), |p| {
+            (
+                p.for_not_following != 0,
+                p.for_not_followers != 0,
+                p.for_new_accounts != 0,
+                p.for_private_mentions != 0,
+            )
+        });
 
-    let any_filter = filter_not_following || filter_not_followers || filter_new_accounts || filter_private_mentions;
+    let any_filter = filter_not_following
+        || filter_not_followers
+        || filter_new_accounts
+        || filter_private_mentions;
 
     let (pending_requests, pending_notifs) = if any_filter {
         let pending_requests: i64 = sqlx::query_scalar!(
@@ -1136,10 +1335,18 @@ pub async fn update_notification_policy_v1(
     Json(form): Json<UpdateNotificationPolicyV1Form>,
 ) -> AppResult<Json<NotificationPolicyV1>> {
     auth.require_scope("write:notifications")?;
-    let not_following = form.filter_not_following.map(|v| if v { 1_i32 } else { 0_i32 });
-    let not_followers = form.filter_not_followers.map(|v| if v { 1_i32 } else { 0_i32 });
-    let new_accounts = form.filter_new_accounts.map(|v| if v { 1_i32 } else { 0_i32 });
-    let private_mentions = form.filter_private_mentions.map(|v| if v { 1_i32 } else { 0_i32 });
+    let not_following = form
+        .filter_not_following
+        .map(|v| if v { 1_i32 } else { 0_i32 });
+    let not_followers = form
+        .filter_not_followers
+        .map(|v| if v { 1_i32 } else { 0_i32 });
+    let new_accounts = form
+        .filter_new_accounts
+        .map(|v| if v { 1_i32 } else { 0_i32 });
+    let private_mentions = form
+        .filter_private_mentions
+        .map(|v| if v { 1_i32 } else { 0_i32 });
     sqlx::query!(
         r#"INSERT INTO notification_policies
                (account_id, for_not_following, for_not_followers, for_new_accounts, for_private_mentions, created_at, updated_at)
@@ -1173,9 +1380,18 @@ pub async fn get_notification_requests(
 ) -> AppResult<impl IntoResponse> {
     auth.require_scope("read:notifications")?;
     let limit = pagination.limit.unwrap_or(40).clamp(1, 80);
-    let max_id = pagination.max_id.as_deref().and_then(|s| s.parse::<i64>().ok());
-    let since_id = pagination.since_id.as_deref().and_then(|s| s.parse::<i64>().ok());
-    let min_id = pagination.min_id.as_deref().and_then(|s| s.parse::<i64>().ok());
+    let max_id = pagination
+        .max_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
+    let since_id = pagination
+        .since_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
+    let min_id = pagination
+        .min_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
 
     let rows = sqlx::query!(
         r#"SELECT nr.id, nr.from_account_id, nr.last_status_id, nr.notifications_count, nr.created_at, nr.updated_at
@@ -1192,7 +1408,8 @@ pub async fn get_notification_requests(
     .await?;
 
     // Batch-fetch and enrich all last statuses up front
-    let last_status_ids: Vec<i64> = rows.iter()
+    let last_status_ids: Vec<i64> = rows
+        .iter()
         .filter_map(|r| r.last_status_id)
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
@@ -1217,14 +1434,19 @@ pub async fn get_notification_requests(
         ls_enrich_ids.extend_from_slice(&ls_reblog_ids);
         let ls_tags_map = batch_statuses_tags(&state, &ls_enrich_ids).await?;
         let ls_mentions_map = batch_status_mentions(&state, &ls_enrich_ids).await?;
-        let ls_all_for_emoji: Vec<crate::db::models::Status> = ls_statuses.iter().cloned()
+        let ls_all_for_emoji: Vec<crate::db::models::Status> = ls_statuses
+            .iter()
+            .cloned()
             .chain(ls_reblog_map.values().map(|(rs, _, _)| rs.clone()))
             .collect();
         let ls_emojis_map = batch_status_emojis(&state, &ls_all_for_emoji).await?;
-        let ls_polls_map = batch_status_polls(&state, &ls_enrich_ids, Some(auth.account_id)).await?;
+        let ls_polls_map =
+            batch_status_polls(&state, &ls_enrich_ids, Some(auth.account_id)).await?;
         let ls_cards_map = batch_status_cards(&state, &ls_enrich_ids).await?;
 
-        let ls_account_ids: Vec<i64> = ls_statuses.iter().map(|s| s.account_id)
+        let ls_account_ids: Vec<i64> = ls_statuses
+            .iter()
+            .map(|s| s.account_id)
             .collect::<std::collections::HashSet<_>>()
             .into_iter()
             .collect();
@@ -1239,7 +1461,8 @@ pub async fn get_notification_requests(
             ls_accounts.into_iter().map(|a| (a.id, a)).collect();
         let ls_all_accounts_for_emoji: Vec<Account> = {
             let mut seen = std::collections::HashSet::new();
-            ls_account_map.values()
+            ls_account_map
+                .values()
                 .chain(ls_reblog_map.values().map(|(_, ra, _)| ra))
                 .filter(|a| seen.insert(a.id))
                 .cloned()
@@ -1249,17 +1472,26 @@ pub async fn get_notification_requests(
         let ls_account_roles_map = batch_account_roles(&state, &ls_all_accounts_for_emoji).await;
 
         for s in &ls_statuses {
-            let Some(account) = ls_account_map.get(&s.account_id) else { continue };
+            let Some(account) = ls_account_map.get(&s.account_id) else {
+                continue;
+            };
             let media = ls_media_map.get(&s.id).cloned().unwrap_or_default();
             let reblog = ls_reblog_map.get(&s.id).cloned();
             let mentions = ls_mentions_map.get(&s.id).cloned().unwrap_or_default();
-            let rb_mentions = reblog.as_ref()
+            let rb_mentions = reblog
+                .as_ref()
                 .and_then(|(rs, _, _)| ls_mentions_map.get(&rs.id))
                 .cloned()
                 .unwrap_or_default();
             let mut api = status_from_db(s, account, media, reblog, None, &mentions, &rb_mentions);
-            api.account.emojis = ls_account_emojis_map.get(&account.id).cloned().unwrap_or_default();
-            api.account.roles = ls_account_roles_map.get(&account.id).cloned().unwrap_or_default();
+            api.account.emojis = ls_account_emojis_map
+                .get(&account.id)
+                .cloned()
+                .unwrap_or_default();
+            api.account.roles = ls_account_roles_map
+                .get(&account.id)
+                .cloned()
+                .unwrap_or_default();
             api.tags = ls_tags_map.get(&s.id).cloned().unwrap_or_default();
             api.mentions = mentions;
             api.emojis = ls_emojis_map.get(&s.id).cloned().unwrap_or_default();
@@ -1268,8 +1500,14 @@ pub async fn get_notification_requests(
             if let Some(ref mut rb) = api.reblog {
                 let rid: i64 = rb.id.parse().unwrap_or(0);
                 let rb_id: i64 = rb.account.id.parse().unwrap_or(0);
-                rb.account.emojis = ls_account_emojis_map.get(&rb_id).cloned().unwrap_or_default();
-                rb.account.roles = ls_account_roles_map.get(&rb_id).cloned().unwrap_or_default();
+                rb.account.emojis = ls_account_emojis_map
+                    .get(&rb_id)
+                    .cloned()
+                    .unwrap_or_default();
+                rb.account.roles = ls_account_roles_map
+                    .get(&rb_id)
+                    .cloned()
+                    .unwrap_or_default();
                 rb.tags = ls_tags_map.get(&rid).cloned().unwrap_or_default();
                 rb.mentions = rb_mentions;
                 rb.emojis = ls_emojis_map.get(&rid).cloned().unwrap_or_default();
@@ -1283,8 +1521,14 @@ pub async fn get_notification_requests(
     // Batch-fetch account emojis/roles for notification request senders
     let req_account_ids: Vec<i64> = rows.iter().map(|r| r.from_account_id).collect();
     let req_db_accounts: Vec<Account> = if !req_account_ids.is_empty() {
-        sqlx::query_as!(Account, "SELECT * FROM accounts WHERE id = ANY($1::bigint[])", &req_account_ids)
-            .fetch_all(&state.db).await.unwrap_or_default()
+        sqlx::query_as!(
+            Account,
+            "SELECT * FROM accounts WHERE id = ANY($1::bigint[])",
+            &req_account_ids
+        )
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default()
     } else {
         vec![]
     };
@@ -1295,7 +1539,9 @@ pub async fn get_notification_requests(
 
     let mut result: Vec<NotificationRequest> = Vec::with_capacity(rows.len());
     for r in rows {
-        let Some(acc) = req_acc_map.get(&r.from_account_id) else { continue };
+        let Some(acc) = req_acc_map.get(&r.from_account_id) else {
+            continue;
+        };
         let last_status = r.last_status_id.and_then(|id| last_status_map.remove(&id));
         let mut api_account = super::convert::account_from_db(acc);
         api_account.emojis = req_acc_emojis_map.get(&acc.id).cloned().unwrap_or_default();
@@ -1333,7 +1579,8 @@ pub async fn accept_notification_request(
     auth.require_scope("write:notifications")?;
     let deleted = sqlx::query!(
         "DELETE FROM notification_requests WHERE id = $1 AND account_id = $2",
-        id, auth.account_id,
+        id,
+        auth.account_id,
     )
     .execute(&state.db)
     .await?;
@@ -1353,7 +1600,8 @@ pub async fn dismiss_notification_request(
     auth.require_scope("write:notifications")?;
     sqlx::query!(
         "DELETE FROM notification_requests WHERE id = $1 AND account_id = $2",
-        id, auth.account_id,
+        id,
+        auth.account_id,
     )
     .execute(&state.db)
     .await?;
@@ -1458,17 +1706,21 @@ async fn fetch_last_status(
         status_id,
     )
     .fetch_optional(&state.db)
-    .await.ok()??;
+    .await
+    .ok()??;
     let account = sqlx::query_as!(
         crate::db::models::Account,
         "SELECT * FROM accounts WHERE id = $1",
         s.account_id,
     )
     .fetch_one(&state.db)
-    .await.ok()?;
+    .await
+    .ok()?;
     let media = fetch_status_media(state, s.id).await.ok()?;
     let reblog = fetch_reblog_data(state, &s).await.ok()?;
-    build_status(state, &s, &account, media, reblog, None).await.ok()
+    build_status(state, &s, &account, media, reblog, None)
+        .await
+        .ok()
 }
 
 /// Parse `types[]=x`, `types=x`, `exclude_types[]=x`, `exclude_types=x`,
@@ -1482,19 +1734,26 @@ fn parse_notif_filters(
         url::form_urlencoded::parse(qs.unwrap_or("").as_bytes()).collect();
 
     let collect_arr = |plain: &str, bracket: &str| -> Option<Vec<String>> {
-        let v: Vec<String> = pairs.iter()
+        let v: Vec<String> = pairs
+            .iter()
             .filter(|(k, _)| k == plain || k == bracket)
             .map(|(_, v)| v.to_string())
             .collect();
-        if v.is_empty() { None } else { Some(v) }
+        if v.is_empty() {
+            None
+        } else {
+            Some(v)
+        }
     };
 
     let types = collect_arr("types", "types[]");
     let exclude_types = collect_arr("exclude_types", "exclude_types[]");
-    let account_id = pairs.iter()
+    let account_id = pairs
+        .iter()
         .find(|(k, _)| k == "account_id")
         .and_then(|(_, v)| v.parse::<i64>().ok());
-    let include_filtered = pairs.iter()
+    let include_filtered = pairs
+        .iter()
         .find(|(k, _)| k == "include_filtered")
         .map(|(_, v)| matches!(v.as_ref(), "true" | "1"))
         .unwrap_or(false);
@@ -1539,7 +1798,9 @@ async fn build_notification(state: &AppState, n: &DbNotification) -> AppResult<N
         None
     };
 
-    let report = if n.r#type.as_deref() == Some("admin.report") && n.activity_type.as_deref() == Some("Report") {
+    let report = if n.r#type.as_deref() == Some("admin.report")
+        && n.activity_type.as_deref() == Some("Report")
+    {
         if let Some(rid) = n.activity_id {
             sqlx::query!(
                 r#"SELECT r.id, r.comment, COALESCE(r.forwarded, false) AS "forwarded!",
@@ -1553,12 +1814,29 @@ async fn build_notification(state: &AppState, n: &DbNotification) -> AppResult<N
             .await
             .ok()
             .flatten().map(|r| (r.id, r.comment, r.forwarded, r.category, r.action_taken_at, r.created_at, r.status_ids, r.target_account_id))
-        } else { None }
-    } else { None };
+        } else {
+            None
+        }
+    } else {
+        None
+    };
 
-    let report = if let Some((rid, comment, forwarded, category, action_taken_at, created_at_r, status_ids, ta_id)) = report {
+    let report = if let Some((
+        rid,
+        comment,
+        forwarded,
+        category,
+        action_taken_at,
+        created_at_r,
+        status_ids,
+        ta_id,
+    )) = report
+    {
         let ta = sqlx::query_as!(Account, "SELECT * FROM accounts WHERE id = $1", ta_id)
-            .fetch_optional(&state.db).await.ok().flatten();
+            .fetch_optional(&state.db)
+            .await
+            .ok()
+            .flatten();
         if let Some(ta) = ta {
             let mut ta_api = account_from_db(&ta);
             ta_api.emojis = fetch_account_emojis(state, &ta).await;
@@ -1579,8 +1857,12 @@ async fn build_notification(state: &AppState, n: &DbNotification) -> AppResult<N
                 collection_ids: vec![],
                 target_account: ta_api,
             })
-        } else { None }
-    } else { None };
+        } else {
+            None
+        }
+    } else {
+        None
+    };
 
     let mut notif_account = account_from_db(&from_account);
     notif_account.emojis = fetch_account_emojis(state, &from_account).await;

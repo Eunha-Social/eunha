@@ -1,3 +1,8 @@
+use crate::{
+    error::{AppError, AppResult},
+    middleware::AuthenticatedUser,
+    state::AppState,
+};
 use axum::{
     extract::{Path, Query, State},
     http::{header, HeaderMap, Uri},
@@ -5,11 +10,6 @@ use axum::{
     Extension,
 };
 use serde::{Deserialize, Serialize};
-use crate::{
-    error::{AppError, AppResult},
-    middleware::AuthenticatedUser,
-    state::AppState,
-};
 
 pub type ScheduledStatusResponse = ScheduledStatus;
 
@@ -46,9 +46,18 @@ pub async fn list_scheduled_statuses(
 ) -> AppResult<impl IntoResponse> {
     auth.require_scope("read:statuses")?;
     let limit = pagination.limit_clamped(20, 40);
-    let max_id = pagination.max_id.as_deref().and_then(|s| s.parse::<i64>().ok());
-    let since_id = pagination.since_id.as_deref().and_then(|s| s.parse::<i64>().ok());
-    let min_id = pagination.min_id.as_deref().and_then(|s| s.parse::<i64>().ok());
+    let max_id = pagination
+        .max_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
+    let since_id = pagination
+        .since_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
+    let min_id = pagination
+        .min_id
+        .as_deref()
+        .and_then(|s| s.parse::<i64>().ok());
 
     let rows = sqlx::query!(
         r#"SELECT id, scheduled_at, params
@@ -106,7 +115,8 @@ pub async fn get_scheduled_status(
     auth.require_scope("read:statuses")?;
     let row = sqlx::query!(
         "SELECT id, scheduled_at, params FROM scheduled_statuses WHERE id = $1 AND account_id = $2",
-        id, auth.account_id,
+        id,
+        auth.account_id,
     )
     .fetch_optional(&state.db)
     .await?
@@ -135,9 +145,13 @@ pub async fn update_scheduled_status(
     Json(form): Json<UpdateScheduledStatusForm>,
 ) -> AppResult<Json<ScheduledStatus>> {
     auth.require_scope("write:statuses")?;
-    let scheduled_at = form.scheduled_at.as_deref()
-        .map(|s| chrono::DateTime::parse_from_rfc3339(s)
-            .map(|dt| dt.with_timezone(&chrono::Utc).naive_utc()))
+    let scheduled_at = form
+        .scheduled_at
+        .as_deref()
+        .map(|s| {
+            chrono::DateTime::parse_from_rfc3339(s)
+                .map(|dt| dt.with_timezone(&chrono::Utc).naive_utc())
+        })
         .transpose()
         .map_err(|_| AppError::Unprocessable("Invalid scheduled_at format".into()))?;
 
@@ -182,7 +196,8 @@ pub async fn delete_scheduled_status(
     auth.require_scope("write:statuses")?;
     let deleted = sqlx::query_scalar!(
         "DELETE FROM scheduled_statuses WHERE id = $1 AND account_id = $2 RETURNING id",
-        id, auth.account_id,
+        id,
+        auth.account_id,
     )
     .fetch_optional(&state.db)
     .await?;

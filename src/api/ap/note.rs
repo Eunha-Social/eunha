@@ -98,13 +98,18 @@ pub async fn build_note(
 
     // Local author (the query enforces `a.domain IS NULL`): build the canonical
     // actor URI from its id_scheme rather than the (empty for imports) uri column.
-    let actor_url = crate::federation::tag::account_uri(domain, s.account_id, s.id_scheme, &s.username);
+    let actor_url =
+        crate::federation::tag::account_uri(domain, s.account_id, s.id_scheme, &s.username);
     let note_uri = s
         .uri
         .clone()
         .filter(|u| !u.is_empty())
         .unwrap_or_else(|| format!("{actor_url}/statuses/{}", s.id));
-    let note_url = s.url.clone().filter(|u| !u.is_empty()).unwrap_or_else(|| note_uri.clone());
+    let note_url = s
+        .url
+        .clone()
+        .filter(|u| !u.is_empty())
+        .unwrap_or_else(|| note_uri.clone());
     let followers_url = format!("{actor_url}/followers");
 
     // ── inReplyTo ───────────────────────────────────────────────────────────
@@ -164,13 +169,21 @@ pub async fn build_note(
             None => m.username.clone(),
         };
         // Keys used by render_content's linkifier (lowercase user / user@domain).
-        let url_for_render = m.url.clone().filter(|u| !u.is_empty()).unwrap_or_else(|| href.clone());
+        let url_for_render = m
+            .url
+            .clone()
+            .filter(|u| !u.is_empty())
+            .unwrap_or_else(|| href.clone());
         mention_map
             .entry(m.username.to_lowercase())
             .or_insert_with(|| (url_for_render.clone(), acct.clone()));
         if let Some(d) = &m.domain {
             mention_map
-                .entry(format!("{}@{}", m.username.to_lowercase(), d.to_lowercase()))
+                .entry(format!(
+                    "{}@{}",
+                    m.username.to_lowercase(),
+                    d.to_lowercase()
+                ))
                 .or_insert_with(|| (url_for_render.clone(), acct.clone()));
         }
         mention_tags.push(json!({
@@ -188,7 +201,12 @@ pub async fn build_note(
             let followers_uri = if m.domain.is_none() {
                 Some(format!(
                     "{}/followers",
-                    crate::federation::tag::account_uri(domain, m.account_id, m.id_scheme, &m.username)
+                    crate::federation::tag::account_uri(
+                        domain,
+                        m.account_id,
+                        m.id_scheme,
+                        &m.username
+                    )
                 ))
             } else if !m.followers_url.is_empty() {
                 Some(m.followers_url.clone())
@@ -273,7 +291,9 @@ pub async fn build_note(
     .fetch_optional(&state.db)
     .await?
     {
-        let expired = poll.expires_at.is_some_and(|t| t <= chrono::Utc::now().naive_utc());
+        let expired = poll
+            .expires_at
+            .is_some_and(|t| t <= chrono::Utc::now().naive_utc());
         let show_totals = expired || !poll.hide_totals;
         let counts = sqlx::query!(
             "SELECT choice, COUNT(*)::bigint AS \"count!\" FROM poll_votes WHERE poll_id = $1 GROUP BY choice",

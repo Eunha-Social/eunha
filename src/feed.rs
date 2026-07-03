@@ -25,21 +25,14 @@ fn populated_key(account_id: i64) -> String {
     format!("feed:home:{}:populated", account_id)
 }
 
-pub async fn is_feed_populated(
-    redis: &mut ConnectionManager,
-    account_id: i64,
-) -> bool {
+pub async fn is_feed_populated(redis: &mut ConnectionManager, account_id: i64) -> bool {
     redis
         .exists::<_, bool>(populated_key(account_id))
         .await
         .unwrap_or(false)
 }
 
-pub async fn feed_push(
-    redis: &mut ConnectionManager,
-    account_id: i64,
-    status_id: i64,
-) {
+pub async fn feed_push(redis: &mut ConnectionManager, account_id: i64, status_id: i64) {
     let key = feed_key(account_id);
     let result: redis::RedisResult<()> = redis::pipe()
         .zadd(&key, status_id, status_id as f64)
@@ -52,14 +45,8 @@ pub async fn feed_push(
     }
 }
 
-pub async fn feed_remove(
-    redis: &mut ConnectionManager,
-    account_id: i64,
-    status_id: i64,
-) {
-    let result: redis::RedisResult<()> = redis
-        .zrem(feed_key(account_id), status_id)
-        .await;
+pub async fn feed_remove(redis: &mut ConnectionManager, account_id: i64, status_id: i64) {
+    let result: redis::RedisResult<()> = redis.zrem(feed_key(account_id), status_id).await;
     if let Err(e) = result {
         tracing::warn!("feed_remove error for account {}: {}", account_id, e);
     }
@@ -116,11 +103,7 @@ pub async fn feed_get(
 }
 
 /// Populate the Redis feed from DB (called on first timeline load).
-pub async fn feed_populate(
-    redis: &mut ConnectionManager,
-    account_id: i64,
-    db: &PgPool,
-) {
+pub async fn feed_populate(redis: &mut ConnectionManager, account_id: i64, db: &PgPool) {
     let _: redis::RedisResult<()> = redis
         .set_ex(populated_key(account_id), 1i64, FEED_TTL_SECS)
         .await;
@@ -238,7 +221,8 @@ pub async fn fanout_new_status(
                          WHERE f2.account_id = f.account_id AND f2.target_account_id = $2
                      )
                  )"#,
-            author_id, target,
+            author_id,
+            target,
         )
         .fetch_all(db)
         .await
@@ -308,10 +292,7 @@ pub async fn fanout_new_status(
         return;
     }
 
-    let pop_keys: Vec<String> = recipients
-        .iter()
-        .map(|&id| populated_key(id))
-        .collect();
+    let pop_keys: Vec<String> = recipients.iter().map(|&id| populated_key(id)).collect();
     let initialized: Vec<Option<i64>> = match redis.mget(&pop_keys).await {
         Ok(v) => v,
         Err(e) => {
@@ -352,10 +333,7 @@ pub async fn fanout_remove_status(
     .unwrap_or_default();
 
     let recipients: Vec<i64> = std::iter::once(author_id).chain(follower_ids).collect();
-    let pop_keys: Vec<String> = recipients
-        .iter()
-        .map(|&id| populated_key(id))
-        .collect();
+    let pop_keys: Vec<String> = recipients.iter().map(|&id| populated_key(id)).collect();
     let initialized: Vec<Option<i64>> = match redis.mget(&pop_keys).await {
         Ok(v) => v,
         Err(e) => {
@@ -387,10 +365,7 @@ fn list_populated_key(list_id: i64) -> String {
     format!("feed:list:{}:populated", list_id)
 }
 
-pub async fn is_list_feed_populated(
-    redis: &mut ConnectionManager,
-    list_id: i64,
-) -> bool {
+pub async fn is_list_feed_populated(redis: &mut ConnectionManager, list_id: i64) -> bool {
     redis
         .exists::<_, bool>(list_populated_key(list_id))
         .await
@@ -466,9 +441,13 @@ pub async fn list_feed_populate(
                       OR s.in_reply_to_account_id = s.account_id
                       OR s.in_reply_to_account_id = $2)
                ORDER BY s.id DESC LIMIT $3"#,
-            list_id, owner_id, FEED_MAX_ITEMS as i64,
+            list_id,
+            owner_id,
+            FEED_MAX_ITEMS as i64,
         )
-        .fetch_all(db).await.unwrap_or_default(),
+        .fetch_all(db)
+        .await
+        .unwrap_or_default(),
         "list" => sqlx::query_scalar!(
             r#"SELECT s.id FROM statuses s
                JOIN list_accounts la ON la.account_id = s.account_id
@@ -483,9 +462,13 @@ pub async fn list_feed_populate(
                           WHERE s2.id = s.in_reply_to_id AND la2.list_id = $1
                       ))
                ORDER BY s.id DESC LIMIT $3"#,
-            list_id, owner_id, FEED_MAX_ITEMS as i64,
+            list_id,
+            owner_id,
+            FEED_MAX_ITEMS as i64,
         )
-        .fetch_all(db).await.unwrap_or_default(),
+        .fetch_all(db)
+        .await
+        .unwrap_or_default(),
         _ => sqlx::query_scalar!(
             r#"SELECT s.id FROM statuses s
                JOIN list_accounts la ON la.account_id = s.account_id
@@ -501,9 +484,13 @@ pub async fn list_feed_populate(
                        ))
                  ))
                ORDER BY s.id DESC LIMIT $3"#,
-            list_id, owner_id, FEED_MAX_ITEMS as i64,
+            list_id,
+            owner_id,
+            FEED_MAX_ITEMS as i64,
         )
-        .fetch_all(db).await.unwrap_or_default(),
+        .fetch_all(db)
+        .await
+        .unwrap_or_default(),
     };
 
     if !status_ids.is_empty() {
@@ -572,14 +559,22 @@ pub async fn fanout_to_lists(
                     "none" => false,
                     "list" => sqlx::query_scalar!(
                         "SELECT 1 FROM list_accounts WHERE list_id = $1 AND account_id = $2",
-                        list.id, reply_author,
+                        list.id,
+                        reply_author,
                     )
-                    .fetch_optional(db).await.unwrap_or(None).is_some(),
+                    .fetch_optional(db)
+                    .await
+                    .unwrap_or(None)
+                    .is_some(),
                     _ => sqlx::query_scalar!(
                         "SELECT 1 FROM follows WHERE account_id = $1 AND target_account_id = $2",
-                        list.account_id, reply_author,
+                        list.account_id,
+                        reply_author,
                     )
-                    .fetch_optional(db).await.unwrap_or(None).is_some(),
+                    .fetch_optional(db)
+                    .await
+                    .unwrap_or(None)
+                    .is_some(),
                 }
             }
         } else {
@@ -661,9 +656,12 @@ pub async fn backfill_list_member(
                       OR in_reply_to_account_id = $1
                       OR in_reply_to_account_id = $2)
                ORDER BY id DESC LIMIT 20"#,
-            member_id, owner_id,
+            member_id,
+            owner_id,
         )
-        .fetch_all(db).await.unwrap_or_default(),
+        .fetch_all(db)
+        .await
+        .unwrap_or_default(),
         "list" => sqlx::query_scalar!(
             r#"SELECT s.id FROM statuses s
                WHERE s.account_id = $1 AND s.deleted_at IS NULL AND s.visibility != 3
@@ -675,9 +673,13 @@ pub async fn backfill_list_member(
                           WHERE s2.id = s.in_reply_to_id AND la.list_id = $2
                       ))
                ORDER BY s.id DESC LIMIT 20"#,
-            member_id, list_id, owner_id,
+            member_id,
+            list_id,
+            owner_id,
         )
-        .fetch_all(db).await.unwrap_or_default(),
+        .fetch_all(db)
+        .await
+        .unwrap_or_default(),
         _ => sqlx::query_scalar!(
             r#"SELECT s.id FROM statuses s
                WHERE s.account_id = $1 AND s.deleted_at IS NULL AND s.visibility != 3
@@ -690,9 +692,12 @@ pub async fn backfill_list_member(
                        ))
                  ))
                ORDER BY s.id DESC LIMIT 20"#,
-            member_id, owner_id,
+            member_id,
+            owner_id,
         )
-        .fetch_all(db).await.unwrap_or_default(),
+        .fetch_all(db)
+        .await
+        .unwrap_or_default(),
     };
 
     if recent.is_empty() {

@@ -17,15 +17,33 @@ use crate::helpers::{seed_token_with_scopes, TestContext};
 macro_rules! assert_forbidden {
     ($ctx:expr, GET $path:expr, $token:expr) => {{
         let r = $ctx.api.get($path, Some($token)).await;
-        assert_eq!(r.status(), StatusCode::FORBIDDEN, "GET {} with wrong scope should be 403", $path);
+        assert_eq!(
+            r.status(),
+            StatusCode::FORBIDDEN,
+            "GET {} with wrong scope should be 403",
+            $path
+        );
     }};
     ($ctx:expr, POST $path:expr, $token:expr) => {{
-        let r = $ctx.api.post_json($path, Some($token), &serde_json::json!({})).await;
-        assert_eq!(r.status(), StatusCode::FORBIDDEN, "POST {} with wrong scope should be 403", $path);
+        let r = $ctx
+            .api
+            .post_json($path, Some($token), &serde_json::json!({}))
+            .await;
+        assert_eq!(
+            r.status(),
+            StatusCode::FORBIDDEN,
+            "POST {} with wrong scope should be 403",
+            $path
+        );
     }};
     ($ctx:expr, DELETE $path:expr, $token:expr) => {{
         let r = $ctx.api.delete($path, $token).await;
-        assert_eq!(r.status(), StatusCode::FORBIDDEN, "DELETE {} with wrong scope should be 403", $path);
+        assert_eq!(
+            r.status(),
+            StatusCode::FORBIDDEN,
+            "DELETE {} with wrong scope should be 403",
+            $path
+        );
     }};
 }
 
@@ -98,7 +116,10 @@ async fn test_scope_get_follow_requests_requires_read_follows() {
     assert_forbidden!(ctx, GET "/api/v1/follow_requests", &write_token);
 
     let read_token = seed_token_with_scopes(&ctx.db, alice_id, "read:follows").await;
-    let r = ctx.api.get("/api/v1/follow_requests", Some(&read_token)).await;
+    let r = ctx
+        .api
+        .get("/api/v1/follow_requests", Some(&read_token))
+        .await;
     assert_eq!(r.status(), StatusCode::OK);
 }
 
@@ -112,7 +133,10 @@ async fn test_scope_get_notifications_requires_read_notifications() {
     assert_forbidden!(ctx, GET "/api/v1/notifications", &write_token);
 
     let read_token = seed_token_with_scopes(&ctx.db, alice_id, "read:notifications").await;
-    let r = ctx.api.get("/api/v1/notifications", Some(&read_token)).await;
+    let r = ctx
+        .api
+        .get("/api/v1/notifications", Some(&read_token))
+        .await;
     assert_eq!(r.status(), StatusCode::OK);
 }
 
@@ -126,7 +150,10 @@ async fn test_scope_verify_credentials_requires_read_accounts() {
     assert_forbidden!(ctx, GET "/api/v1/accounts/verify_credentials", &write_token);
 
     let read_token = seed_token_with_scopes(&ctx.db, alice_id, "read:accounts").await;
-    let r = ctx.api.get("/api/v1/accounts/verify_credentials", Some(&read_token)).await;
+    let r = ctx
+        .api
+        .get("/api/v1/accounts/verify_credentials", Some(&read_token))
+        .await;
     assert_eq!(r.status(), StatusCode::OK);
 }
 
@@ -139,20 +166,26 @@ async fn test_scope_post_status_requires_write_statuses() {
     let alice_id = ctx.alice_id.parse::<i64>().unwrap();
     let read_token = seed_token_with_scopes(&ctx.db, alice_id, "read").await;
 
-    let r = ctx.api.post_json(
-        "/api/v1/statuses",
-        Some(&read_token),
-        &serde_json::json!({"status": "scope test", "visibility": "public"}),
-    ).await;
+    let r = ctx
+        .api
+        .post_json(
+            "/api/v1/statuses",
+            Some(&read_token),
+            &serde_json::json!({"status": "scope test", "visibility": "public"}),
+        )
+        .await;
     assert_eq!(r.status(), StatusCode::FORBIDDEN);
 
     // Parent scope "write" covers "write:statuses"
     let write_token = seed_token_with_scopes(&ctx.db, alice_id, "write").await;
-    let r2 = ctx.api.post_json(
-        "/api/v1/statuses",
-        Some(&write_token),
-        &serde_json::json!({"status": "scope test ok", "visibility": "public"}),
-    ).await;
+    let r2 = ctx
+        .api
+        .post_json(
+            "/api/v1/statuses",
+            Some(&write_token),
+            &serde_json::json!({"status": "scope test ok", "visibility": "public"}),
+        )
+        .await;
     assert_eq!(r2.status(), StatusCode::OK);
 }
 
@@ -163,20 +196,26 @@ async fn test_scope_follow_requires_write_follows_or_follow() {
     let alice_id_uuid = ctx.alice_id.parse::<i64>().unwrap();
     let read_token = seed_token_with_scopes(&ctx.db, alice_id_uuid, "read").await;
 
-    let r = ctx.api.post_json(
-        &format!("/api/v1/accounts/{}/follow", ctx.bob_id),
-        Some(&read_token),
-        &serde_json::json!({}),
-    ).await;
+    let r = ctx
+        .api
+        .post_json(
+            &format!("/api/v1/accounts/{}/follow", ctx.bob_id),
+            Some(&read_token),
+            &serde_json::json!({}),
+        )
+        .await;
     assert_eq!(r.status(), StatusCode::FORBIDDEN);
 
     // "follow" scope covers write:follows
     let follow_token = seed_token_with_scopes(&ctx.db, alice_id_uuid, "follow").await;
-    let r2 = ctx.api.post_json(
-        &format!("/api/v1/accounts/{}/follow", ctx.bob_id),
-        Some(&follow_token),
-        &serde_json::json!({}),
-    ).await;
+    let r2 = ctx
+        .api
+        .post_json(
+            &format!("/api/v1/accounts/{}/follow", ctx.bob_id),
+            Some(&follow_token),
+            &serde_json::json!({}),
+        )
+        .await;
     assert_eq!(r2.status(), StatusCode::OK);
 }
 
@@ -187,19 +226,25 @@ async fn test_scope_block_requires_write_blocks_or_follow() {
     let alice_id_uuid = ctx.alice_id.parse::<i64>().unwrap();
     let read_token = seed_token_with_scopes(&ctx.db, alice_id_uuid, "read").await;
 
-    let r = ctx.api.post_json(
-        &format!("/api/v1/accounts/{}/block", ctx.bob_id),
-        Some(&read_token),
-        &serde_json::json!({}),
-    ).await;
+    let r = ctx
+        .api
+        .post_json(
+            &format!("/api/v1/accounts/{}/block", ctx.bob_id),
+            Some(&read_token),
+            &serde_json::json!({}),
+        )
+        .await;
     assert_eq!(r.status(), StatusCode::FORBIDDEN);
 
     let follow_token = seed_token_with_scopes(&ctx.db, alice_id_uuid, "follow").await;
-    let r2 = ctx.api.post_json(
-        &format!("/api/v1/accounts/{}/block", ctx.bob_id),
-        Some(&follow_token),
-        &serde_json::json!({}),
-    ).await;
+    let r2 = ctx
+        .api
+        .post_json(
+            &format!("/api/v1/accounts/{}/block", ctx.bob_id),
+            Some(&follow_token),
+            &serde_json::json!({}),
+        )
+        .await;
     assert_eq!(r2.status(), StatusCode::OK);
 }
 
@@ -222,7 +267,11 @@ async fn test_scope_read_parent_covers_all_read_children() {
         "/api/v1/accounts/verify_credentials",
     ] {
         let r = ctx.api.get(path, Some(&read_token)).await;
-        assert_eq!(r.status(), StatusCode::OK, "read parent should cover {path}");
+        assert_eq!(
+            r.status(),
+            StatusCode::OK,
+            "read parent should cover {path}"
+        );
     }
 }
 
@@ -233,10 +282,17 @@ async fn test_scope_write_parent_covers_write_statuses() {
     let alice_id = ctx.alice_id.parse::<i64>().unwrap();
     let write_token = seed_token_with_scopes(&ctx.db, alice_id, "write").await;
 
-    let r = ctx.api.post_json(
-        "/api/v1/statuses",
-        Some(&write_token),
-        &serde_json::json!({"status": "write parent test", "visibility": "public"}),
-    ).await;
-    assert_eq!(r.status(), StatusCode::OK, "write parent should cover write:statuses");
+    let r = ctx
+        .api
+        .post_json(
+            "/api/v1/statuses",
+            Some(&write_token),
+            &serde_json::json!({"status": "write parent test", "visibility": "public"}),
+        )
+        .await;
+    assert_eq!(
+        r.status(),
+        StatusCode::OK,
+        "write parent should cover write:statuses"
+    );
 }

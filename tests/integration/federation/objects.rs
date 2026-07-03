@@ -30,7 +30,10 @@ async fn test_status_served_as_ap_note() {
     let actor_url = format!("https://{}/users/alice", ctx.domain);
     let note_uri = format!("{actor_url}/statuses/{id}");
 
-    let resp = ctx.api.get(&format!("/users/alice/statuses/{id}"), None).await;
+    let resp = ctx
+        .api
+        .get(&format!("/users/alice/statuses/{id}"), None)
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let note: Value = resp.json().await.unwrap();
     assert_eq!(note["type"].as_str(), Some("Note"));
@@ -45,16 +48,23 @@ async fn test_status_served_as_ap_note() {
     );
     // The hashtag is carried in the tag array for remote indexing.
     let has_hashtag = note["tag"].as_array().map_or(false, |a| {
-        a.iter().any(|t| t["type"].as_str() == Some("Hashtag") && t["name"].as_str() == Some("#world"))
+        a.iter()
+            .any(|t| t["type"].as_str() == Some("Hashtag") && t["name"].as_str() == Some("#world"))
     });
     assert!(has_hashtag, "expected a Hashtag tag: {note}");
 
     // The /activity wrapper is a Create around the same Note.
-    let resp = ctx.api.get(&format!("/users/alice/statuses/{id}/activity"), None).await;
+    let resp = ctx
+        .api
+        .get(&format!("/users/alice/statuses/{id}/activity"), None)
+        .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let create: Value = resp.json().await.unwrap();
     assert_eq!(create["type"].as_str(), Some("Create"));
-    assert_eq!(create["id"].as_str(), Some(format!("{note_uri}/activity").as_str()));
+    assert_eq!(
+        create["id"].as_str(),
+        Some(format!("{note_uri}/activity").as_str())
+    );
     assert_eq!(create["object"]["id"].as_str(), Some(note_uri.as_str()));
 }
 
@@ -68,7 +78,10 @@ async fn test_private_status_not_dereferenceable() {
     )
     .await;
 
-    let resp = ctx.api.get(&format!("/users/alice/statuses/{id}"), None).await;
+    let resp = ctx
+        .api
+        .get(&format!("/users/alice/statuses/{id}"), None)
+        .await;
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
@@ -89,19 +102,39 @@ async fn test_followers_following_collections() {
     assert_eq!(resp.status(), StatusCode::OK);
 
     // bob's followers collection counts alice.
-    let followers: Value = ctx.api.get("/users/bob/followers", None).await.json().await.unwrap();
+    let followers: Value = ctx
+        .api
+        .get("/users/bob/followers", None)
+        .await
+        .json()
+        .await
+        .unwrap();
     assert_eq!(followers["type"].as_str(), Some("OrderedCollection"));
     assert_eq!(followers["totalItems"].as_i64(), Some(1));
 
-    let page: Value = ctx.api.get("/users/bob/followers?page=true", None).await.json().await.unwrap();
+    let page: Value = ctx
+        .api
+        .get("/users/bob/followers?page=true", None)
+        .await
+        .json()
+        .await
+        .unwrap();
     let alice_uri = format!("https://{}/users/alice", ctx.domain);
     assert!(
-        page["orderedItems"].as_array().map_or(false, |a| a.iter().any(|v| v.as_str() == Some(alice_uri.as_str()))),
+        page["orderedItems"].as_array().map_or(false, |a| a
+            .iter()
+            .any(|v| v.as_str() == Some(alice_uri.as_str()))),
         "alice should appear in bob's followers page: {page}"
     );
 
     // alice's following collection counts bob.
-    let following: Value = ctx.api.get("/users/alice/following", None).await.json().await.unwrap();
+    let following: Value = ctx
+        .api
+        .get("/users/alice/following", None)
+        .await
+        .json()
+        .await
+        .unwrap();
     assert_eq!(following["totalItems"].as_i64(), Some(1));
 }
 
@@ -113,15 +146,27 @@ async fn test_featured_collection_lists_pins() {
 
     let resp = ctx
         .api
-        .post_json(&format!("/api/v1/statuses/{id}/pin"), Some(&ctx.alice_token), &json!({}))
+        .post_json(
+            &format!("/api/v1/statuses/{id}/pin"),
+            Some(&ctx.alice_token),
+            &json!({}),
+        )
         .await;
     assert_eq!(resp.status(), StatusCode::OK);
 
-    let featured: Value = ctx.api.get("/users/alice/collections/featured", None).await.json().await.unwrap();
+    let featured: Value = ctx
+        .api
+        .get("/users/alice/collections/featured", None)
+        .await
+        .json()
+        .await
+        .unwrap();
     assert_eq!(featured["type"].as_str(), Some("OrderedCollection"));
     let note_uri = format!("https://{}/users/alice/statuses/{id}", ctx.domain);
     assert!(
-        featured["orderedItems"].as_array().map_or(false, |a| a.iter().any(|v| v.as_str() == Some(note_uri.as_str()))),
+        featured["orderedItems"].as_array().map_or(false, |a| a
+            .iter()
+            .any(|v| v.as_str() == Some(note_uri.as_str()))),
         "pinned status should appear in featured collection: {featured}"
     );
 }

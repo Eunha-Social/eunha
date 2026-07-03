@@ -81,7 +81,11 @@ struct ItemRow {
 }
 
 /// Fetch a collection's accepted items joined with each account's AP URI.
-async fn accepted_items(state: &AppState, domain: &str, collection_id: i64) -> AppResult<Vec<ItemRow>> {
+async fn accepted_items(
+    state: &AppState,
+    domain: &str,
+    collection_id: i64,
+) -> AppResult<Vec<ItemRow>> {
     let rows = sqlx::query!(
         r#"SELECT ci.id, ci.created_at,
                   a.uri AS "account_uri?", a.username, a.domain
@@ -207,7 +211,9 @@ pub async fn get_collection(
     Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
     Path(id): Path<i64>,
 ) -> AppResult<Response> {
-    let c = load_ap_collection(&state, id).await?.ok_or(AppError::NotFound)?;
+    let c = load_ap_collection(&state, id)
+        .await?
+        .ok_or(AppError::NotFound)?;
     let mut body = featured_collection_body(&state, &instance.domain, &c).await?;
     body["@context"] = collection_context();
 
@@ -295,12 +301,9 @@ pub async fn get_feature_authorization(
         _ => actor_uri(domain, &username),
     };
 
-    let mut body = crate::federation::consent::feature_authorization(
-        &auth_id,
-        &collection_uri,
-        &account_uri,
-    )
-    .map_err(AppError::Internal)?;
+    let mut body =
+        crate::federation::consent::feature_authorization(&auth_id, &collection_uri, &account_uri)
+            .map_err(AppError::Internal)?;
     body["@context"] = json!([
         "https://www.w3.org/ns/activitystreams",
         {
@@ -396,7 +399,14 @@ pub async fn get_followers(
     Path(username): Path<String>,
     axum::extract::Query(q): axum::extract::Query<PageQuery>,
 ) -> AppResult<Response> {
-    relation_collection(&state, &instance.domain, AccountRef::Username(&username), Relation::Followers, q).await
+    relation_collection(
+        &state,
+        &instance.domain,
+        AccountRef::Username(&username),
+        Relation::Followers,
+        q,
+    )
+    .await
 }
 
 /// GET /users/{username}/following — an OrderedCollection of followed actor URIs.
@@ -406,7 +416,14 @@ pub async fn get_following(
     Path(username): Path<String>,
     axum::extract::Query(q): axum::extract::Query<PageQuery>,
 ) -> AppResult<Response> {
-    relation_collection(&state, &instance.domain, AccountRef::Username(&username), Relation::Following, q).await
+    relation_collection(
+        &state,
+        &instance.domain,
+        AccountRef::Username(&username),
+        Relation::Following,
+        q,
+    )
+    .await
 }
 
 /// Numeric-scheme followers (`/ap/users/{id}/followers`).
@@ -416,7 +433,14 @@ pub async fn get_followers_by_id(
     Path(id): Path<i64>,
     axum::extract::Query(q): axum::extract::Query<PageQuery>,
 ) -> AppResult<Response> {
-    relation_collection(&state, &instance.domain, AccountRef::Id(id), Relation::Followers, q).await
+    relation_collection(
+        &state,
+        &instance.domain,
+        AccountRef::Id(id),
+        Relation::Followers,
+        q,
+    )
+    .await
 }
 
 /// Numeric-scheme following (`/ap/users/{id}/following`).
@@ -426,7 +450,14 @@ pub async fn get_following_by_id(
     Path(id): Path<i64>,
     axum::extract::Query(q): axum::extract::Query<PageQuery>,
 ) -> AppResult<Response> {
-    relation_collection(&state, &instance.domain, AccountRef::Id(id), Relation::Following, q).await
+    relation_collection(
+        &state,
+        &instance.domain,
+        AccountRef::Id(id),
+        Relation::Following,
+        q,
+    )
+    .await
 }
 
 async fn relation_collection(
@@ -461,7 +492,10 @@ async fn relation_collection(
         ),
     };
 
-    let base = format!("{}/{rel_name}", crate::federation::tag::account_uri_of(domain, &account));
+    let base = format!(
+        "{}/{rel_name}",
+        crate::federation::tag::account_uri_of(domain, &account)
+    );
     let hidden = account.hide_collections.unwrap_or(false);
 
     // Summary view: advertise the count, and a first page only when not hidden.
@@ -475,7 +509,12 @@ async fn relation_collection(
         if !hidden {
             body["first"] = json!(format!("{base}?page=true"));
         }
-        return Ok((StatusCode::OK, [(header::CONTENT_TYPE, CONTENT_TYPE)], Json(body)).into_response());
+        return Ok((
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, CONTENT_TYPE)],
+            Json(body),
+        )
+            .into_response());
     }
 
     // Hidden collections expose only the count, never the membership.
@@ -488,7 +527,12 @@ async fn relation_collection(
             "totalItems": total,
             "orderedItems": [],
         });
-        return Ok((StatusCode::OK, [(header::CONTENT_TYPE, CONTENT_TYPE)], Json(body)).into_response());
+        return Ok((
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, CONTENT_TYPE)],
+            Json(body),
+        )
+            .into_response());
     }
 
     const PAGE_SIZE: i64 = 40;
@@ -526,7 +570,10 @@ async fn relation_collection(
 
     let items: Vec<String> = rows.iter().map(|(_, uri)| uri.clone()).collect();
     let next = (rows.len() as i64 == PAGE_SIZE)
-        .then(|| rows.last().map(|(id, _)| format!("{base}?page=true&max_id={id}")))
+        .then(|| {
+            rows.last()
+                .map(|(id, _)| format!("{base}?page=true&max_id={id}"))
+        })
         .flatten();
 
     let mut body = json!({
@@ -540,7 +587,12 @@ async fn relation_collection(
     if let Some(next) = next {
         body["next"] = json!(next);
     }
-    Ok((StatusCode::OK, [(header::CONTENT_TYPE, CONTENT_TYPE)], Json(body)).into_response())
+    Ok((
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, CONTENT_TYPE)],
+        Json(body),
+    )
+        .into_response())
 }
 
 /// GET /users/{username}/collections/featured — an OrderedCollection of the
@@ -587,7 +639,12 @@ pub async fn get_featured(
         "totalItems": items.len(),
         "orderedItems": items,
     });
-    Ok((StatusCode::OK, [(header::CONTENT_TYPE, CONTENT_TYPE)], Json(body)).into_response())
+    Ok((
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, CONTENT_TYPE)],
+        Json(body),
+    )
+        .into_response())
 }
 
 // ── Activity builders (for outbound distribution to followers) ─────────────────

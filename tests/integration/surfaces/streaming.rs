@@ -9,22 +9,14 @@ use crate::helpers::TestContext;
 // ── helpers ───────────────────────────────────────────────────────────────
 
 type WsSink = futures::stream::SplitSink<
-    tokio_tungstenite::WebSocketStream<
-        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-    >,
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
     Message,
 >;
 type WsStream = futures::stream::SplitStream<
-    tokio_tungstenite::WebSocketStream<
-        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
-    >,
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
 >;
 
-async fn ws_connect(
-    ctx: &TestContext,
-    stream: &str,
-    token: Option<&str>,
-) -> (WsSink, WsStream) {
+async fn ws_connect(ctx: &TestContext, stream: &str, token: Option<&str>) -> (WsSink, WsStream) {
     use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
     let ws_base = ctx.api.base_url.replace("http://", "ws://");
@@ -38,10 +30,9 @@ async fn ws_connect(
     // Build the request from the URL (which adds the WS handshake headers),
     // then override the Host header so eunha's multi-tenant routing works.
     let mut request = url.into_client_request().unwrap();
-    request.headers_mut().insert(
-        "host",
-        ctx.domain.parse().unwrap(),
-    );
+    request
+        .headers_mut()
+        .insert("host", ctx.domain.parse().unwrap());
 
     let (ws, _) = tokio_tungstenite::connect_async(request)
         .await
@@ -74,7 +65,9 @@ async fn test_streaming_public_receives_new_status() {
     // Give the connection a moment to be established server-side.
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    ctx.api.post_status(&ctx.alice_token, "Hello streaming world", "public").await;
+    ctx.api
+        .post_status(&ctx.alice_token, "Hello streaming world", "public")
+        .await;
 
     let event = next_event(&mut rx).await.expect("no event received");
     assert_eq!(event["event"], "update");
@@ -88,7 +81,13 @@ async fn test_streaming_public_receives_new_status() {
 
     let payload: serde_json::Value =
         serde_json::from_str(event["payload"].as_str().unwrap()).unwrap();
-    assert_eq!(payload["content"].as_str().unwrap().contains("Hello streaming world"), true);
+    assert_eq!(
+        payload["content"]
+            .as_str()
+            .unwrap()
+            .contains("Hello streaming world"),
+        true
+    );
 
     let _ = tx.close().await;
 }
@@ -101,7 +100,9 @@ async fn test_streaming_public_excludes_unlisted() {
     let (mut tx, mut rx) = ws_connect(&ctx, "public", None).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    ctx.api.post_status(&ctx.alice_token, "This is unlisted", "unlisted").await;
+    ctx.api
+        .post_status(&ctx.alice_token, "This is unlisted", "unlisted")
+        .await;
 
     // Nothing should arrive.
     let event = next_event(&mut rx).await;
@@ -118,7 +119,9 @@ async fn test_streaming_public_local_receives_status() {
     let (mut tx, mut rx) = ws_connect(&ctx, "public:local", None).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    ctx.api.post_status(&ctx.alice_token, "Local hello", "public").await;
+    ctx.api
+        .post_status(&ctx.alice_token, "Local hello", "public")
+        .await;
 
     let event = next_event(&mut rx).await.expect("no event on public:local");
     assert_eq!(event["event"], "update");
@@ -141,7 +144,9 @@ async fn test_streaming_user_own_status() {
     let (mut tx, mut rx) = ws_connect(&ctx, "user", Some(&ctx.alice_token)).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    ctx.api.post_status(&ctx.alice_token, "User stream test", "public").await;
+    ctx.api
+        .post_status(&ctx.alice_token, "User stream test", "public")
+        .await;
 
     let event = next_event(&mut rx).await.expect("no event on user stream");
     assert_eq!(event["event"], "update");
@@ -156,9 +161,18 @@ async fn test_streaming_user_own_status() {
     // Payload must include viewer-context fields.
     let payload: serde_json::Value =
         serde_json::from_str(event["payload"].as_str().unwrap()).unwrap();
-    assert!(payload.get("favourited").is_some(), "missing favourited in viewer context");
-    assert!(payload.get("reblogged").is_some(), "missing reblogged in viewer context");
-    assert!(payload.get("bookmarked").is_some(), "missing bookmarked in viewer context");
+    assert!(
+        payload.get("favourited").is_some(),
+        "missing favourited in viewer context"
+    );
+    assert!(
+        payload.get("reblogged").is_some(),
+        "missing reblogged in viewer context"
+    );
+    assert!(
+        payload.get("bookmarked").is_some(),
+        "missing bookmarked in viewer context"
+    );
 
     let _ = tx.close().await;
 }
@@ -173,10 +187,15 @@ async fn test_streaming_user_requires_auth() {
     let (mut tx, mut rx) = ws_connect(&ctx, "user", None).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    ctx.api.post_status(&ctx.alice_token, "Should not appear", "public").await;
+    ctx.api
+        .post_status(&ctx.alice_token, "Should not appear", "public")
+        .await;
 
     let event = next_event(&mut rx).await;
-    assert!(event.is_none(), "user stream delivered event to unauthenticated connection");
+    assert!(
+        event.is_none(),
+        "user stream delivered event to unauthenticated connection"
+    );
 
     let _ = tx.close().await;
 }
@@ -190,7 +209,10 @@ async fn test_streaming_status_update_event() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     // Post original status.
-    let status = ctx.api.post_status(&ctx.alice_token, "Original text", "public").await;
+    let status = ctx
+        .api
+        .post_status(&ctx.alice_token, "Original text", "public")
+        .await;
     let status_id = status["id"].as_str().unwrap();
 
     // Consume the initial `update` event.
@@ -222,7 +244,10 @@ async fn test_streaming_delete_event() {
     let (mut tx, mut rx) = ws_connect(&ctx, "public", None).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    let status = ctx.api.post_status(&ctx.alice_token, "Will be deleted", "public").await;
+    let status = ctx
+        .api
+        .post_status(&ctx.alice_token, "Will be deleted", "public")
+        .await;
     let status_id = status["id"].as_str().unwrap();
 
     // Consume initial update.
@@ -267,9 +292,14 @@ async fn test_streaming_hashtag() {
     assert!(streams.contains(&"hashtag"));
 
     // Post without the hashtag — nothing should arrive.
-    ctx.api.post_status(&ctx.alice_token, "No tag here", "public").await;
+    ctx.api
+        .post_status(&ctx.alice_token, "No tag here", "public")
+        .await;
     let extra = next_event(&mut rx).await;
-    assert!(extra.is_none(), "status without matching hashtag delivered to hashtag stream");
+    assert!(
+        extra.is_none(),
+        "status without matching hashtag delivered to hashtag stream"
+    );
 
     let _ = tx.close().await;
 }
@@ -280,14 +310,18 @@ async fn test_streaming_user_notification_stream() {
     let ctx = TestContext::new("streaming-notif").await;
 
     // Alice subscribes to user:notification.
-    let (mut tx, mut rx) =
-        ws_connect(&ctx, "user:notification", Some(&ctx.alice_token)).await;
+    let (mut tx, mut rx) = ws_connect(&ctx, "user:notification", Some(&ctx.alice_token)).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     // Bob posts a status — should NOT appear on alice's user:notification stream.
-    ctx.api.post_status(&ctx.bob_token, "Bob says hi", "public").await;
+    ctx.api
+        .post_status(&ctx.bob_token, "Bob says hi", "public")
+        .await;
     let no_event = next_event(&mut rx).await;
-    assert!(no_event.is_none(), "status update leaked to user:notification stream");
+    assert!(
+        no_event.is_none(),
+        "status update leaked to user:notification stream"
+    );
 
     // Bob follows alice — alice gets a notification.
     ctx.api.follow(&ctx.bob_token, &ctx.alice_id).await;
@@ -321,9 +355,13 @@ async fn test_streaming_subscribe_unsubscribe() {
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    ctx.api.post_status(&ctx.alice_token, "Mux test", "public").await;
+    ctx.api
+        .post_status(&ctx.alice_token, "Mux test", "public")
+        .await;
 
-    let event = next_event(&mut rx).await.expect("no event after dynamic subscribe");
+    let event = next_event(&mut rx)
+        .await
+        .expect("no event after dynamic subscribe");
     assert_eq!(event["event"], "update");
 
     // Unsubscribe.
@@ -337,7 +375,9 @@ async fn test_streaming_subscribe_unsubscribe() {
 
     tokio::time::sleep(Duration::from_millis(100)).await;
 
-    ctx.api.post_status(&ctx.alice_token, "After unsubscribe", "public").await;
+    ctx.api
+        .post_status(&ctx.alice_token, "After unsubscribe", "public")
+        .await;
     let gone = next_event(&mut rx).await;
     assert!(gone.is_none(), "event delivered after unsubscribe");
 

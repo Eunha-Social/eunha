@@ -85,11 +85,7 @@ pub fn reject(id: &str, actor: &str, to: &str, request_uri: &str) -> anyhow::Res
 }
 
 /// Build a `FeatureAuthorization` stamp object (served at `id`).
-pub fn feature_authorization(
-    id: &str,
-    collection: &str,
-    account: &str,
-) -> anyhow::Result<Value> {
+pub fn feature_authorization(id: &str, collection: &str, account: &str) -> anyhow::Result<Value> {
     let auth = vocab::Authorization::new(
         AuthorizationType::FeatureAuthorization,
         iri(id)?,
@@ -149,7 +145,10 @@ mod tests {
         assert_eq!(v["type"], "Accept");
         assert_eq!(v["to"], "https://a.test/users/alice");
         assert_eq!(v["object"], "https://a.test/users/alice/feature_requests/1");
-        assert_eq!(v["result"], "https://b.test/users/bob/feature_authorizations/1");
+        assert_eq!(
+            v["result"],
+            "https://b.test/users/bob/feature_authorizations/1"
+        );
     }
 
     #[test]
@@ -174,13 +173,16 @@ mod tests {
         .unwrap();
         assert_eq!(q["type"], "QuoteAuthorization");
         assert_eq!(q["attributedTo"], "https://b.test/users/bob");
-        assert_eq!(q, json!({
-            "@context": "https://www.w3.org/ns/activitystreams",
-            "type": "QuoteAuthorization",
-            "id": "https://b.test/notes/9/approvals/1",
-            "attributedTo": "https://b.test/users/bob",
-            "interactingObject": "https://a.test/notes/1",
-            "interactionTarget": "https://b.test/notes/9",
-        }));
+        assert_eq!(
+            q,
+            json!({
+                "@context": "https://www.w3.org/ns/activitystreams",
+                "type": "QuoteAuthorization",
+                "id": "https://b.test/notes/9/approvals/1",
+                "attributedTo": "https://b.test/users/bob",
+                "interactingObject": "https://a.test/notes/1",
+                "interactionTarget": "https://b.test/notes/9",
+            })
+        );
     }
 }
