@@ -10,6 +10,7 @@ import { useStreamingSubscription } from '../hooks/use-streaming-subscription.ts
 import { TopBar } from '@/components/top-bar.tsx'
 import { TimelineTabs } from '@/components/timeline-tabs.tsx'
 import { StatusCard } from '@/components/status-card.tsx'
+import { useComposeModal } from '@/components/compose-modal.tsx'
 import { FollowRequestActions } from '@/components/follow-request-actions.tsx'
 import { InfiniteScroll } from '@/components/infinite-scroll.tsx'
 import { Card, CardContent } from '@/components/ui/card.tsx'
@@ -45,11 +46,14 @@ function NotificationItem({
   n,
   token,
   onResolve,
+  onReply,
 }: {
   n: mastodon.v1.Notification
   token: string
   // Removes this notification once its follow request is accepted/rejected.
   onResolve: (id: string) => void
+  // Opens the reply composer inline instead of navigating to the thread.
+  onReply: (status: mastodon.v1.Status) => void
 }) {
   const { icon, verb } = describe(n.type)
   const name = n.account.displayName || n.account.username
@@ -74,6 +78,7 @@ function NotificationItem({
           status={n.status.reblog ?? n.status}
           token={token}
           boostedBy={n.status.reblog ? n.status.account : undefined}
+          onReply={onReply}
         />
       </div>
     )
@@ -96,11 +101,16 @@ function NotificationItem({
 
 export default function Notifications() {
   const token = getToken()
+  const { openCompose } = useComposeModal()
   const feed = useInfiniteFeed<mastodon.v1.Notification>(
     (maxId) => (token ? getNotifications(token, maxId) : Promise.resolve([])),
     [token],
   )
   const { mutate } = feed
+  const handleReply = useCallback(
+    (status: mastodon.v1.Status) => openCompose({ replyTo: status }),
+    [openCompose],
+  )
   const removeNotification = useCallback(
     (id: string) => mutate((items) => items.filter((item) => item.id !== id)),
     [mutate],
@@ -176,6 +186,7 @@ export default function Notifications() {
                   n={n}
                   token={token}
                   onResolve={removeNotification}
+                  onReply={handleReply}
                 />
               ))}
             </TimelineStack>
