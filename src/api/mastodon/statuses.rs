@@ -278,7 +278,7 @@ pub async fn post_status(
 
     // Fall back to the user's stored posting defaults when the form omits them.
     let defaults = super::accounts::user_defaults(&state, auth.account_id).await;
-    let visibility = form.visibility.as_deref().map(str::to_owned).unwrap_or(defaults.privacy);
+    let mut visibility = form.visibility.as_deref().map(str::to_owned).unwrap_or(defaults.privacy);
     // Mastodon forces sensitive when a content warning is present
     // (PostStatusService: `sensitive || spoiler_text.present?`).
     let sensitive = form.sensitive.unwrap_or(defaults.sensitive) || spoiler_was_present;
@@ -318,6 +318,14 @@ pub async fn post_status(
         // Cannot quote a reblog; must quote the original post directly
         if quoted.reblog_of_id.is_some() {
             return Err(AppError::Unprocessable("cannot quote a reblog".into()));
+        }
+        // Quoting a followers-only post forces the quote down to followers-only,
+        // so the quoted content is never exposed to a wider audience than the
+        // original (Mastodon PostStatusService#preprocess_attributes).
+        if quoted.visibility == crate::db::models::vis::PRIVATE
+            && matches!(visibility.as_str(), "public" | "unlisted")
+        {
+            visibility = "private".to_string();
         }
         // Block check against quoted author
         let blocked = sqlx::query_scalar!(
@@ -1666,6 +1674,105 @@ pub async fn unfavourite_status(
     }
 
     let (status, _) = fetch_status_with_account(&state, id).await?;
+    let media = fetch_status_media(&state, id).await?;
+    let reblog = fetch_reblog_data(&state, &status).await?;
+    let ctx = build_viewer_context(&state, auth.account_id, id).await?;
+    Ok(Json(build_status(&state, &status, &account, media, reblog, Some(ctx)).await?))
+}
+
+// ── PUT /api/v1/statuses/:id/emoji_reactions/:name ───────────────────────
+
+pub async fn add_emoji_reaction(
+    State(state): State<AppState>,
+    Path((id, name)): Path<(i64, String)>,
+    Extension(auth): Extension<AuthenticatedUser>,
+) -> AppResult<Json<Status>> {
+    auth.require_scope("write:favourites")?;
+
+    let name = name.trim().to_string();
+    if name.is_empty() || name.chars().count() > 64 {
+        return Err(AppError::Unprocessable("Unrecognized emoji".into()));
+    }
+
+    let (s, _) = fetch_status_with_account(&state, id).await?;
+    check_status_visible(&state, &s, auth.account_id).await?;
+
+    let custom_emoji_id: Option<i64> = sqlx::query_scalar::<_, i64>(
+        r#"SELECT id FROM custom_emojis
+           WHERE shortcode = $1
+             AND domain IS NULL
+             AND NOT disabled"#,
+    )
+    .bind(&name)
+    .fetch_optional(&state.db)
+    .await?;
+
+    if custom_emoji_id.is_none() && emojis::get(&name).is_none() {
+        return Err(AppError::Unprocessable("Unrecognized emoji".into()));
+    }
+
+    let name_exists = sqlx::query_scalar::<_, bool>(
+        "SELECT EXISTS(SELECT 1 FROM status_emoji_reactions WHERE status_id = $1 AND name = $2)",
+    )
+    .bind(id)
+    .bind(&name)
+    .fetch_one(&state.db)
+    .await?;
+    if !name_exists {
+        let distinct = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(DISTINCT name) FROM status_emoji_reactions WHERE status_id = $1 AND name <> $2",
+        )
+        .bind(id)
+        .bind(&name)
+        .fetch_one(&state.db)
+        .await?;
+        if distinct >= 8 {
+            return Err(AppError::Unprocessable("Reaction limit reached".into()));
+        }
+    }
+
+    sqlx::query(
+        r#"INSERT INTO status_emoji_reactions
+              (status_id, account_id, name, custom_emoji_id, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, now(), now())
+           ON CONFLICT (account_id, status_id, name) DO NOTHING"#,
+    )
+    .bind(id)
+    .bind(auth.account_id)
+    .bind(&name)
+    .bind(custom_emoji_id)
+    .execute(&state.db)
+    .await?;
+
+    let (status, account) = fetch_status_with_account(&state, id).await?;
+    let media = fetch_status_media(&state, id).await?;
+    let reblog = fetch_reblog_data(&state, &status).await?;
+    let ctx = build_viewer_context(&state, auth.account_id, id).await?;
+    Ok(Json(build_status(&state, &status, &account, media, reblog, Some(ctx)).await?))
+}
+
+// ── DELETE /api/v1/statuses/:id/emoji_reactions/:name ────────────────────
+
+pub async fn remove_emoji_reaction(
+    State(state): State<AppState>,
+    Path((id, name)): Path<(i64, String)>,
+    Extension(auth): Extension<AuthenticatedUser>,
+) -> AppResult<Json<Status>> {
+    auth.require_scope("write:favourites")?;
+
+    let (s, _) = fetch_status_with_account(&state, id).await?;
+    check_status_visible(&state, &s, auth.account_id).await?;
+
+    sqlx::query(
+        "DELETE FROM status_emoji_reactions WHERE status_id = $1 AND account_id = $2 AND name = $3",
+    )
+    .bind(id)
+    .bind(auth.account_id)
+    .bind(name.trim())
+    .execute(&state.db)
+    .await?;
+
+    let (status, account) = fetch_status_with_account(&state, id).await?;
     let media = fetch_status_media(&state, id).await?;
     let reblog = fetch_reblog_data(&state, &status).await?;
     let ctx = build_viewer_context(&state, auth.account_id, id).await?;

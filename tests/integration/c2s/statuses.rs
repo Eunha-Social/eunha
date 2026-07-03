@@ -4086,6 +4086,30 @@ async fn test_create_quote_post_embeds_quoted_status() {
     assert_eq!(quoted_status["content"].as_str().map(|s| s.contains("original post")), Some(true));
 }
 
+/// Quoting a followers-only status forces the quote down to followers-only,
+/// even when the client asks for public. Mirrors Mastodon's
+/// PostStatusService#preprocess_attributes.
+#[tokio::test]
+async fn test_quote_of_private_forces_private_visibility() {
+    let ctx = TestContext::new("quote-private-downgrade").await;
+
+    let original = ctx.api.post_status(&ctx.alice_token, "followers only", "private").await;
+    let original_id = original["id"].as_str().unwrap();
+
+    let resp = ctx.api.post_json(
+        "/api/v1/statuses",
+        Some(&ctx.bob_token),
+        &json!({"status": "quoting privately", "quoted_status_id": original_id, "visibility": "public"}),
+    ).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value = resp.json().await.unwrap();
+    assert_eq!(
+        body["visibility"].as_str(),
+        Some("private"),
+        "a public quote of a followers-only post must be downgraded to private"
+    );
+}
+
 /// Quoting increments quotes_count on the original status.
 #[tokio::test]
 async fn test_quote_post_increments_quotes_count() {
