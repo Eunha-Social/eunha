@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink } from 'react-router-dom'
-import { Bell, Home, LogIn, LogOut, Pencil, Search, User, UserPlus } from 'lucide-react'
+import { Bell, Home, Info, LogIn, LogOut, Pencil, Search, User, UserPlus } from 'lucide-react'
 
 import { getInstance } from '../api.ts'
 import { beginLogin, getToken, logout } from '../auth.ts'
@@ -31,13 +31,15 @@ function Sidebar({
         {title}
       </Link>
       <nav className="flex flex-col gap-1">
-        <NavLink
-          to="/"
-          end
-          className={({ isActive }) => cn(navLink, isActive && activeNavLink)}
-        >
-          <Home className="size-4" /> Home
-        </NavLink>
+        {token && (
+          <NavLink
+            to="/"
+            end
+            className={({ isActive }) => cn(navLink, isActive && activeNavLink)}
+          >
+            <Home className="size-4" /> Home
+          </NavLink>
+        )}
         {token && account && (
           <NavLink
             to={`/@${account.acct}`}
@@ -46,12 +48,14 @@ function Sidebar({
             <User className="size-4" /> Profile
           </NavLink>
         )}
-        <NavLink
-          to="/notifications"
-          className={({ isActive }) => cn(navLink, isActive && activeNavLink)}
-        >
-          <Bell className="size-4" /> Notifications
-        </NavLink>
+        {token && (
+          <NavLink
+            to="/notifications"
+            className={({ isActive }) => cn(navLink, isActive && activeNavLink)}
+          >
+            <Bell className="size-4" /> Notifications
+          </NavLink>
+        )}
         {token && (
           <NavLink
             to="/follow-requests"
@@ -60,12 +64,22 @@ function Sidebar({
             <UserPlus className="size-4" /> Follow requests
           </NavLink>
         )}
-        <NavLink
-          to="/search"
-          className={({ isActive }) => cn(navLink, isActive && activeNavLink)}
-        >
-          <Search className="size-4" /> Search
-        </NavLink>
+        {token && (
+          <NavLink
+            to="/search"
+            className={({ isActive }) => cn(navLink, isActive && activeNavLink)}
+          >
+            <Search className="size-4" /> Search
+          </NavLink>
+        )}
+        {token && (
+          <NavLink
+            to="/about"
+            className={({ isActive }) => cn(navLink, isActive && activeNavLink)}
+          >
+            <Info className="size-4" /> About
+          </NavLink>
+        )}
       </nav>
       {token && (
         <Button className="mt-4 w-full" onClick={() => openCompose()}>
