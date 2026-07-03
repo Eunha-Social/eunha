@@ -60,46 +60,38 @@ function VisibilityIcon({ v }: { v: mastodon.v1.StatusVisibility }) {
   )
 }
 
-// When the quoted post body isn't available (deleted / unauthorized / not yet
-// fetched), explain why in place of the embedded post. Mirrors Mastodon's copy.
+// A quote that isn't accepted shows a status message in place of the embedded
+// post. Copy mirrors Mastodon's web client (status_quoted.tsx): pending quotes
+// stay hidden until the original author's server approves them, so the quoted
+// content is never revealed early.
 const QUOTE_PLACEHOLDER: Record<string, string> = {
-  pending: 'Quote pending the author’s approval.',
-  rejected: 'The author declined this quote.',
-  revoked: 'The author revoked this quote.',
-  deleted: 'The quoted post was deleted.',
-  unauthorized: 'This quote is not authorized.',
-  blocked_account: 'Quoted post from a blocked account.',
-  blocked_domain: 'Quoted post from a blocked domain.',
-  muted_account: 'Quoted post from a muted account.',
+  pending: 'Post pending',
+  revoked: 'Post removed by author',
+  rejected: 'Post unavailable',
+  deleted: 'Post unavailable',
+  unauthorized: 'Post unavailable',
+  blocked_account: "This post is hidden because you've blocked this account.",
+  blocked_domain: "This post is hidden because you've blocked this domain.",
+  muted_account: "This post is hidden because you've muted this account.",
 }
 
-// The post embedded by a quote. Following Mastodon (a non-legacy quote is
-// "acceptable" regardless of approval state), we show the quoted post whenever
-// its body is present — including while a remote quote authorization is still
-// pending — and only fall back to a placeholder when the body is absent.
+// The post embedded by a quote. Like Mastodon, the quoted post is only rendered
+// once the quote is accepted; other states (pending approval, revoked, deleted,
+// blocked/muted, …) show a message instead.
 function QuotedStatus({
   quote,
 }: {
   quote: NonNullable<mastodon.v1.Status['quote']>
 }) {
   const quoted = 'quotedStatus' in quote ? quote.quotedStatus : null
-  if (!quoted) {
+  if (quote.state !== 'accepted' || !quoted) {
     return (
       <div className="text-muted-foreground rounded-md border px-3 py-2 text-xs">
-        {QUOTE_PLACEHOLDER[quote.state] ?? 'Quoted post unavailable.'}
+        {QUOTE_PLACEHOLDER[quote.state] ?? 'Post unavailable'}
       </div>
     )
   }
-  return (
-    <div className="space-y-1">
-      {quote.state === 'pending' && (
-        <p className="text-muted-foreground text-xs">
-          Quote pending the author’s approval
-        </p>
-      )}
-      <QuotedPost status={quoted} />
-    </div>
-  )
+  return <QuotedPost status={quoted} />
 }
 
 function ActionButton({
