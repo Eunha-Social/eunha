@@ -272,6 +272,14 @@ async fn signing_account_id(state: &AppState, key_id: &str) -> anyhow::Result<i6
     let segments: Vec<&str> = url.path_segments().map(|s| s.collect()).unwrap_or_default();
 
     let id = match segments.as_slice() {
+        // The instance actor (`https://{domain}/actor`) signs server-level
+        // activities such as a Reject of a follow targeting it.
+        ["actor"] => sqlx::query_scalar!(
+            "SELECT id FROM accounts WHERE id = $1",
+            crate::federation::instance_actor::INSTANCE_ACTOR_ID,
+        )
+        .fetch_optional(&state.db)
+        .await?,
         ["ap", "users", id] => {
             let id: i64 = id
                 .parse()

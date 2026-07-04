@@ -403,6 +403,47 @@ async fn handle_follow(
         .unwrap_or("");
     let activity_uri = activity.get("id").and_then(|i| i.as_str()).unwrap_or("");
 
+    // The instance actor cannot be followed (Mastodon rejects these): reply with
+    // a Reject signed by the instance actor.
+    if object_uri == crate::federation::instance_actor::actor_url(&instance.domain) {
+        if let Ok(follower_id) = resolve_or_fetch_remote_account(state, actor_uri).await {
+            let inbox = sqlx::query_scalar!(
+                "SELECT inbox_url FROM accounts WHERE id = $1",
+                follower_id,
+            )
+            .fetch_optional(&state.db)
+            .await?
+            .filter(|s| !s.is_empty());
+            if let Some(inbox) = inbox {
+                let reject_id = format!(
+                    "https://{}/activities/{}",
+                    instance.domain,
+                    crate::snowflake::next_id()
+                );
+                let key_id = crate::federation::instance_actor::key_id(&instance.domain);
+                if let Ok(reject) = crate::federation::activity::reject_follow(
+                    &reject_id,
+                    object_uri,
+                    activity_uri,
+                    actor_uri,
+                    object_uri,
+                ) {
+                    if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+                        state,
+                        reject,
+                        vec![inbox],
+                        key_id,
+                    )
+                    .await
+                    {
+                        tracing::warn!(error = %e, "failed to enqueue instance-actor Reject(Follow)");
+                    }
+                }
+            }
+        }
+        return Ok(());
+    }
+
     // Resolve the local target account. Local accounts derive their actor URL
     // from id_scheme + username/id and leave the `uri` column empty, so the
     // Follow's `object` must be matched against the derived URL (as
@@ -451,13 +492,15 @@ async fn handle_follow(
 
     let follower_id = resolve_or_fetch_remote_account(state, actor_uri).await?;
 
-    // Fetch the follower's account for push notification details
+    // Fetch the follower's account for push notification details and to decide
+    // whether a silenced follower must go through a request.
     let follower = sqlx::query!(
-        "SELECT display_name, username, domain, avatar_remote_url FROM accounts WHERE id = $1",
+        "SELECT display_name, username, domain, avatar_remote_url, silenced_at FROM accounts WHERE id = $1",
         follower_id,
     )
     .fetch_optional(&state.db)
     .await?;
+    let follower_silenced = follower.as_ref().is_some_and(|f| f.silenced_at.is_some());
 
     // Details for any Accept/Reject we sign as the (local) target and deliver
     // back to the follower. `object_uri` is the target's own actor URL.
@@ -592,7 +635,14 @@ async fn handle_follow(
         return Ok(());
     };
 
-    let actions = feder_core::inbound::on_follow(follow, &object_iri, target.locked, accept_iri);
+    // A locked target, or a silenced follower, holds the follow as a request
+    // (Mastodon: target.locked? || account.silenced?).
+    let actions = feder_core::inbound::on_follow(
+        follow,
+        &object_iri,
+        target.locked || follower_silenced,
+        accept_iri,
+    );
 
     for action in actions {
         match action {
