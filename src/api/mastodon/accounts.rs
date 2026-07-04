@@ -1070,14 +1070,25 @@ pub async fn unfollow_account(
     } else {
         // Canceling a pending request: keep its uri so the Undo(Follow)
         // references the original Follow activity (matches Mastodon).
-        sqlx::query!(
+        let cancelled = sqlx::query!(
             "DELETE FROM follow_requests WHERE account_id = $1 AND target_account_id = $2 RETURNING uri",
             auth.account_id,
             target_id,
         )
         .fetch_optional(&state.db)
-        .await?
-        .and_then(|r| r.uri)
+        .await?;
+        if cancelled.is_some() {
+            // Mirror Mastodon's FollowRequest dependent: :destroy — clear the
+            // recipient's follow_request notification for the cancelled request.
+            sqlx::query!(
+                "DELETE FROM notifications WHERE account_id = $1 AND from_account_id = $2 AND type = 'follow_request'",
+                target_id,
+                auth.account_id,
+            )
+            .execute(&state.db)
+            .await?;
+        }
+        cancelled.and_then(|r| r.uri)
     };
 
     // Strip the ex-followee's posts from the home feed (Mastodon UnfollowService
@@ -2117,6 +2128,16 @@ async fn do_update_credentials(
             )
             .fetch_all(&state.db)
             .await?;
+            if !pending.is_empty() {
+                // Mirror Mastodon's FollowRequest dependent: :destroy — auto-approving
+                // the pending requests removes their follow_request notifications too.
+                sqlx::query!(
+                    "DELETE FROM notifications WHERE account_id = $1 AND type = 'follow_request'",
+                    auth.account_id,
+                )
+                .execute(&state.db)
+                .await?;
+            }
             for row in &pending {
                 let _ = sqlx::query!(
                     r#"INSERT INTO follows (account_id, target_account_id, created_at, updated_at)
@@ -2531,6 +2552,14 @@ pub async fn block_account(
         auth.account_id, target_id
     )
     .fetch_all(&state.db)
+    .await?;
+    // Mirror Mastodon's FollowRequest dependent: :destroy — clear follow_request
+    // notifications in both directions between blocker and blocked.
+    sqlx::query!(
+        "DELETE FROM notifications WHERE type = 'follow_request' AND ((account_id = $1 AND from_account_id = $2) OR (account_id = $2 AND from_account_id = $1))",
+        auth.account_id, target_id,
+    )
+    .execute(&state.db)
     .await?;
 
     // Strip the blocked account's posts from the blocker's home feed

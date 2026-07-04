@@ -816,14 +816,27 @@ async fn handle_undo(
             let undone_follow = sqlx::query!("DELETE FROM follows WHERE uri = $1", follow_uri)
                 .execute(&state.db)
                 .await?;
-            let undone_request =
-                sqlx::query!("DELETE FROM follow_requests WHERE uri = $1", follow_uri)
-                    .execute(&state.db)
-                    .await?;
+            let undone_request = sqlx::query!(
+                "DELETE FROM follow_requests WHERE uri = $1 RETURNING account_id, target_account_id",
+                follow_uri
+            )
+            .fetch_optional(&state.db)
+            .await?;
+            if let Some(req) = &undone_request {
+                // Mirror Mastodon's FollowRequest dependent: :destroy — clear the
+                // recipient's follow_request notification for the withdrawn request.
+                sqlx::query!(
+                    "DELETE FROM notifications WHERE account_id = $1 AND from_account_id = $2 AND type = 'follow_request'",
+                    req.target_account_id,
+                    req.account_id,
+                )
+                .execute(&state.db)
+                .await?;
+            }
             // The Follow may not have been processed yet (out-of-order delivery);
             // remember this Undo so a late Follow with the same id is skipped
             // rather than resurrecting the follow.
-            if undone_follow.rows_affected() == 0 && undone_request.rows_affected() == 0 {
+            if undone_follow.rows_affected() == 0 && undone_request.is_none() {
                 delete_later(state, actor_uri, follow_uri).await;
             }
         }
@@ -2658,6 +2671,12 @@ async fn handle_block(state: &AppState, activity: &Value) -> AppResult<()> {
     sqlx::query!(
         "DELETE FROM follow_requests WHERE (account_id=$1 AND target_account_id=$2) OR (account_id=$2 AND target_account_id=$1)",
         blocker_id, target_id,
+    ).execute(&state.db).await?;
+    // Mirror Mastodon's FollowRequest dependent: :destroy — clear the local
+    // target's follow_request notification from the remote blocker.
+    sqlx::query!(
+        "DELETE FROM notifications WHERE account_id = $1 AND from_account_id = $2 AND type = 'follow_request'",
+        target_id, blocker_id,
     ).execute(&state.db).await?;
 
     Ok(())
