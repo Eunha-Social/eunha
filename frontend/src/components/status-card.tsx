@@ -320,7 +320,7 @@ export function StatusCard({
                 <button
                   type="button"
                   onClick={() => setExpanded((e) => !e)}
-                  className="text-accent ml-2 text-xs underline"
+                  className="text-primary ml-2 text-xs font-medium underline"
                 >
                   {expanded ? 'Show less' : 'Show more'}
                 </button>
