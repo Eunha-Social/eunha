@@ -105,7 +105,7 @@ pub async fn shared_inbox(
             );
             return Err(AppError::Unauthorized);
         }
-        tracing::debug!(
+        tracing::info!(
             actor = %actor_uri,
             activity_type,
             "accepted via FEP-8b32 integrity proof (HTTP Signature unverified)"
