@@ -1,5 +1,9 @@
 [tools]
 node = "lts"
+pnpm = "latest"
+rust = "latest"
+"cargo:cargo-watch" = "latest"
+"cargo:sqlx-cli" = "latest"
 
 [tasks.dev]
 description = "Run the Rust server with hot-reload"
@@ -7,4 +11,4 @@ run = "cargo watch -x run -w src -w migrations"
 
 [tasks.frontend]
 description = "Build the eunha web frontend (SPA) into frontend/dist"
-run = "cd frontend && npm install && npm run build"
+run = "cd frontend && pnpm install && pnpm run build"

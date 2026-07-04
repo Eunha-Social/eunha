@@ -2,11 +2,12 @@
 FROM node:24-alpine AS frontend-builder
 # The build never runs Playwright, so skip its browser download during install.
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+RUN corepack enable
 WORKDIR /frontend
-COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci
+COPY frontend/package.json frontend/pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 COPY frontend/ .
-RUN npm run build
+RUN pnpm run build
 
 # ── Stage 2a: Install cargo-chef ────────────────────────────────────────────
 FROM rust:1-slim-bookworm AS chef
