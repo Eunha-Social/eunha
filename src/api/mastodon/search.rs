@@ -62,18 +62,36 @@ pub async fn search(
         }
     }
 
-    // URL-based lookup: if the query looks like a URL, try matching by uri/url first
+    // URL-based lookup: if the query looks like a URL, resolve it to a status or
+    // account. We match the local DB first; if it's a miss and the caller asked
+    // to resolve (resolve=true already requires authentication above), we
+    // dereference and persist the remote object — Mastodon's ResolveURLService.
     if q.q.starts_with("http://") || q.q.starts_with("https://") {
         let url = q.q.trim();
-        // Try to find a status with this URL or URI
+        let resolve = q.resolve.unwrap_or(false);
+
+        // Try to find a status with this URL or URI, fetching it if asked.
         if search_type.is_none() || search_type == Some("statuses") {
-            if let Ok(Some(s)) = sqlx::query_as!(
+            let mut found = sqlx::query_as!(
                 crate::db::models::Status,
                 "SELECT * FROM statuses WHERE (uri = $1 OR url = $1) AND deleted_at IS NULL LIMIT 1",
                 url,
             )
             .fetch_optional(&state.db)
-            .await {
+            .await?;
+            if found.is_none() && resolve {
+                if let Ok(Some(id)) = crate::api::ap::inbox::fetch_remote_status(&state, url).await
+                {
+                    found = sqlx::query_as!(
+                        crate::db::models::Status,
+                        "SELECT * FROM statuses WHERE id = $1 AND deleted_at IS NULL",
+                        id,
+                    )
+                    .fetch_optional(&state.db)
+                    .await?;
+                }
+            }
+            if let Some(s) = found {
                 let account = sqlx::query_as!(
                     crate::db::models::Account,
                     "SELECT * FROM accounts WHERE id = $1",
@@ -83,19 +101,42 @@ pub async fn search(
                 .await?;
                 let media = fetch_status_media(&state, s.id).await?;
                 let reblog = fetch_reblog_data(&state, &s).await?;
-                let status = build_status(&state, &s, &account, media, reblog, None).await?;
+                // Compute the viewer's context so quote_approval / interaction
+                // flags reflect the requester rather than defaulting to unknown.
+                let ctx = if let Some(vid) = viewer_id {
+                    super::statuses::batch_viewer_contexts(&state, vid, &[s.id])
+                        .await?
+                        .remove(&s.id)
+                } else {
+                    None
+                };
+                let status = build_status(&state, &s, &account, media, reblog, ctx).await?;
                 return Ok(Json(SearchResults { accounts: vec![], statuses: vec![status], hashtags: vec![], collections: vec![] }));
             }
         }
-        // Try to find an account with this URL or URI
+        // Try to find an account with this URL or URI, fetching it if asked.
         if search_type.is_none() || search_type == Some("accounts") {
-            if let Ok(Some(a)) = sqlx::query_as!(
+            let mut found = sqlx::query_as!(
                 crate::db::models::Account,
                 "SELECT * FROM accounts WHERE (uri = $1 OR url = $1) AND suspended_at IS NULL LIMIT 1",
                 url,
             )
             .fetch_optional(&state.db)
-            .await {
+            .await?;
+            if found.is_none() && resolve {
+                if let Ok(account_id) =
+                    crate::api::ap::inbox::resolve_or_fetch_remote_account(&state, url).await
+                {
+                    found = sqlx::query_as!(
+                        crate::db::models::Account,
+                        "SELECT * FROM accounts WHERE id = $1",
+                        account_id,
+                    )
+                    .fetch_optional(&state.db)
+                    .await?;
+                }
+            }
+            if let Some(a) = found {
                 let api_accounts = batch_accounts_to_api(&state, &[a]).await;
                 return Ok(Json(SearchResults { accounts: api_accounts, statuses: vec![], hashtags: vec![], collections: vec![] }));
             }
