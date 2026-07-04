@@ -403,13 +403,51 @@ async fn handle_follow(
         .unwrap_or("");
     let activity_uri = activity.get("id").and_then(|i| i.as_str()).unwrap_or("");
 
-    let target = sqlx::query!(
-        "SELECT id, locked, username, private_key, id_scheme FROM accounts WHERE uri = $1 AND domain IS NULL",
-        object_uri,
+    // Resolve the local target account. Local accounts derive their actor URL
+    // from id_scheme + username/id and leave the `uri` column empty, so the
+    // Follow's `object` must be matched against the derived URL (as
+    // resolve_or_fetch_remote_account does) rather than the `uri` column, which
+    // would miss them and silently drop the follow.
+    let target_id: Option<i64> = if let Ok(parsed) = url::Url::parse(object_uri) {
+        let on_our_host = parsed
+            .host_str()
+            .is_some_and(|h| h.eq_ignore_ascii_case(&instance.domain));
+        let segments: Vec<&str> = parsed.path_segments().map(|s| s.collect()).unwrap_or_default();
+        if on_our_host {
+            match segments.as_slice() {
+                // https://{domain}/users/{username}
+                ["users", username] => sqlx::query_scalar!(
+                    "SELECT id FROM accounts WHERE username = $1 AND domain IS NULL",
+                    username,
+                )
+                .fetch_optional(&state.db)
+                .await?,
+                // https://{domain}/ap/users/{id}
+                ["ap", "users", id] => match id.parse::<i64>() {
+                    Ok(numeric) => sqlx::query_scalar!(
+                        "SELECT id FROM accounts WHERE id = $1 AND domain IS NULL",
+                        numeric,
+                    )
+                    .fetch_optional(&state.db)
+                    .await?,
+                    Err(_) => None,
+                },
+                _ => None,
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let Some(target_id) = target_id else { return Ok(()) };
+    let target = sqlx::query_as!(
+        crate::db::models::Account,
+        "SELECT * FROM accounts WHERE id = $1",
+        target_id,
     )
-    .fetch_optional(&state.db)
+    .fetch_one(&state.db)
     .await?;
-    let Some(target) = target else { return Ok(()) };
 
     let follower_id = resolve_or_fetch_remote_account(state, actor_uri).await?;
 
