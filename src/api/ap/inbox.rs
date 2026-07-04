@@ -951,28 +951,7 @@ async fn handle_create(
             .unwrap_or_default();
         // Classify from mediaType — Mastodon serializes `type: "Document"` for
         // everything — falling back to the AP `type` hint for odd peers.
-        let att_type: i32 = if media_type_str == "image/gif" {
-            1
-        } else if media_type_str.starts_with("image/") {
-            0
-        } else if media_type_str.starts_with("video/") {
-            2
-        } else if media_type_str.starts_with("audio/") {
-            3
-        } else {
-            match att_type_str {
-                "Image" => 0,
-                "Video" => {
-                    if media_type_str.contains("gif") {
-                        1
-                    } else {
-                        2
-                    }
-                }
-                "Audio" => 3,
-                _ => 4,
-            }
-        };
+        let att_type = classify_attachment_type(att_type_str, &media_type_str);
         let description = att.get("name").and_then(|v| v.as_str()).map(str::to_owned);
         let blurhash = att
             .get("blurhash")
@@ -2092,18 +2071,7 @@ async fn handle_update(
             for att in &attachments {
                 let att_type_str = att.get("type").and_then(|v| v.as_str()).unwrap_or("");
                 let media_type_str = att.get("mediaType").and_then(|v| v.as_str()).unwrap_or("");
-                let att_type: i32 = match att_type_str {
-                    "Image" => 0,
-                    "Video" => {
-                        if media_type_str.contains("gif") {
-                            1
-                        } else {
-                            2
-                        }
-                    }
-                    "Audio" => 3,
-                    _ => 4,
-                };
+                let att_type = classify_attachment_type(att_type_str, media_type_str);
                 let remote_url = match att.get("url").and_then(|v| v.as_str()) {
                     Some(u) if !u.is_empty() => u,
                     _ => continue,
@@ -3266,18 +3234,10 @@ async fn fetch_remote_status_depth(
         .flatten()
     {
         let media_type_str = att.get("mediaType").and_then(|v| v.as_str()).unwrap_or("");
-        let att_type: i32 = match att.get("type").and_then(|v| v.as_str()).unwrap_or("") {
-            "Image" => 0,
-            "Video" => {
-                if media_type_str.contains("gif") {
-                    1
-                } else {
-                    2
-                }
-            }
-            "Audio" => 3,
-            _ => 4,
-        };
+        let att_type = classify_attachment_type(
+            att.get("type").and_then(|v| v.as_str()).unwrap_or(""),
+            media_type_str,
+        );
         let Some(remote_url) = att
             .get("url")
             .and_then(|v| v.as_str())
@@ -3509,6 +3469,23 @@ mod tests {
         assert!(!date_within_skew(&future, chrono::Duration::hours(1)));
         assert!(!date_within_skew("garbage", chrono::Duration::hours(1)));
     }
+
+    #[test]
+    fn attachment_type_prefers_media_type_for_document_attachments() {
+        assert_eq!(classify_attachment_type("Document", "image/webp"), 0);
+        assert_eq!(classify_attachment_type("Document", "image/jpeg"), 0);
+        assert_eq!(classify_attachment_type("Document", "image/gif"), 1);
+        assert_eq!(classify_attachment_type("Document", "video/mp4"), 2);
+        assert_eq!(classify_attachment_type("Document", "audio/mpeg"), 3);
+    }
+
+    #[test]
+    fn attachment_type_falls_back_to_activitypub_type() {
+        assert_eq!(classify_attachment_type("Image", ""), 0);
+        assert_eq!(classify_attachment_type("Video", ""), 2);
+        assert_eq!(classify_attachment_type("Audio", ""), 3);
+        assert_eq!(classify_attachment_type("Document", ""), 4);
+    }
 }
 
 /// Extract a usable media href (and its declared `mediaType`, if any) from an AP
@@ -3549,5 +3526,30 @@ fn attachment_url(value: &Value) -> Option<(String, Option<String>)> {
             fallback
         }
         _ => None,
+    }
+}
+
+fn classify_attachment_type(att_type_str: &str, media_type_str: &str) -> i32 {
+    if media_type_str == "image/gif" {
+        1
+    } else if media_type_str.starts_with("image/") {
+        0
+    } else if media_type_str.starts_with("video/") {
+        2
+    } else if media_type_str.starts_with("audio/") {
+        3
+    } else {
+        match att_type_str {
+            "Image" => 0,
+            "Video" => {
+                if media_type_str.contains("gif") {
+                    1
+                } else {
+                    2
+                }
+            }
+            "Audio" => 3,
+            _ => 4,
+        }
     }
 }
