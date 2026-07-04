@@ -86,12 +86,30 @@ pub async fn shared_inbox(
     if let Err(reason) =
         verify_inbound_signature(&state, &headers, uri.path(), &body, &actor_uri).await
     {
-        if activity_type == "Delete" {
-            tracing::debug!(actor = %actor_uri, %reason, "unverified Delete; accepting without processing");
-            return Ok(StatusCode::ACCEPTED);
+        // Fall back to the FEP-8b32 Object Integrity Proof. Fedify-based servers
+        // (GoToSocial, hackers.pub) sign activities with an `eddsa-jcs-2022`
+        // proof, and their HTTP Signature may use a spec we don't parse or come
+        // from a different host on shared-inbox/forwarded delivery. The proof
+        // authenticates the activity itself, so accept when it verifies.
+        if let Err(proof_reason) = verify_object_integrity(&state, &activity, &actor_uri).await {
+            if activity_type == "Delete" {
+                tracing::debug!(actor = %actor_uri, %reason, "unverified Delete; accepting without processing");
+                return Ok(StatusCode::ACCEPTED);
+            }
+            tracing::warn!(
+                actor = %actor_uri,
+                activity_type,
+                http_signature = %reason,
+                integrity_proof = %proof_reason,
+                "rejecting activity: neither HTTP Signature nor integrity proof verified"
+            );
+            return Err(AppError::Unauthorized);
         }
-        tracing::warn!(actor = %actor_uri, activity_type, %reason, "rejecting activity: HTTP Signature not verified");
-        return Err(AppError::Unauthorized);
+        tracing::debug!(
+            actor = %actor_uri,
+            activity_type,
+            "accepted via FEP-8b32 integrity proof (HTTP Signature unverified)"
+        );
     }
 
     let outcome = match activity_type {
@@ -276,6 +294,63 @@ async fn verify_inbound_signature(
             .map_err(|e| format!("{first_err}; after key refresh: {e}"))
         }
     }
+}
+
+/// Authenticate an inbound activity via its FEP-8b32 Object Integrity Proof.
+///
+/// Used as a fallback when the HTTP Signature can't be verified. The proof's
+/// `verificationMethod` must live on the actor's host and be declared by the
+/// actor as one of its `assertionMethod` keys, which binds the signing key to
+/// the claimed actor.
+async fn verify_object_integrity(
+    state: &AppState,
+    activity: &serde_json::Value,
+    actor_uri: &str,
+) -> Result<(), String> {
+    let (proof, verification_method) =
+        feder_runtime::integrity::extract_integrity_proof(activity)
+            .ok_or_else(|| "no eddsa-jcs-2022 integrity proof".to_string())?;
+
+    // The signing key must belong to the same host as the actor.
+    if actor_uri.is_empty() || !same_host(&verification_method, actor_uri) {
+        return Err(format!(
+            "proof key host does not match actor ({verification_method} vs {actor_uri})"
+        ));
+    }
+
+    // Fetch the actor document and confirm it declares this verification method
+    // as an assertionMethod, then read the Ed25519 public key.
+    let actor_doc = crate::federation::fetch::signed_get_json(state, actor_uri)
+        .await
+        .map_err(|e| format!("could not fetch actor for proof key: {e}"))?;
+    let multibase = assertion_method_key(&actor_doc, &verification_method)
+        .ok_or_else(|| format!("actor does not declare assertionMethod {verification_method}"))?;
+    let public_key = feder_runtime::integrity::decode_ed25519_multikey(&multibase)
+        .map_err(|e| format!("invalid assertionMethod key: {e}"))?;
+
+    feder_runtime::integrity::verify_object_integrity_proof(activity, &proof, &public_key)
+        .map_err(|e| e.to_string())
+}
+
+/// Find the `publicKeyMultibase` of the `assertionMethod` whose id equals
+/// `verification_method` in a fetched actor document. Handles the field being a
+/// single Multikey object or an array of them.
+fn assertion_method_key(actor: &serde_json::Value, verification_method: &str) -> Option<String> {
+    let methods = actor.get("assertionMethod")?;
+    let entries: Vec<&serde_json::Value> = match methods {
+        serde_json::Value::Array(a) => a.iter().collect(),
+        obj @ serde_json::Value::Object(_) => vec![obj],
+        _ => return None,
+    };
+    entries.into_iter().find_map(|m| {
+        if m.get("id").and_then(|v| v.as_str()) == Some(verification_method) {
+            m.get("publicKeyMultibase")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
+        } else {
+            None
+        }
+    })
 }
 
 async fn fetch_public_key(state: &AppState, actor_url: &str) -> anyhow::Result<String> {
