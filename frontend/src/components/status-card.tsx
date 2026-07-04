@@ -149,13 +149,15 @@ export function StatusCard({
   const { openCompose } = useComposeModal()
 
   const isOwn = !!token && getMeId() === status.account.id
-  // Whether the viewer may quote this post. "manual" still allows quoting; the
-  // resulting quote just starts out pending the author's approval. Private and
-  // direct posts are never quotable (the server rejects them anyway).
+  // Whether the viewer may quote this post. "manual" still allows quoting (the
+  // quote starts pending the author's approval); "unknown" means the server
+  // didn't compute a viewer policy for this response (e.g. search-by-URL
+  // results), so allow it optimistically — the server validates on create.
+  // Only an explicit "denied", or a private/direct post, hides the option.
   const currentUserPolicy = status.quoteApproval?.currentUser
   const canQuote =
     !!token &&
-    (currentUserPolicy === 'automatic' || currentUserPolicy === 'manual') &&
+    currentUserPolicy !== 'denied' &&
     status.visibility !== 'private' &&
     status.visibility !== 'direct'
   const hasMenu = isOwn || canQuote
