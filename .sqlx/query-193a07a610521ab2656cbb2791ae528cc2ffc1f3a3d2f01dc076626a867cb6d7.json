@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS(\n                 SELECT 1 FROM blocks WHERE account_id = $1 AND target_account_id = $2\n                 UNION ALL\n                 SELECT 1 FROM account_domain_blocks WHERE account_id = $1 AND domain = $3\n               ) AS \"exists!\"",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "193a07a610521ab2656cbb2791ae528cc2ffc1f3a3d2f01dc076626a867cb6d7"
+}

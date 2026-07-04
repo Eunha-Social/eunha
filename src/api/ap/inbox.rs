@@ -459,6 +459,116 @@ async fn handle_follow(
     .fetch_optional(&state.db)
     .await?;
 
+    // Details for any Accept/Reject we sign as the (local) target and deliver
+    // back to the follower. `object_uri` is the target's own actor URL.
+    let key_id = format!("{object_uri}#main-key");
+    let can_sign = target.private_key.as_deref().is_some_and(|s| !s.is_empty());
+    let follower_inbox = sqlx::query_scalar!(
+        "SELECT inbox_url FROM accounts WHERE id = $1",
+        follower_id,
+    )
+    .fetch_optional(&state.db)
+    .await?
+    .filter(|s| !s.is_empty());
+
+    // Reject the follow up front (Mastodon ActivityPub::Activity::Follow) when
+    // the target blocks the follower — directly or by domain — or has moved.
+    let follower_domain = follower.as_ref().and_then(|f| f.domain.clone());
+    let should_reject = target.moved_to_account_id.is_some()
+        || sqlx::query_scalar!(
+            r#"SELECT EXISTS(
+                 SELECT 1 FROM blocks WHERE account_id = $1 AND target_account_id = $2
+                 UNION ALL
+                 SELECT 1 FROM account_domain_blocks WHERE account_id = $1 AND domain = $3
+               ) AS "exists!""#,
+            target.id,
+            follower_id,
+            follower_domain,
+        )
+        .fetch_one(&state.db)
+        .await?;
+    if should_reject {
+        if can_sign {
+            if let Some(ref inbox) = follower_inbox {
+                let reject_id = format!(
+                    "https://{}/activities/{}",
+                    instance.domain,
+                    crate::snowflake::next_id()
+                );
+                if let Ok(reject) = crate::federation::activity::reject_follow(
+                    &reject_id,
+                    object_uri,
+                    activity_uri,
+                    actor_uri,
+                    object_uri,
+                ) {
+                    if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+                        state,
+                        reject,
+                        vec![inbox.clone()],
+                        key_id.clone(),
+                    )
+                    .await
+                    {
+                        tracing::warn!(error = %e, "failed to enqueue Reject(Follow)");
+                    }
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    // Fast-forward a repeat Follow: if the follower already follows the target,
+    // refresh the stored uri and re-send Accept rather than opening a new
+    // request (matches Mastodon's existing-follow fast path).
+    let already_follows = sqlx::query_scalar!(
+        r#"SELECT EXISTS(
+             SELECT 1 FROM follows WHERE account_id = $1 AND target_account_id = $2
+           ) AS "exists!""#,
+        follower_id,
+        target.id,
+    )
+    .fetch_one(&state.db)
+    .await?;
+    if already_follows {
+        sqlx::query!(
+            "UPDATE follows SET uri = $3, updated_at = now() WHERE account_id = $1 AND target_account_id = $2",
+            follower_id,
+            target.id,
+            activity_uri,
+        )
+        .execute(&state.db)
+        .await?;
+        if can_sign {
+            if let Some(ref inbox) = follower_inbox {
+                let accept_id = format!(
+                    "https://{}/activities/{}",
+                    instance.domain,
+                    crate::snowflake::next_id()
+                );
+                if let Ok(accept) = crate::federation::activity::accept_follow(
+                    &accept_id,
+                    object_uri,
+                    activity_uri,
+                    actor_uri,
+                    object_uri,
+                ) {
+                    if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+                        state,
+                        accept,
+                        vec![inbox.clone()],
+                        key_id.clone(),
+                    )
+                    .await
+                    {
+                        tracing::warn!(error = %e, "failed to enqueue Accept(Follow)");
+                    }
+                }
+            }
+        }
+        return Ok(());
+    }
+
     // Decide what to do via feder-core's portable inbound logic; eunha executes
     // the returned Actions against Postgres + delivery.
     let (Ok(follow_id), Ok(actor_iri), Ok(object_iri)) = (
