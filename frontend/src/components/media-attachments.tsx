@@ -20,7 +20,7 @@ function ImageItem({ m }: { m: mastodon.v1.MediaAttachment }) {
         <Blurhash hash={m.blurhash} className="absolute inset-0 h-full w-full" />
       )}
       <img
-        src={preview}
+        src={full}
         alt={m.description ?? ''}
         title={m.description ?? undefined}
         loading="lazy"
