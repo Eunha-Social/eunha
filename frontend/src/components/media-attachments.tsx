@@ -89,23 +89,37 @@ export function MediaAttachments({
   const [revealed, setRevealed] = useState(!sensitive)
   if (attachments.length === 0) return null
 
+  const count = attachments.length
+  const allVisual = attachments.every(
+    (m) => m.type !== 'audio' && m.type !== 'unknown',
+  )
+
   return (
     <div className="relative mt-2">
       <div
         className={cn(
-          'grid gap-1 overflow-hidden rounded-xl',
-          attachments.length === 1 ? 'grid-cols-1' : 'grid-cols-2',
+          'gap-1 overflow-hidden rounded-xl',
+          allVisual
+            ? cn(
+                'grid',
+                count === 1 ? 'aspect-[16/10]' : 'aspect-[16/9]',
+                count === 1 ? 'grid-cols-1' : 'grid-cols-2',
+                count >= 3 && 'grid-rows-2',
+              )
+            : 'flex flex-col',
           !revealed && 'pointer-events-none',
         )}
       >
-        {attachments.map((m) => {
+        {attachments.map((m, i) => {
           const visual = m.type !== 'audio' && m.type !== 'unknown'
           return (
             <div
               key={m.id}
               className={cn(
                 'bg-muted overflow-hidden',
-                visual && 'aspect-[16/10] max-h-80',
+                allVisual && visual && 'h-full w-full',
+                // 3-up layout: first image spans the full-height left column
+                count === 3 && i === 0 && 'row-span-2',
                 !revealed && 'blur-xl',
               )}
             >
