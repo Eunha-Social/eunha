@@ -3740,7 +3740,7 @@ async fn fetch_account(state: &AppState, id: i64) -> AppResult<Account> {
         .ok_or(AppError::NotFound)
 }
 
-async fn federate_status_update(
+pub(crate) async fn federate_status_update(
     state: &AppState,
     status_id: i64,
     account: &Account,

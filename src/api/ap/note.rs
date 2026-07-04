@@ -29,6 +29,14 @@ pub fn note_context() -> Value {
             "quote": { "@id": "fep:quote", "@type": "@id" },
             "quoteUrl": { "@id": "fep:quote", "@type": "@id" },
             "_misskey_quote": "https://misskey-hub.net/ns#quoteUri",
+            "quoteAuthorization": { "@id": "fep:quoteAuthorization", "@type": "@id" },
+            // FEP-7888 / GoToSocial interaction policy terms, so the
+            // `interactionPolicy` we emit below survives JSON-LD expansion.
+            "gts": "https://gotosocial.org/ns#",
+            "interactionPolicy": { "@id": "gts:interactionPolicy", "@type": "@id" },
+            "canQuote": { "@id": "gts:canQuote", "@type": "@id" },
+            "automaticApproval": { "@id": "gts:automaticApproval", "@type": "@id" },
+            "manualApproval": { "@id": "gts:manualApproval", "@type": "@id" },
         }
     ])
 }
@@ -83,7 +91,8 @@ pub async fn build_note(
                   s.created_at, s.edited_at, s.uri, s.url, s.in_reply_to_id, s.language,
                   s.quote_approval_policy,
                   a.username, a.uri AS account_uri, a.id_scheme,
-                  quoted_s.uri AS "quote_uri?"
+                  quoted_s.uri AS "quote_uri?",
+                  qr.approval_uri AS "quote_authorization_uri?"
            FROM statuses s
            JOIN accounts a ON a.id = s.account_id
            -- Include pending (0) and accepted (1) quotes, not rejected/revoked:
@@ -352,11 +361,20 @@ pub async fn build_note(
         note["updated"] = json!(edited.and_utc().to_rfc3339());
     }
 
-    // FEP-044f quote linkage.
+    // FEP-044f quote linkage. `quote`/`quoteUrl` declare the quote relationship
+    // (present from creation, even while pending); `quoteAuthorization` proves
+    // it and is added only once the quoted author's server grants approval.
     if let Some(q) = s.quote_uri.clone().filter(|u| !u.is_empty()) {
         note["quote"] = json!(q);
         note["quoteUrl"] = json!(q);
         note["_misskey_quote"] = json!(q);
+        if let Some(auth) = s
+            .quote_authorization_uri
+            .clone()
+            .filter(|u| !u.is_empty())
+        {
+            note["quoteAuthorization"] = json!(auth);
+        }
     }
 
     // Quote interaction policy advertisement.

@@ -1748,7 +1748,7 @@ async fn handle_accept_reject(
         // Quote-request consent: the object may be one of our outstanding
         // QuoteRequests (matched by quotes.activity_uri).
         let quote = sqlx::query!(
-            r#"SELECT q.id, a.uri AS quoted_account_uri
+            r#"SELECT q.id, q.status_id, a.uri AS quoted_account_uri
                FROM quotes q JOIN accounts a ON a.id = q.quoted_account_id
                WHERE q.activity_uri = $1 AND q.state = 0"#,
             uri,
@@ -1777,6 +1777,36 @@ async fn handle_accept_reject(
                     )
                     .execute(&state.db)
                     .await?;
+                    // Re-federate the now-approved quote so recipients receive
+                    // the `quoteAuthorization` stamp (Mastodon sends an Update
+                    // on acceptance). Best-effort; a failure here must not fail
+                    // ingesting the Accept.
+                    if let Ok(Some(quoting)) = sqlx::query_as!(
+                        crate::db::models::Status,
+                        "SELECT * FROM statuses WHERE id = $1 AND deleted_at IS NULL",
+                        q.status_id,
+                    )
+                    .fetch_optional(&state.db)
+                    .await
+                    {
+                        if let Ok(Some(author)) = sqlx::query_as!(
+                            crate::db::models::Account,
+                            "SELECT * FROM accounts WHERE id = $1",
+                            quoting.account_id,
+                        )
+                        .fetch_optional(&state.db)
+                        .await
+                        {
+                            if let Err(e) =
+                                crate::api::mastodon::statuses::federate_status_update(
+                                    state, quoting.id, &author, &quoting,
+                                )
+                                .await
+                            {
+                                tracing::warn!(error = %e, "failed to federate quote acceptance Update");
+                            }
+                        }
+                    }
                 } else {
                     sqlx::query!(
                         "UPDATE quotes SET state = 2, updated_at = now() WHERE id = $1",
