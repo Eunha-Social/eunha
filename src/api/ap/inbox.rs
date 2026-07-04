@@ -41,6 +41,46 @@ fn same_host(a: &str, b: &str) -> bool {
     }
 }
 
+/// TTL of a "delete arrived first" tombstone, matching Mastodon's 6 hours.
+const DELETE_UPON_ARRIVAL_TTL: i64 = 6 * 60 * 60;
+
+fn delete_upon_arrival_key(actor: &str, uri: &str) -> String {
+    format!("delete_upon_arrival:{actor}:{uri}")
+}
+
+/// Remember that an Undo/Delete for `uri` from `actor` arrived, so a later,
+/// out-of-order activity carrying that id is skipped rather than resurrecting
+/// the deleted object (Mastodon's `delete_later!`).
+async fn delete_later(state: &AppState, actor: &str, uri: &str) {
+    if actor.is_empty() || uri.is_empty() {
+        return;
+    }
+    let mut redis = state.redis.clone();
+    let key = delete_upon_arrival_key(actor, uri);
+    let _: redis::RedisResult<()> = redis::cmd("SETEX")
+        .arg(&key)
+        .arg(DELETE_UPON_ARRIVAL_TTL)
+        .arg(1)
+        .query_async(&mut redis)
+        .await;
+}
+
+/// Whether an Undo/Delete for `uri` from `actor` already arrived (Mastodon's
+/// `delete_arrived_first?`).
+async fn delete_arrived_first(state: &AppState, actor: &str, uri: &str) -> bool {
+    if actor.is_empty() || uri.is_empty() {
+        return false;
+    }
+    let mut redis = state.redis.clone();
+    let key = delete_upon_arrival_key(actor, uri);
+    let exists: i64 = redis::cmd("EXISTS")
+        .arg(&key)
+        .query_async(&mut redis)
+        .await
+        .unwrap_or(0);
+    exists == 1
+}
+
 /// Handles both `/inbox` (shared inbox) and `/users/:username/inbox`.
 pub async fn shared_inbox(
     State(state): State<AppState>,
@@ -402,6 +442,12 @@ async fn handle_follow(
         .and_then(|o| o.as_str())
         .unwrap_or("");
     let activity_uri = activity.get("id").and_then(|i| i.as_str()).unwrap_or("");
+
+    // Skip a Follow whose Undo already arrived out of order: the Undo(Follow)
+    // recorded a tombstone for this activity id (Mastodon's delete_arrived_first?).
+    if delete_arrived_first(state, actor_uri, activity_uri).await {
+        return Ok(());
+    }
 
     // The instance actor cannot be followed (Mastodon rejects these): reply with
     // a Reject signed by the instance actor.
@@ -767,12 +813,19 @@ async fn handle_undo(
                 .and_then(|o| o.get("id"))
                 .and_then(|i| i.as_str())
                 .unwrap_or("");
-            sqlx::query!("DELETE FROM follows WHERE uri = $1", follow_uri)
+            let undone_follow = sqlx::query!("DELETE FROM follows WHERE uri = $1", follow_uri)
                 .execute(&state.db)
                 .await?;
-            sqlx::query!("DELETE FROM follow_requests WHERE uri = $1", follow_uri)
-                .execute(&state.db)
-                .await?;
+            let undone_request =
+                sqlx::query!("DELETE FROM follow_requests WHERE uri = $1", follow_uri)
+                    .execute(&state.db)
+                    .await?;
+            // The Follow may not have been processed yet (out-of-order delivery);
+            // remember this Undo so a late Follow with the same id is skipped
+            // rather than resurrecting the follow.
+            if undone_follow.rows_affected() == 0 && undone_request.rows_affected() == 0 {
+                delete_later(state, actor_uri, follow_uri).await;
+            }
         }
         Some("Like") => {
             // object.object is the liked status URI
