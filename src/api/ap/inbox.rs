@@ -828,6 +828,10 @@ async fn handle_undo(
             }
         }
         Some("Like") => {
+            let like_uri = object
+                .and_then(|o| o.get("id"))
+                .and_then(|i| i.as_str())
+                .unwrap_or("");
             // object.object is the liked status URI
             let status_uri = object
                 .and_then(|o| o.get("object"))
@@ -847,18 +851,23 @@ async fn handle_undo(
                 sqlx::query_scalar!("SELECT id FROM accounts WHERE uri = $1", actor_uri)
                     .fetch_optional(&state.db)
                     .await?;
+            let mut removed = false;
             if let (Some(sid), Some(aid)) = (status_id, account_id) {
-                sqlx::query!(
+                let deleted = sqlx::query!(
                     "DELETE FROM favourites WHERE account_id = $1 AND status_id = $2",
                     aid,
                     sid
                 )
                 .execute(&state.db)
                 .await?;
+                removed = deleted.rows_affected() > 0;
                 sqlx::query!(
                     r#"UPDATE status_stats SET favourites_count = (SELECT COUNT(*) FROM favourites WHERE status_id = $1), updated_at = now() WHERE status_id = $1"#,
                     sid
                 ).execute(&state.db).await?;
+            }
+            if !removed {
+                delete_later(state, actor_uri, like_uri).await;
             }
         }
         Some("Announce") => {
@@ -874,17 +883,24 @@ async fn handle_undo(
                 )
                 .fetch_optional(&state.db)
                 .await?;
-                if let Some(row) = deleted {
-                    if let Some(original_id) = row.reblog_of_id {
-                        sqlx::query!(
-                            r#"UPDATE status_stats SET reblogs_count = (SELECT COUNT(*) FROM statuses WHERE reblog_of_id = $1 AND deleted_at IS NULL), updated_at = now() WHERE status_id = $1"#,
-                            original_id,
-                        ).execute(&state.db).await?;
+                match deleted {
+                    Some(row) => {
+                        if let Some(original_id) = row.reblog_of_id {
+                            sqlx::query!(
+                                r#"UPDATE status_stats SET reblogs_count = (SELECT COUNT(*) FROM statuses WHERE reblog_of_id = $1 AND deleted_at IS NULL), updated_at = now() WHERE status_id = $1"#,
+                                original_id,
+                            ).execute(&state.db).await?;
+                        }
                     }
+                    None => delete_later(state, actor_uri, announce_uri).await,
                 }
             }
         }
         Some("Block") => {
+            let block_uri = object
+                .and_then(|o| o.get("id"))
+                .and_then(|i| i.as_str())
+                .unwrap_or("");
             let block_object_uri = object
                 .and_then(|o| o.get("object"))
                 .and_then(|v| {
@@ -905,14 +921,19 @@ async fn handle_undo(
             )
             .fetch_optional(&state.db)
             .await?;
+            let mut removed = false;
             if let (Some(bid), Some(eid)) = (blocker_id, blockee_id) {
-                sqlx::query!(
+                let deleted = sqlx::query!(
                     "DELETE FROM blocks WHERE account_id = $1 AND target_account_id = $2",
                     bid,
                     eid
                 )
                 .execute(&state.db)
                 .await?;
+                removed = deleted.rows_affected() > 0;
+            }
+            if !removed {
+                delete_later(state, actor_uri, block_uri).await;
             }
         }
         _ => {}
@@ -944,6 +965,12 @@ async fn handle_create(
     let actor_uri = activity.get("actor").and_then(|a| a.as_str()).unwrap_or("");
     let note_uri = object.get("id").and_then(|i| i.as_str()).unwrap_or("");
     if note_uri.is_empty() || actor_uri.is_empty() {
+        return Ok(());
+    }
+
+    // Skip a Create whose Delete already arrived out of order (Redis tombstone),
+    // in addition to the persistent tombstone check below.
+    if delete_arrived_first(state, actor_uri, note_uri).await {
         return Ok(());
     }
 
@@ -1675,9 +1702,14 @@ async fn handle_delete(
             }
 
             // Delete(Note/Tombstone) — soft-delete the status
-            sqlx::query!("UPDATE statuses SET deleted_at = now() WHERE uri = $1", uri,)
+            let deleted = sqlx::query!("UPDATE statuses SET deleted_at = now() WHERE uri = $1", uri,)
                 .execute(&state.db)
                 .await?;
+            // If the status isn't known yet (out-of-order delivery), remember the
+            // Delete so a late Create with this URI is skipped.
+            if deleted.rows_affected() == 0 {
+                delete_later(state, actor_uri, uri).await;
+            }
 
             // Create a tombstone so that a subsequent Create with the same URI is rejected.
             let actor_id =
@@ -1711,6 +1743,11 @@ async fn handle_announce(
     let actor_uri = activity.get("actor").and_then(|a| a.as_str()).unwrap_or("");
     let object = activity.get("object");
     let announce_uri = activity.get("id").and_then(|i| i.as_str()).unwrap_or("");
+
+    // Skip an Announce whose Undo already arrived out of order.
+    if delete_arrived_first(state, actor_uri, announce_uri).await {
+        return Ok(());
+    }
 
     // object can be a URI string or an embedded object
     let boosted_uri = object.and_then(|o| {
@@ -1843,10 +1880,16 @@ async fn handle_like(
     activity: &Value,
 ) -> AppResult<()> {
     let actor_uri = activity.get("actor").and_then(|a| a.as_str()).unwrap_or("");
+    let activity_uri = activity.get("id").and_then(|i| i.as_str()).unwrap_or("");
     let object_uri = activity
         .get("object")
         .and_then(|o| o.as_str())
         .unwrap_or("");
+
+    // Skip a Like whose Undo already arrived out of order.
+    if delete_arrived_first(state, actor_uri, activity_uri).await {
+        return Ok(());
+    }
 
     let mut status_id = sqlx::query_scalar!("SELECT id FROM statuses WHERE uri = $1", object_uri)
         .fetch_optional(&state.db)
@@ -2567,6 +2610,13 @@ async fn handle_poll_vote_note(
 
 async fn handle_block(state: &AppState, activity: &Value) -> AppResult<()> {
     let actor_uri = activity.get("actor").and_then(|a| a.as_str()).unwrap_or("");
+    let activity_uri = activity.get("id").and_then(|i| i.as_str()).unwrap_or("");
+
+    // Skip a Block whose Undo already arrived out of order.
+    if delete_arrived_first(state, actor_uri, activity_uri).await {
+        return Ok(());
+    }
+
     let object_uri = activity
         .get("object")
         .and_then(|o| {
