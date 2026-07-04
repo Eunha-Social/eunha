@@ -1,7 +1,16 @@
-To use the migration tool, first restore the dump into a temp Postgres database, then:                                                                                                                                                                                                                                                                                  
-pg_restore -d mastodon_src seoulearth_.../pg_dump.custom                                                                                                                                                                                                                                                                                                                
-cargo run --bin eunha-migrate-mastodon -- \                                                                                                                                                                                                                                                                      
---mastodon-db postgres://user@localhost/mastodon_src \                                                                                                                                                                                                                                                                                                                
---eunha-db postgres://eunha:eunha@localhost/eunha \                                                                                                                                                                                                                                                                                                                   
---domain seoul.earth                                                                                                                                                                                                                                                                                                                                                  
+Eunha
+=====
 
+Rust re-implementation of Mastodon.
+
+We aim for 100% Mastodon feature parity and compatibility.
+
+Contributing
+------------
+
+Use mise for all tasks. See mise.toml.
+
+Federation
+----------
+
+For all federation related tasks, we use [feder](https://github.com/limeburst/feder).
