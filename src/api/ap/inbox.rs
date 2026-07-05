@@ -81,6 +81,71 @@ async fn delete_arrived_first(state: &AppState, actor: &str, uri: &str) -> bool 
     exists == 1
 }
 
+/// Autorelease TTL for the `create:{uri}` serialization lock, matching
+/// Mastodon's default `with_redis_lock` timeout.
+const CREATE_LOCK_TTL_MS: usize = 15 * 60 * 1000;
+
+/// Best-effort Redis lock guard: releases the lock (only if still the owner) on
+/// drop.
+struct RedisLock {
+    redis: redis::aio::ConnectionManager,
+    key: String,
+    token: String,
+}
+
+impl Drop for RedisLock {
+    fn drop(&mut self) {
+        let mut redis = self.redis.clone();
+        let key = std::mem::take(&mut self.key);
+        let token = std::mem::take(&mut self.token);
+        tokio::spawn(async move {
+            // Release only if we still hold the lock (compare-and-delete).
+            let _: redis::RedisResult<()> = redis::cmd("EVAL")
+                .arg("if redis.call('get', KEYS[1]) == ARGV[1] then return redis.call('del', KEYS[1]) else return 0 end")
+                .arg(1)
+                .arg(&key)
+                .arg(&token)
+                .query_async(&mut redis)
+                .await;
+        });
+    }
+}
+
+/// Acquire the `create:{uri}` lock that serializes a status Create against a
+/// concurrent Delete's `delete_later`, so the tombstone can't be set between the
+/// Create's `delete_arrived_first?` check and its insert (Mastodon's
+/// `with_redis_lock("create:#{object_uri}")`). Best-effort: retries briefly,
+/// then proceeds without the lock rather than blocking an inbox request.
+async fn acquire_create_lock(state: &AppState, uri: &str) -> Option<RedisLock> {
+    if uri.is_empty() {
+        return None;
+    }
+    let key = format!("create:{uri}");
+    let token = crate::snowflake::next_id().to_string();
+    let mut redis = state.redis.clone();
+    for attempt in 0..40 {
+        let acquired: redis::RedisResult<Option<String>> = redis::cmd("SET")
+            .arg(&key)
+            .arg(&token)
+            .arg("NX")
+            .arg("PX")
+            .arg(CREATE_LOCK_TTL_MS)
+            .query_async(&mut redis)
+            .await;
+        if matches!(acquired, Ok(Some(_))) {
+            return Some(RedisLock {
+                redis: state.redis.clone(),
+                key,
+                token,
+            });
+        }
+        if attempt < 39 {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    }
+    None
+}
+
 /// Handles both `/inbox` (shared inbox) and `/users/:username/inbox`.
 pub async fn shared_inbox(
     State(state): State<AppState>,
@@ -981,6 +1046,11 @@ async fn handle_create(
         return Ok(());
     }
 
+    // Serialize against a concurrent Delete for this uri so its `delete_later`
+    // can't slip in between the check below and our insert. Held for the whole
+    // creation (released when this guard drops on return).
+    let _create_lock = acquire_create_lock(state, note_uri).await;
+
     // Skip a Create whose Delete already arrived out of order (Redis tombstone),
     // in addition to the persistent tombstone check below.
     if delete_arrived_first(state, actor_uri, note_uri).await {
@@ -1714,7 +1784,10 @@ async fn handle_delete(
                 return Ok(());
             }
 
-            // Delete(Note/Tombstone) — soft-delete the status
+            // Delete(Note/Tombstone) — soft-delete the status. Serialize against
+            // a concurrent Create for this uri (same `create:{uri}` lock) so we
+            // observe its committed status and it observes our tombstone.
+            let _create_lock = acquire_create_lock(state, uri).await;
             let deleted = sqlx::query!("UPDATE statuses SET deleted_at = now() WHERE uri = $1", uri,)
                 .execute(&state.db)
                 .await?;
