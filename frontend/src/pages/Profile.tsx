@@ -487,13 +487,13 @@ export default function Profile() {
                   {rel.following ? 'Following' : rel.requested ? 'Requested' : 'Follow'}
                 </Button>
                 {rel.following && (
-                  <label className="text-muted-foreground flex items-center gap-2 text-xs">
+                  <label className="flex cursor-pointer items-center gap-2 text-xs">
                     <input
                       type="checkbox"
                       checked={rel.showingReblogs}
                       onChange={toggleReblogs}
                       disabled={relationshipBusy}
-                      className="accent-primary size-3.5"
+                      className="accent-primary size-3.5 cursor-pointer"
                     />
                     Show boosts
                   </label>
