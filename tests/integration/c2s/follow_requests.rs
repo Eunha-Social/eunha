@@ -171,10 +171,12 @@ async fn test_authorize_follow_request_creates_notification() {
         )
         .await;
 
-    // Bob should have a "follow" notification from Alice.
+    // Accepting turns Alice's follow_request notification into a `follow`
+    // notification in her own column — "Bob followed you". (Mastodon sends no
+    // notification to the requester; Bob would learn via the federated Accept.)
     let notifs: Vec<Value> = ctx
         .api
-        .get("/api/v1/notifications", Some(&ctx.bob_token))
+        .get("/api/v1/notifications", Some(&ctx.alice_token))
         .await
         .json()
         .await
@@ -182,11 +184,11 @@ async fn test_authorize_follow_request_creates_notification() {
 
     let follow_notif = notifs.iter().find(|n| {
         n["type"].as_str() == Some("follow")
-            && n["account"]["id"].as_str() == Some(ctx.alice_id.as_str())
+            && n["account"]["id"].as_str() == Some(ctx.bob_id.as_str())
     });
     assert!(
         follow_notif.is_some(),
-        "Bob should receive a follow notification when his request is accepted"
+        "Alice should receive a follow notification when she accepts Bob's request"
     );
 }
 
