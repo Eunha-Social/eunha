@@ -7,6 +7,7 @@ pub mod email;
 pub mod error;
 pub mod federation;
 pub mod feed;
+pub mod link_verification;
 pub mod locale;
 pub mod media;
 pub mod middleware;

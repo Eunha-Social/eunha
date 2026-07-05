@@ -1483,6 +1483,63 @@ async fn test_update_credentials_length_limits() {
     );
 }
 
+/// A field's `verified_at` (rel="me" link verification) survives an edit that
+/// keeps the value unchanged, but is cleared when the value changes — matching
+/// Mastodon's `Account#fields_attributes=`.
+#[tokio::test]
+async fn test_update_credentials_preserves_verified_at() {
+    let ctx = TestContext::new("update-verified").await;
+
+    let patch = |form: reqwest::multipart::Form| {
+        ctx.api
+            .http
+            .patch(ctx.api.url("/api/v1/accounts/update_credentials"))
+            .header("host", &ctx.api.host)
+            .bearer_auth(&ctx.alice_token)
+            .multipart(form)
+    };
+
+    // Save a field with a URL value.
+    let form = reqwest::multipart::Form::new()
+        .text("fields_attributes[0][name]", "Website")
+        .text("fields_attributes[0][value]", "https://alice.example");
+    assert_eq!(patch(form).send().await.unwrap().status(), StatusCode::OK);
+
+    // Simulate a completed verification by stamping verified_at directly.
+    let alice_id: i64 = ctx.alice_id.parse().unwrap();
+    sqlx::query!(
+        r#"UPDATE accounts
+           SET fields = '[{"name":"Website","value":"https://alice.example","verified_at":"2026-01-01T00:00:00.000Z"}]'::jsonb
+           WHERE id = $1"#,
+        alice_id,
+    )
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+
+    // Edit only the name; the value is unchanged, so verified_at must persist.
+    let form = reqwest::multipart::Form::new()
+        .text("fields_attributes[0][name]", "Homepage")
+        .text("fields_attributes[0][value]", "https://alice.example");
+    let body: Value = patch(form).send().await.unwrap().json().await.unwrap();
+    assert_eq!(body["fields"][0]["name"].as_str(), Some("Homepage"));
+    assert_eq!(
+        body["fields"][0]["verified_at"].as_str(),
+        Some("2026-01-01T00:00:00.000Z"),
+        "verified_at must survive an edit that keeps the value"
+    );
+
+    // Change the value; verified_at must clear.
+    let form = reqwest::multipart::Form::new()
+        .text("fields_attributes[0][name]", "Homepage")
+        .text("fields_attributes[0][value]", "https://elsewhere.example");
+    let body: Value = patch(form).send().await.unwrap().json().await.unwrap();
+    assert!(
+        body["fields"][0]["verified_at"].is_null(),
+        "verified_at must clear when the value changes"
+    );
+}
+
 /// update_credentials rejects more than 4 profile fields (Mastodon
 /// Account::DEFAULT_FIELDS_SIZE) and over-long field values.
 #[tokio::test]

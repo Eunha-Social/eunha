@@ -2251,10 +2251,29 @@ async fn do_update_credentials(
                 ));
             }
         }
+        // Preserve an existing `verified_at` when a field's value is unchanged,
+        // mirroring Mastodon's `Account#fields_attributes=`; a changed value
+        // clears the badge and re-verification is enqueued below.
+        let old_fields: Vec<serde_json::Value> = sqlx::query_scalar!(
+            "SELECT fields FROM accounts WHERE id = $1",
+            auth.account_id,
+        )
+        .fetch_one(&state.db)
+        .await?
+        .and_then(|v| v.as_array().cloned())
+        .unwrap_or_default();
         let fields_json: serde_json::Value = fields
             .into_iter()
             .filter(|(n, _)| !n.is_empty())
-            .map(|(n, v)| serde_json::json!({"name": n, "value": v, "verified_at": null}))
+            .map(|(n, v)| {
+                let verified_at = old_fields
+                    .iter()
+                    .find(|of| of.get("value").and_then(|ov| ov.as_str()) == Some(v.as_str()))
+                    .and_then(|of| of.get("verified_at").cloned())
+                    .filter(|va| !va.is_null())
+                    .unwrap_or(serde_json::Value::Null);
+                serde_json::json!({"name": n, "value": v, "verified_at": verified_at})
+            })
             .collect();
         sqlx::query!(
             "UPDATE accounts SET fields = $1 WHERE id = $2",
@@ -2346,6 +2365,7 @@ pub async fn update_credentials(
     auth.require_scope("write:accounts")?;
     let account = do_update_credentials(&state, &auth, multipart).await?;
     distribute_account_update(&state, &instance.domain, &account).await;
+    crate::link_verification::spawn(&state, auth.account_id);
     build_credential_account_response(&state, &auth, account).await
 }
 
@@ -2362,6 +2382,7 @@ pub async fn patch_profile(
     auth.require_scope("write:accounts")?;
     let account = do_update_credentials(&state, &auth, multipart).await?;
     distribute_account_update(&state, &instance.domain, &account).await;
+    crate::link_verification::spawn(&state, auth.account_id);
 
     let domain = &instance.domain;
     let featured_tag_rows = sqlx::query!(

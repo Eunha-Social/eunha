@@ -15,7 +15,7 @@ pub fn init_local_domain(domain: String) {
     LOCAL_DOMAIN.set(domain).ok();
 }
 
-fn local_domain() -> &'static str {
+pub fn local_domain() -> &'static str {
     LOCAL_DOMAIN.get().map(|s| s.as_str()).unwrap_or("")
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ImageUp, Pencil, Trash2, UserPlus } from 'lucide-react'
+import { CheckCircle2, ImageUp, Pencil, Trash2, UserPlus } from 'lucide-react'
 
 import type { mastodon } from '../masto.ts'
 import {
@@ -896,10 +896,18 @@ export default function Profile() {
                     className="text-muted-foreground truncate font-medium"
                     dangerouslySetInnerHTML={{ __html: field.name }}
                   />
-                  <dd
-                    className="[&_a]:text-primary min-w-0 [&_a]:underline"
-                    dangerouslySetInnerHTML={{ __html: field.value }}
-                  />
+                  <dd className="flex min-w-0 items-center gap-1">
+                    <span
+                      className="[&_a]:text-primary min-w-0 truncate [&_a]:underline"
+                      dangerouslySetInnerHTML={{ __html: field.value }}
+                    />
+                    {field.verifiedAt && (
+                      <CheckCircle2
+                        className="size-4 shrink-0 text-emerald-600"
+                        aria-label={`Verified ${new Date(field.verifiedAt).toLocaleDateString()}`}
+                      />
+                    )}
+                  </dd>
                 </div>
               ))}
             </dl>

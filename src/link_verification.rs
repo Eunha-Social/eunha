@@ -1,0 +1,229 @@
+//! rel="me" profile link verification, mirroring Mastodon's `VerifyLinkService`
+//! and `VerifyAccountLinksWorker`.
+//!
+//! When a local account saves profile metadata fields, any field whose value is
+//! a plain `https` URL is a candidate for verification. We fetch that URL and
+//! look for an `<a rel="me">` / `<link rel="me">` element pointing back at the
+//! account's profile URL. If found, the field is stamped with `verified_at`,
+//! which the API surfaces so clients can render the green "verified link" badge.
+//!
+//! Verification runs asynchronously after `update_credentials`, exactly like
+//! Mastodon enqueues `VerifyAccountLinksWorker`. Already-verified fields are left
+//! untouched; a field only loses its badge when its value changes (handled at
+//! save time by preserving `verified_at` only for unchanged values).
+
+use std::time::Duration;
+
+use scraper::{Html, Selector};
+use serde_json::Value;
+
+use crate::state::AppState;
+
+/// Mastodon `Account::Field#verifiable?`: the value must be a plain `https` URL
+/// with a host, no userinfo, and no IDN host. (Mastodon also requires a
+/// normalized path; the `url` crate normalizes on parse, so a round-trippable
+/// ASCII URL satisfies that.)
+pub fn is_verifiable(value: &str) -> bool {
+    let Ok(u) = url::Url::parse(value) else {
+        return false;
+    };
+    if u.scheme() != "https" {
+        return false;
+    }
+    if !u.username().is_empty() || u.password().is_some() {
+        return false;
+    }
+    let Some(host) = u.host_str() else {
+        return false;
+    };
+    // Reject IDN/punycode hosts — Mastodon skips these (normalized_host != host).
+    if !host.is_ascii() || host.starts_with("xn--") || host.contains(".xn--") {
+        return false;
+    }
+    true
+}
+
+/// Extract the `href`s of every `<a>`/`<link>` element that carries `rel="me"`
+/// (rel is a space-separated token list, matched case-insensitively).
+fn rel_me_hrefs(html: &str) -> Vec<String> {
+    let doc = Html::parse_document(html);
+    // unwrap: static selector, always valid.
+    let sel = Selector::parse("a[rel], link[rel]").unwrap();
+    doc.select(&sel)
+        .filter_map(|el| {
+            let rel = el.value().attr("rel")?;
+            let is_me = rel.split_whitespace().any(|t| t.eq_ignore_ascii_case("me"));
+            if is_me {
+                el.value().attr("href").map(str::to_string)
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+/// Fetch `url` and return whether it links back to `link_back` via `rel="me"`.
+/// Mirrors `VerifyLinkService#link_back_present?` (minus the redirect-follow
+/// fallback used by a handful of services).
+async fn links_back(http: &reqwest::Client, url: &str, link_back: &str) -> bool {
+    // Reuse the SSRF-guarded client and validate the target up front, matching
+    // how preview cards are fetched.
+    if crate::federation::safe_fetch::validate_url(url).is_err() {
+        return false;
+    }
+    let Ok(resp) = http
+        .get(url)
+        .header("Accept", "text/html")
+        .timeout(Duration::from_secs(5))
+        .send()
+        .await
+    else {
+        return false;
+    };
+    if !resp.status().is_success() {
+        return false;
+    }
+    let is_html = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_none_or(|ct| ct.contains("text/html"));
+    if !is_html {
+        return false;
+    }
+    let Ok(body) = resp.text().await else {
+        return false;
+    };
+    let link_back_lc = link_back.to_lowercase();
+    rel_me_hrefs(&body)
+        .iter()
+        .any(|href| href.to_lowercase() == link_back_lc)
+}
+
+/// Spawn a background task that verifies the unverified `rel="me"` links on a
+/// local account's profile fields, stamping `verified_at` on success.
+pub fn spawn(state: &AppState, account_id: i64) {
+    let state = state.clone();
+    tokio::spawn(async move {
+        if let Err(e) = verify_account_links(&state, account_id).await {
+            tracing::warn!(error = %e, account_id, "link verification failed");
+        }
+    });
+}
+
+async fn verify_account_links(state: &AppState, account_id: i64) -> anyhow::Result<()> {
+    // Local accounts only (domain IS NULL), matching Mastodon's worker.
+    let row = sqlx::query!(
+        r#"SELECT username, fields FROM accounts WHERE id = $1 AND domain IS NULL"#,
+        account_id,
+    )
+    .fetch_optional(&state.db)
+    .await?;
+    let Some(row) = row else {
+        return Ok(());
+    };
+    let Some(mut fields) = row.fields.and_then(|v| v.as_array().cloned()) else {
+        return Ok(());
+    };
+
+    let link_back = format!(
+        "https://{}/@{}",
+        crate::api::mastodon::convert::local_domain(),
+        row.username,
+    );
+
+    let mut changed = false;
+    for field in &mut fields {
+        let already_verified = field
+            .get("verified_at")
+            .is_some_and(|v| !v.is_null());
+        let Some(value) = field.get("value").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        if already_verified || !is_verifiable(value) {
+            continue;
+        }
+        if links_back(&state.fetch, value, &link_back).await {
+            let now = crate::api::mastodon::convert::mastodon_date(chrono::Utc::now().naive_utc());
+            if let Some(obj) = field.as_object_mut() {
+                obj.insert("verified_at".into(), Value::String(now));
+                changed = true;
+            }
+        }
+    }
+
+    if changed {
+        sqlx::query!(
+            "UPDATE accounts SET fields = $1, updated_at = now() WHERE id = $2",
+            Value::Array(fields),
+            account_id,
+        )
+        .execute(&state.db)
+        .await?;
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn verifiable_accepts_plain_https_urls() {
+        assert!(is_verifiable("https://example.com"));
+        assert!(is_verifiable("https://example.com/~me"));
+        assert!(is_verifiable("https://sub.example.com/path"));
+    }
+
+    #[test]
+    fn verifiable_rejects_non_candidates() {
+        assert!(!is_verifiable("http://example.com")); // not https
+        assert!(!is_verifiable("ftp://example.com"));
+        assert!(!is_verifiable("https://user:pass@example.com")); // userinfo
+        assert!(!is_verifiable("https://user@example.com"));
+        assert!(!is_verifiable("https://xn--80ak6aa92e.com")); // IDN/punycode
+        assert!(!is_verifiable("not a url"));
+        assert!(!is_verifiable("mailto:me@example.com"));
+        assert!(!is_verifiable("")); // blank
+    }
+
+    #[test]
+    fn rel_me_hrefs_finds_anchor_and_link_elements() {
+        let html = r#"
+            <html><head>
+              <link rel="me" href="https://social.example/@alice">
+            </head><body>
+              <a rel="me" href="https://other.example/@alice">me</a>
+              <a rel="nofollow" href="https://ignore.example">no</a>
+              <a href="https://norel.example">no rel</a>
+            </body></html>
+        "#;
+        let hrefs = rel_me_hrefs(html);
+        assert_eq!(
+            hrefs,
+            vec![
+                "https://social.example/@alice".to_string(),
+                "https://other.example/@alice".to_string(),
+            ],
+        );
+    }
+
+    #[test]
+    fn rel_me_hrefs_matches_multi_token_and_case_insensitively() {
+        let html = r#"<a rel="Me nofollow" href="https://a.example">a</a>
+                      <a rel="noopener ME" href="https://b.example">b</a>"#;
+        let hrefs = rel_me_hrefs(html);
+        assert_eq!(
+            hrefs,
+            vec!["https://a.example".to_string(), "https://b.example".to_string()],
+        );
+    }
+
+    #[test]
+    fn rel_me_hrefs_ignores_rel_values_that_merely_contain_me() {
+        // "meta" contains the substring "me" but is not the token "me".
+        let html = r#"<a rel="meta" href="https://a.example">a</a>"#;
+        assert!(rel_me_hrefs(html).is_empty());
+    }
+}
