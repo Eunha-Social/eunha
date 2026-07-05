@@ -232,7 +232,7 @@ export function StatusCard({
   if (deleted) return null
 
   return (
-    <Card className="gap-0 rounded-none border-0 bg-transparent py-0 shadow-none">
+    <Card className="gap-0 rounded-none border-0 bg-transparent py-0 shadow-none ring-0">
       <CardContent className="space-y-1.5 px-3 py-3 sm:px-4">
         {boostedBy && (
           <p className="text-muted-foreground flex items-center gap-1 text-xs">
