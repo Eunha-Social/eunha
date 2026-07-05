@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT username, fields FROM accounts WHERE id = $1 AND domain IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "username",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "fields",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "cc107e2857e148131b6f0021e59bbe62957ec951c8e7ab6467ebd167f7f6f195"
+}

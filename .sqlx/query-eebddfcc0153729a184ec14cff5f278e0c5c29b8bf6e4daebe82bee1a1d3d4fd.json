@@ -1,12 +1,12 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id FROM users WHERE account_id = $1",
+  "query": "SELECT fields FROM accounts WHERE id = $1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "id",
-        "type_info": "Int8"
+        "name": "fields",
+        "type_info": "Jsonb"
       }
     ],
     "parameters": {
@@ -15,8 +15,8 @@
       ]
     },
     "nullable": [
-      false
+      true
     ]
   },
-  "hash": "3432d9bd313e52b85ec5f1014df8335f8511babe362451ae790b649d612d1e67"
+  "hash": "eebddfcc0153729a184ec14cff5f278e0c5c29b8bf6e4daebe82bee1a1d3d4fd"
 }

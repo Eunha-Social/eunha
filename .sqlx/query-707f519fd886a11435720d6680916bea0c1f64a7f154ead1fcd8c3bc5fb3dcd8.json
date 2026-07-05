@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE accounts SET fields = $1, updated_at = now() WHERE id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Jsonb",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "707f519fd886a11435720d6680916bea0c1f64a7f154ead1fcd8c3bc5fb3dcd8"
+}
