@@ -10,6 +10,8 @@ Contributing
 
 Use mise for all tasks. See mise.toml.
 
+Use shadcn/ui CLI when adding components. Don't hand-roll components.
+
 Federation
 ----------
 
