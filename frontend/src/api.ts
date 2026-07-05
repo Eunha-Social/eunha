@@ -89,9 +89,36 @@ export function updateAccountImages(
 
 export function updateAccountProfile(
   token: string,
-  params: { displayName?: string; note?: string },
+  params: {
+    displayName?: string
+    note?: string
+    fieldsAttributes?: { name: string; value: string }[]
+  },
 ): Promise<mastodon.v1.AccountCredentials> {
   return restClient(token).v1.accounts.updateCredentials(params)
+}
+
+export async function getFeaturedTags(
+  token: string,
+): Promise<mastodon.v1.FeaturedTag[]> {
+  return restClient(token).v1.featuredTags.list()
+}
+
+export async function getFeaturedTagSuggestions(
+  token: string,
+): Promise<mastodon.v1.Tag[]> {
+  return restClient(token).v1.featuredTags.suggestions.list()
+}
+
+export function createFeaturedTag(
+  token: string,
+  name: string,
+): Promise<mastodon.v1.FeaturedTag> {
+  return restClient(token).v1.featuredTags.create({ name })
+}
+
+export function deleteFeaturedTag(token: string, id: string): Promise<void> {
+  return restClient(token).v1.featuredTags.$select(id).remove()
 }
 
 export function deleteProfileAvatar(token: string): Promise<mastodon.v1.Account> {

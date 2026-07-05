@@ -1424,6 +1424,65 @@ async fn test_update_credentials_display_name() {
     assert_eq!(body["display_name"].as_str(), Some("Alice Updated"));
 }
 
+/// update_credentials enforces Mastodon's length limits for display_name (40)
+/// and note (500), mirroring the Account model validations.
+#[tokio::test]
+async fn test_update_credentials_length_limits() {
+    let ctx = TestContext::new("update-creds-len").await;
+
+    let patch = |form: reqwest::multipart::Form| {
+        ctx.api
+            .http
+            .patch(ctx.api.url("/api/v1/accounts/update_credentials"))
+            .header("host", &ctx.api.host)
+            .bearer_auth(&ctx.alice_token)
+            .multipart(form)
+    };
+
+    // 41-char display name → 422.
+    let resp = patch(reqwest::multipart::Form::new().text("display_name", "x".repeat(41)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "41-char display name must be rejected"
+    );
+
+    // Exactly 40 chars → OK.
+    let resp = patch(reqwest::multipart::Form::new().text("display_name", "x".repeat(40)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK, "40-char display name is allowed");
+
+    // 501-char note → 422.
+    let resp = patch(reqwest::multipart::Form::new().text("note", "x".repeat(501)))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "501-char note must be rejected"
+    );
+
+    // A note dominated by a long URL stays under the limit because URLs count as
+    // 23 chars (Mastodon's countable-length rule), so 500 'x' + a long URL is OK.
+    let long_url = format!("https://example.com/{}", "a".repeat(300));
+    let note = format!("{} {}", "x".repeat(400), long_url);
+    let resp = patch(reqwest::multipart::Form::new().text("note", note))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "URLs must count as 23 chars, matching Mastodon"
+    );
+}
+
 /// update_credentials rejects more than 4 profile fields (Mastodon
 /// Account::DEFAULT_FIELDS_SIZE) and over-long field values.
 #[tokio::test]

@@ -4,10 +4,14 @@ import { ImageUp, Pencil, Trash2, UserPlus } from 'lucide-react'
 
 import type { mastodon } from '../masto.ts'
 import {
+  createFeaturedTag,
+  deleteFeaturedTag,
   deleteProfileAvatar,
   deleteProfileHeader,
   getAccountStatuses,
   getCurrentAccount,
+  getFeaturedTags,
+  getFeaturedTagSuggestions,
   getRelationship,
   lookupAccount,
   setFollow,
@@ -22,53 +26,166 @@ import { InfiniteScroll } from '@/components/infinite-scroll.tsx'
 import { TimelineStack } from '@/components/timeline-stack.tsx'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar.tsx'
 import { Button } from '@/components/ui/button.tsx'
+import { Input } from '@/components/ui/input.tsx'
 import { Label } from '@/components/ui/label.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
 import { Textarea } from '@/components/ui/textarea.tsx'
 
+// Limits mirror Mastodon's server-side validations (app/models/account.rb,
+// app/models/featured_tag.rb): display name ≤ 40, note ≤ 500, at most 4 custom
+// fields of ≤ 255 chars each, and ≤ 10 featured hashtags.
+const DISPLAY_NAME_MAX = 40
 const NOTE_MAX = 500
+const FIELD_MAX = 4
+const FIELD_CHARS = 255
+const FEATURED_TAG_MAX = 10
+
+type EditField = { name: string; value: string }
+
+function errorMessage(e: unknown) {
+  return e instanceof Error ? e.message : String(e)
+}
 
 function ProfileEditModal({
+  token,
+  initialDisplayName,
   initialNote,
+  initialFields,
   onCancel,
-  onSave,
+  onSaved,
 }: {
+  token: string
+  initialDisplayName: string
   initialNote: string
+  initialFields: EditField[]
   onCancel: () => void
-  onSave: (note: string) => Promise<void>
+  onSaved: (updated: mastodon.v1.AccountCredentials) => void
 }) {
+  const [displayName, setDisplayName] = useState(initialDisplayName)
   const [note, setNote] = useState(initialNote)
+  const [fields, setFields] = useState<EditField[]>(
+    initialFields.slice(0, FIELD_MAX),
+  )
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Featured hashtags are managed through their own endpoints and take effect
+  // immediately (add/remove), independent of the Save button.
+  const [featured, setFeatured] = useState<mastodon.v1.FeaturedTag[] | null>(null)
+  const [suggestions, setSuggestions] = useState<mastodon.v1.Tag[]>([])
+  const [newTag, setNewTag] = useState('')
+  const [tagBusy, setTagBusy] = useState(false)
+  const [tagError, setTagError] = useState<string | null>(null)
+
+  useEffect(() => {
+    getFeaturedTags(token)
+      .then(setFeatured)
+      .catch(() => setFeatured([]))
+    getFeaturedTagSuggestions(token)
+      .then(setSuggestions)
+      .catch(() => {})
+  }, [token])
+
+  const setField = (index: number, key: keyof EditField, value: string) =>
+    setFields((cur) =>
+      cur.map((f, i) => (i === index ? { ...f, [key]: value } : f)),
+    )
+  const addField = () =>
+    setFields((cur) =>
+      cur.length >= FIELD_MAX ? cur : [...cur, { name: '', value: '' }],
+    )
+  const removeField = (index: number) =>
+    setFields((cur) => cur.filter((_, i) => i !== index))
 
   const save = async () => {
     setBusy(true)
     setError(null)
     try {
-      await onSave(note)
+      // Drop rows that are blank on both sides, mirroring Mastodon. Send at
+      // least one blank row so the server clears fields when all were removed.
+      const cleaned = fields
+        .map((f) => ({ name: f.name.trim(), value: f.value.trim() }))
+        .filter((f) => f.name !== '' || f.value !== '')
+      const updated = await updateAccountProfile(token, {
+        displayName,
+        note,
+        fieldsAttributes: cleaned.length > 0 ? cleaned : [{ name: '', value: '' }],
+      })
+      onSaved(updated)
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(errorMessage(e))
       setBusy(false)
     }
   }
 
+  const addTag = async (name: string) => {
+    const clean = name.trim().replace(/^#/, '')
+    if (!clean || tagBusy) return
+    setTagBusy(true)
+    setTagError(null)
+    try {
+      const created = await createFeaturedTag(token, clean)
+      setFeatured((cur) =>
+        cur ? [created, ...cur.filter((t) => t.id !== created.id)] : [created],
+      )
+      setNewTag('')
+    } catch (e) {
+      setTagError(errorMessage(e))
+    } finally {
+      setTagBusy(false)
+    }
+  }
+
+  const removeTag = async (id: string) => {
+    if (tagBusy) return
+    setTagBusy(true)
+    setTagError(null)
+    try {
+      await deleteFeaturedTag(token, id)
+      setFeatured((cur) => cur?.filter((t) => t.id !== id) ?? null)
+    } catch (e) {
+      setTagError(errorMessage(e))
+    } finally {
+      setTagBusy(false)
+    }
+  }
+
+  const featuredNames = new Set((featured ?? []).map((t) => t.name.toLowerCase()))
+  const openSuggestions = suggestions.filter(
+    (t) => !featuredNames.has(t.name.toLowerCase()),
+  )
+  const atTagLimit = (featured?.length ?? 0) >= FEATURED_TAG_MAX
+
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 px-3 py-10 sm:py-16">
-      <div className="bg-card text-card-foreground w-full max-w-xl rounded-md border shadow-lg">
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 px-3 py-10 sm:py-16">
+      <div className="bg-card text-card-foreground my-auto w-full max-w-xl rounded-md border shadow-lg">
         <div className="flex items-center justify-between border-b px-4 py-3">
           <h2 className="text-sm font-semibold">Edit profile</h2>
           <Button variant="ghost" size="sm" onClick={onCancel} disabled={busy}>
-            Cancel
+            Close
           </Button>
         </div>
-        <div className="space-y-4 p-4">
+        <div className="space-y-5 p-4">
+          <label className="grid gap-2 text-sm">
+            <span className="text-muted-foreground">Display name</span>
+            <Input
+              value={displayName}
+              maxLength={DISPLAY_NAME_MAX}
+              disabled={busy}
+              onChange={(event) => setDisplayName(event.currentTarget.value)}
+              placeholder="Your name"
+            />
+            <span className="text-muted-foreground text-right text-xs">
+              {DISPLAY_NAME_MAX - displayName.length}
+            </span>
+          </label>
+
           <label className="grid gap-2 text-sm">
             <span className="text-muted-foreground">Description</span>
             <Textarea
               value={note}
               maxLength={NOTE_MAX}
               rows={5}
-              autoFocus
               disabled={busy}
               onChange={(event) => setNote(event.currentTarget.value)}
               placeholder="Tell people about yourself"
@@ -77,6 +194,60 @@ function ProfileEditModal({
               {NOTE_MAX - note.length}
             </span>
           </label>
+
+          <div className="grid gap-2 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground">Profile metadata</span>
+              <span className="text-muted-foreground text-xs">
+                {fields.length}/{FIELD_MAX}
+              </span>
+            </div>
+            {fields.map((field, index) => (
+              <div key={index} className="flex gap-2">
+                <Input
+                  value={field.name}
+                  maxLength={FIELD_CHARS}
+                  disabled={busy}
+                  onChange={(event) =>
+                    setField(index, 'name', event.currentTarget.value)
+                  }
+                  placeholder="Label"
+                  className="flex-1"
+                />
+                <Input
+                  value={field.value}
+                  maxLength={FIELD_CHARS}
+                  disabled={busy}
+                  onChange={(event) =>
+                    setField(index, 'value', event.currentTarget.value)
+                  }
+                  placeholder="Content"
+                  className="flex-1"
+                />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  disabled={busy}
+                  onClick={() => removeField(index)}
+                  aria-label="Remove field"
+                >
+                  <Trash2 />
+                </Button>
+              </div>
+            ))}
+            {fields.length < FIELD_MAX && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={addField}
+                className="justify-self-start"
+              >
+                Add field
+              </Button>
+            )}
+          </div>
+
           {error && <p className="text-destructive text-sm">{error}</p>}
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={onCancel} disabled={busy}>
@@ -85,6 +256,83 @@ function ProfileEditModal({
             <Button onClick={() => void save()} disabled={busy}>
               Save
             </Button>
+          </div>
+
+          <div className="grid gap-2 border-t pt-4 text-sm">
+            <span className="text-muted-foreground">Featured hashtags</span>
+            {featured === null ? (
+              <p className="text-muted-foreground text-xs">Loading…</p>
+            ) : (
+              <>
+                {featured.length > 0 && (
+                  <ul className="flex flex-wrap gap-2">
+                    {featured.map((tag) => (
+                      <li
+                        key={tag.id}
+                        className="bg-muted flex items-center gap-1 rounded-full px-3 py-1"
+                      >
+                        <span>#{tag.name}</span>
+                        <button
+                          type="button"
+                          className="text-muted-foreground hover:text-foreground disabled:opacity-50"
+                          disabled={tagBusy}
+                          onClick={() => void removeTag(tag.id)}
+                          aria-label={`Remove #${tag.name}`}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {!atTagLimit && (
+                  <div className="flex gap-2">
+                    <Input
+                      value={newTag}
+                      disabled={tagBusy}
+                      onChange={(event) => setNewTag(event.currentTarget.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault()
+                          void addTag(newTag)
+                        }
+                      }}
+                      placeholder="Add a hashtag"
+                      className="flex-1"
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={tagBusy || newTag.trim() === ''}
+                      onClick={() => void addTag(newTag)}
+                    >
+                      Add
+                    </Button>
+                  </div>
+                )}
+                {atTagLimit && (
+                  <p className="text-muted-foreground text-xs">
+                    You've reached the limit of {FEATURED_TAG_MAX} featured hashtags.
+                  </p>
+                )}
+                {!atTagLimit && openSuggestions.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {openSuggestions.map((tag) => (
+                      <button
+                        key={tag.name}
+                        type="button"
+                        className="text-primary text-xs hover:underline disabled:opacity-50"
+                        disabled={tagBusy}
+                        onClick={() => void addTag(tag.name)}
+                      >
+                        #{tag.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {tagError && <p className="text-destructive text-xs">{tagError}</p>}
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -310,6 +558,8 @@ export default function Profile() {
   const [rel, setRel] = useState<mastodon.v1.Relationship | null>(null)
   const [selfId, setSelfId] = useState<string | null>(null)
   const [sourceNote, setSourceNote] = useState('')
+  const [sourceDisplayName, setSourceDisplayName] = useState('')
+  const [sourceFields, setSourceFields] = useState<EditField[]>([])
   const [editingProfile, setEditingProfile] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [relationshipBusy, setRelationshipBusy] = useState(false)
@@ -344,6 +594,13 @@ export default function Profile() {
         .then((me) => {
           setSelfId(me.id)
           setSourceNote(me.source?.note ?? '')
+          setSourceDisplayName(me.displayName ?? '')
+          setSourceFields(
+            (me.source?.fields ?? []).map((f) => ({
+              name: f.name,
+              value: f.value,
+            })),
+          )
         })
         .catch(() => {})
     }
@@ -410,13 +667,26 @@ export default function Profile() {
     }
   }
 
-  const saveProfile = async (note: string) => {
-    if (!token) return
-    const updated = await updateAccountProfile(token, { note })
+  const onProfileSaved = (updated: mastodon.v1.AccountCredentials) => {
     setAccount((current) =>
-      current ? { ...current, note: updated.note } : updated,
+      current
+        ? {
+            ...current,
+            displayName: updated.displayName,
+            note: updated.note,
+            fields: updated.fields,
+            emojis: updated.emojis,
+          }
+        : updated,
     )
-    setSourceNote(updated.source?.note ?? note)
+    setSourceNote(updated.source?.note ?? '')
+    setSourceDisplayName(updated.displayName ?? '')
+    setSourceFields(
+      (updated.source?.fields ?? []).map((f) => ({
+        name: f.name,
+        value: f.value,
+      })),
+    )
     setEditingProfile(false)
   }
 
@@ -451,11 +721,14 @@ export default function Profile() {
           }}
         />
       )}
-      {editingProfile && (
+      {editingProfile && token && (
         <ProfileEditModal
+          token={token}
+          initialDisplayName={sourceDisplayName}
           initialNote={sourceNote}
+          initialFields={sourceFields}
           onCancel={() => setEditingProfile(false)}
-          onSave={saveProfile}
+          onSaved={onProfileSaved}
         />
       )}
       {error && <p className="text-destructive text-sm">{error}</p>}
@@ -609,6 +882,27 @@ export default function Profile() {
               className="mt-3 text-sm [&_a]:font-medium [&_a]:text-primary [&_a]:underline [&_a]:decoration-primary [&_a]:decoration-2 [&_a]:underline-offset-2"
               dangerouslySetInnerHTML={{ __html: account.note }}
             />
+          )}
+          {account.fields.length > 0 && (
+            <dl className="mt-3 divide-y rounded-md border text-sm">
+              {account.fields.map((field, index) => (
+                <div
+                  key={index}
+                  className={`grid grid-cols-[minmax(0,1fr)_minmax(0,2fr)] gap-2 px-3 py-2 ${
+                    field.verifiedAt ? 'bg-emerald-500/10' : ''
+                  }`}
+                >
+                  <dt
+                    className="text-muted-foreground truncate font-medium"
+                    dangerouslySetInnerHTML={{ __html: field.name }}
+                  />
+                  <dd
+                    className="[&_a]:text-primary min-w-0 [&_a]:underline"
+                    dangerouslySetInnerHTML={{ __html: field.value }}
+                  />
+                </div>
+              ))}
+            </dl>
           )}
           <div className="text-muted-foreground mt-3 mb-4 flex gap-4 text-sm">
             <span>

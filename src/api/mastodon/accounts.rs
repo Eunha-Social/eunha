@@ -2051,6 +2051,25 @@ async fn do_update_credentials(
         }
     }
 
+    // Enforce Mastodon's local-account length validations before writing:
+    // display_name ≤ 40 chars (Account::DISPLAY_NAME_LENGTH_LIMIT) and note ≤ 500
+    // (Account::NOTE_LENGTH_LIMIT, counted via the same URL/mention-aware rule as
+    // status length — reuse `countable_length`).
+    if let Some(ref dn) = display_name {
+        if dn.chars().count() > 40 {
+            return Err(AppError::Unprocessable(
+                "Validation failed: Display name is too long (maximum is 40 characters)".into(),
+            ));
+        }
+    }
+    if let Some(ref n) = note {
+        if super::formatting::countable_length(n, "") > 500 {
+            return Err(AppError::Unprocessable(
+                "Validation failed: Note is too long (maximum is 500 characters)".into(),
+            ));
+        }
+    }
+
     // Persist posting preferences into users.settings (JSON).
     if source_privacy.is_some()
         || source_sensitive.is_some()
