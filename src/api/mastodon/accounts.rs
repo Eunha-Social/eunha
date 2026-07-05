@@ -3013,20 +3013,25 @@ pub async fn authorize_follow_request(
         .await?;
 
         let accepter = fetch_account(&state, auth.account_id).await?;
+        let requester = fetch_account(&state, requester_id).await?;
+        // Mastodon's authorize action enqueues LocalNotificationWorker for
+        // current_account (the accepter), so accepting turns the follow_request
+        // notification into a `follow` notification in the accepter's own column
+        // — "the requester now follows you". (Mastodon sends no notification to
+        // the requester; remote requesters learn via the federated Accept below.)
         push::create_and_push(
             &state,
-            requester_id,
             auth.account_id,
+            requester_id,
             "follow",
             None,
-            format!("{} accepted your follow request", accepter.display_name),
-            accepter.acct().clone(),
-            super::convert::account_avatar_url_for(&accepter),
+            format!("{} followed you", requester.display_name),
+            requester.acct().clone(),
+            super::convert::account_avatar_url_for(&requester),
         )
         .await;
 
         if let Some(follow_uri) = deleted_row.uri {
-            let requester = fetch_account(&state, requester_id).await?;
             if requester.domain.is_some()
                 && accepter
                     .private_key
