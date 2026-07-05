@@ -28,6 +28,8 @@ import { getMeId } from '../me.ts'
 import { Card, CardContent } from '@/components/ui/card.tsx'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar.tsx'
 import { Button } from '@/components/ui/button.tsx'
+import { Input } from '@/components/ui/input.tsx'
+import { Textarea } from '@/components/ui/textarea.tsx'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -240,7 +242,7 @@ export function StatusCard({
         )}
         <div className="flex items-center gap-2 text-sm">
           <Link to={profilePath}>
-            <Avatar className="size-8 rounded-md">
+            <Avatar className="size-8">
               <AvatarImage src={status.account.avatar} alt="" />
               <AvatarFallback>{name.slice(0, 1).toUpperCase()}</AvatarFallback>
             </Avatar>
@@ -257,14 +259,11 @@ export function StatusCard({
             {status.editedAt && <span title="Edited">(edited)</span>}
             {hasMenu && (
               <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label="More"
-                    className="hover:text-foreground ml-1"
-                  >
-                    <MoreHorizontal className="size-4" />
-                  </button>
+                <DropdownMenuTrigger
+                  aria-label="More"
+                  className="hover:text-foreground ml-1"
+                >
+                  <MoreHorizontal className="size-4" />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
                   {canQuote && (
@@ -291,17 +290,16 @@ export function StatusCard({
         </div>
         {editing ? (
           <div className="space-y-2">
-            <input
+            <Input
               value={editSpoiler}
               onChange={(e) => setEditSpoiler(e.target.value)}
               placeholder="Content warning (optional)"
-              className="bg-background w-full rounded-md border px-2 py-1 text-sm outline-none"
             />
-            <textarea
+            <Textarea
               value={editText}
               onChange={(e) => setEditText(e.target.value)}
               rows={4}
-              className="bg-background focus-visible:ring-ring w-full resize-y rounded-md border p-2 text-sm outline-none focus-visible:ring-[3px]"
+              className="resize-y"
             />
             <div className="flex gap-2">
               <Button size="sm" disabled={saving || !editText.trim()} onClick={saveEdit}>

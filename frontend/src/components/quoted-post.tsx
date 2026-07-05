@@ -18,7 +18,7 @@ export function QuotedPost({
   const inner = (
     <>
       <div className="flex items-center gap-1.5 text-xs">
-        <Avatar className="size-4 rounded">
+        <Avatar className="size-4">
           <AvatarImage src={status.account.avatar} alt="" />
           <AvatarFallback>{name.slice(0, 1).toUpperCase()}</AvatarFallback>
         </Avatar>

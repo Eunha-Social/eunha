@@ -14,10 +14,26 @@ import { getDefaultVisibility, getMeId, loadMe } from '../me.ts'
 import { useMentionAutocomplete } from '../hooks/use-mention-autocomplete.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Card, CardContent } from '@/components/ui/card.tsx'
+import { Input } from '@/components/ui/input.tsx'
+import { Textarea } from '@/components/ui/textarea.tsx'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select.tsx'
 import { QuotedPost } from '@/components/quoted-post.tsx'
 import { cn } from '@/lib/utils.ts'
 
 const MAX_ATTACHMENTS = 4
+
+const VISIBILITY_LABELS: Record<mastodon.v1.StatusVisibility, string> = {
+  public: 'Public',
+  unlisted: 'Unlisted',
+  private: 'Followers',
+  direct: 'Direct',
+}
 
 // Seed a reply's text with the handles of everyone in the conversation, the way
 // Mastodon's web client does (reducers/compose.js `statusToTextMentions`): the
@@ -211,9 +227,9 @@ export function Compose({
           </div>
         )}
         <div className="relative">
-          <textarea
+          <Textarea
             ref={textareaRef}
-            className="bg-background focus-visible:ring-ring w-full resize-y rounded-md border p-2 text-sm outline-none focus-visible:ring-[3px]"
+            className="resize-y"
             rows={3}
             placeholder="What's on your mind?"
             value={text}
@@ -285,7 +301,7 @@ export function Compose({
                     {a.type}
                   </div>
                 )}
-                <input
+                <Input
                   value={a.description ?? ''}
                   onChange={(e) => setAlt(a.id, e.target.value)}
                   onBlur={() =>
@@ -294,7 +310,7 @@ export function Compose({
                     )
                   }
                   placeholder="Describe for the visually impaired"
-                  className="bg-background mt-1 w-full border px-1.5 py-1 text-xs"
+                  className="mt-1 h-7 text-xs"
                 />
               </div>
             ))}
@@ -324,18 +340,26 @@ export function Compose({
             >
               <Paperclip />
             </Button>
-            <select
-              className="bg-background rounded-md border px-2 py-1 text-xs"
+            <Select
               value={visibility}
-              onChange={(e) =>
-                setVisibility(e.target.value as mastodon.v1.StatusVisibility)
+              onValueChange={(value) =>
+                setVisibility(value as mastodon.v1.StatusVisibility)
               }
             >
-              <option value="public">Public</option>
-              <option value="unlisted">Unlisted</option>
-              <option value="private">Followers</option>
-              <option value="direct">Direct</option>
-            </select>
+              <SelectTrigger size="sm" aria-label="Post visibility">
+                <SelectValue>
+                  {(value: mastodon.v1.StatusVisibility) =>
+                    VISIBILITY_LABELS[value]
+                  }
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="public">Public</SelectItem>
+                <SelectItem value="unlisted">Unlisted</SelectItem>
+                <SelectItem value="private">Followers</SelectItem>
+                <SelectItem value="direct">Direct</SelectItem>
+              </SelectContent>
+            </Select>
             {uploading && (
               <span className="text-muted-foreground text-xs">Uploading…</span>
             )}

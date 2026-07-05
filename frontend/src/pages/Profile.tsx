@@ -21,6 +21,8 @@ import { InfiniteScroll } from '@/components/infinite-scroll.tsx'
 import { TimelineStack } from '@/components/timeline-stack.tsx'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar.tsx'
 import { Button } from '@/components/ui/button.tsx'
+import { Label } from '@/components/ui/label.tsx'
+import { Switch } from '@/components/ui/switch.tsx'
 
 function hasCustomHeader(header: string | null | undefined) {
   return !!header && !header.includes('/headers/original/missing')
@@ -432,7 +434,7 @@ export default function Profile() {
           )}
           <div className="mt-3 flex items-start gap-3">
             <div className="flex flex-col items-center gap-1">
-              <Avatar className="size-16 rounded-xl">
+              <Avatar className="size-16">
                 <AvatarImage src={account.avatar} alt="" />
                 <AvatarFallback>
                   {(account.displayName || account.username).slice(0, 1).toUpperCase()}
@@ -470,10 +472,12 @@ export default function Profile() {
               <div className="text-muted-foreground">@{account.acct}</div>
             </div>
             {isSelf && (
-              <Button asChild size="sm" variant="outline">
-                <Link to="/follow-requests" className="no-underline">
-                  <UserPlus /> Follow requests
-                </Link>
+              <Button
+                render={<Link to="/follow-requests" className="no-underline" />}
+                size="sm"
+                variant="outline"
+              >
+                <UserPlus /> Follow requests
               </Button>
             )}
             {token && rel && !isSelf && (
@@ -487,17 +491,15 @@ export default function Profile() {
                   {rel.following ? 'Following' : rel.requested ? 'Requested' : 'Follow'}
                 </Button>
                 {rel.following && (
-                  <label className="flex cursor-pointer items-center gap-2 text-xs select-none">
-                    <input
-                      type="checkbox"
+                  <Label className="text-xs font-normal">
+                    <Switch
+                      size="sm"
                       checked={rel.showingReblogs}
-                      onChange={toggleReblogs}
+                      onCheckedChange={toggleReblogs}
                       disabled={relationshipBusy}
-                      className="peer sr-only"
                     />
-                    <span className="bg-input peer-checked:bg-primary peer-disabled:opacity-50 relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors after:absolute after:left-0.5 after:size-3 after:rounded-full after:bg-background after:transition-transform peer-checked:after:translate-x-3" />
                     Show boosts
-                  </label>
+                  </Label>
                 )}
               </div>
             )}

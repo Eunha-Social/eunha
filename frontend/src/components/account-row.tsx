@@ -20,7 +20,7 @@ export function AccountRow({
         to={`/@${account.acct}`}
         className="hover:bg-muted/50 flex min-w-0 flex-1 items-center gap-3 rounded-lg p-2 no-underline"
       >
-        <Avatar className="size-10 rounded-lg">
+        <Avatar className="size-10">
           <AvatarImage src={account.avatar} alt="" />
           <AvatarFallback>{name.slice(0, 1).toUpperCase()}</AvatarFallback>
         </Avatar>

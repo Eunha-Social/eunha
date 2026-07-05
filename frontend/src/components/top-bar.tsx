@@ -156,10 +156,13 @@ export function TopBar({ title }: { title?: string }) {
               <Pencil /> Post
             </Button>
           )}
-          <Button asChild variant="ghost" size="icon" aria-label="Search">
-            <Link to="/search">
-              <Search />
-            </Link>
+          <Button
+            render={<Link to="/search" />}
+            variant="ghost"
+            size="icon"
+            aria-label="Search"
+          >
+            <Search />
           </Button>
           {token ? (
             <Button

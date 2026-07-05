@@ -8,6 +8,7 @@ import { TopBar } from '@/components/top-bar.tsx'
 import { StatusCard } from '@/components/status-card.tsx'
 import { AccountRow } from '@/components/account-row.tsx'
 import { TimelineStack } from '@/components/timeline-stack.tsx'
+import { Input } from '@/components/ui/input.tsx'
 
 export default function Search() {
   const [params, setParams] = useSearchParams()
@@ -53,12 +54,11 @@ export default function Search() {
     <div className="page-frame">
       <TopBar />
       <form onSubmit={submit} className="mb-4">
-        <input
+        <Input
           value={input}
           onChange={(e) => setInput(e.target.value)}
           placeholder="Search posts, people, and hashtags"
           autoFocus
-          className="bg-background focus-visible:ring-ring w-full rounded-md border px-3 py-2 text-sm outline-none focus-visible:ring-[3px]"
         />
       </form>
 
