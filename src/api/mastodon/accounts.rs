@@ -2975,17 +2975,21 @@ pub async fn authorize_follow_request(
     .fetch_optional(&state.db)
     .await?;
 
+    // Mastodon's FollowRequest has_one :notification, dependent: :destroy —
+    // resolving the request removes its follow_request notification so it stops
+    // reappearing with Accept/Reject buttons. Run this unconditionally: the
+    // follow_requests row may already be gone (e.g. an earlier accept, or a
+    // pre-fix orphan) while its notification lingers, so it must be cleared even
+    // when nothing was deleted above.
+    sqlx::query!(
+        "DELETE FROM notifications WHERE account_id = $1 AND from_account_id = $2 AND type = 'follow_request'",
+        auth.account_id,
+        requester_id,
+    )
+    .execute(&state.db)
+    .await?;
+
     if let Some(deleted_row) = deleted {
-        // Mastodon's FollowRequest has_one :notification, dependent: :destroy —
-        // resolving the request removes its follow_request notification so it
-        // stops reappearing with Accept/Reject buttons.
-        sqlx::query!(
-            "DELETE FROM notifications WHERE account_id = $1 AND from_account_id = $2 AND type = 'follow_request'",
-            auth.account_id,
-            requester_id,
-        )
-        .execute(&state.db)
-        .await?;
         sqlx::query!(
             r#"INSERT INTO follows (account_id, target_account_id, created_at, updated_at)
                VALUES ($1, $2, now(), now()) ON CONFLICT DO NOTHING"#,
@@ -3095,17 +3099,21 @@ pub async fn reject_follow_request(
     .fetch_optional(&state.db)
     .await?;
 
+    // Mastodon's FollowRequest has_one :notification, dependent: :destroy —
+    // resolving the request removes its follow_request notification so it stops
+    // reappearing with Accept/Reject buttons. Run this unconditionally: the
+    // follow_requests row may already be gone (e.g. an earlier reject, or a
+    // pre-fix orphan) while its notification lingers, so it must be cleared even
+    // when nothing was deleted above.
+    sqlx::query!(
+        "DELETE FROM notifications WHERE account_id = $1 AND from_account_id = $2 AND type = 'follow_request'",
+        auth.account_id,
+        requester_id,
+    )
+    .execute(&state.db)
+    .await?;
+
     if let Some(deleted_row) = deleted {
-        // Mastodon's FollowRequest has_one :notification, dependent: :destroy —
-        // resolving the request removes its follow_request notification so it
-        // stops reappearing with Accept/Reject buttons.
-        sqlx::query!(
-            "DELETE FROM notifications WHERE account_id = $1 AND from_account_id = $2 AND type = 'follow_request'",
-            auth.account_id,
-            requester_id,
-        )
-        .execute(&state.db)
-        .await?;
         if let Some(follow_uri) = deleted_row.uri {
             let requester = fetch_account(&state, requester_id).await?;
             if requester.domain.is_some() {
