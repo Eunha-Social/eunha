@@ -787,7 +787,7 @@ pub struct NotificationGroup {
     pub notifications_count: i64,
     #[serde(rename = "type")]
     pub notification_type: String,
-    pub most_recent_notification_id: String,
+    pub most_recent_notification_id: i64,
     pub page_max_id: String,
     pub page_min_id: String,
     pub latest_page_notification_at: String,
