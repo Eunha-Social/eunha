@@ -87,6 +87,13 @@ export function updateAccountImages(
   return restClient(token).v1.accounts.updateCredentials(params)
 }
 
+export function updateAccountProfile(
+  token: string,
+  params: { displayName?: string; note?: string },
+): Promise<mastodon.v1.AccountCredentials> {
+  return restClient(token).v1.accounts.updateCredentials(params)
+}
+
 export function deleteProfileAvatar(token: string): Promise<mastodon.v1.Account> {
   return restClient(token).v1.profile.avatar.remove()
 }

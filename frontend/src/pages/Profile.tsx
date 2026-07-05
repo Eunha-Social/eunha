@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { ImageUp, Trash2, UserPlus } from 'lucide-react'
+import { ImageUp, Pencil, Trash2, UserPlus } from 'lucide-react'
 
 import type { mastodon } from '../masto.ts'
 import {
@@ -12,6 +12,7 @@ import {
   lookupAccount,
   setFollow,
   updateAccountImages,
+  updateAccountProfile,
 } from '../api.ts'
 import { getToken } from '../auth.ts'
 import { useInfiniteFeed } from '../hooks/use-infinite-feed.ts'
@@ -23,6 +24,73 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Label } from '@/components/ui/label.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
+import { Textarea } from '@/components/ui/textarea.tsx'
+
+const NOTE_MAX = 500
+
+function ProfileEditModal({
+  initialNote,
+  onCancel,
+  onSave,
+}: {
+  initialNote: string
+  onCancel: () => void
+  onSave: (note: string) => Promise<void>
+}) {
+  const [note, setNote] = useState(initialNote)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const save = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      await onSave(note)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 px-3 py-10 sm:py-16">
+      <div className="bg-card text-card-foreground w-full max-w-xl rounded-md border shadow-lg">
+        <div className="flex items-center justify-between border-b px-4 py-3">
+          <h2 className="text-sm font-semibold">Edit profile</h2>
+          <Button variant="ghost" size="sm" onClick={onCancel} disabled={busy}>
+            Cancel
+          </Button>
+        </div>
+        <div className="space-y-4 p-4">
+          <label className="grid gap-2 text-sm">
+            <span className="text-muted-foreground">Description</span>
+            <Textarea
+              value={note}
+              maxLength={NOTE_MAX}
+              rows={5}
+              autoFocus
+              disabled={busy}
+              onChange={(event) => setNote(event.currentTarget.value)}
+              placeholder="Tell people about yourself"
+            />
+            <span className="text-muted-foreground text-right text-xs">
+              {NOTE_MAX - note.length}
+            </span>
+          </label>
+          {error && <p className="text-destructive text-sm">{error}</p>}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={onCancel} disabled={busy}>
+              Cancel
+            </Button>
+            <Button onClick={() => void save()} disabled={busy}>
+              Save
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function hasCustomHeader(header: string | null | undefined) {
   return !!header && !header.includes('/headers/original/missing')
@@ -241,6 +309,8 @@ export default function Profile() {
   const [account, setAccount] = useState<mastodon.v1.Account | null>(null)
   const [rel, setRel] = useState<mastodon.v1.Relationship | null>(null)
   const [selfId, setSelfId] = useState<string | null>(null)
+  const [sourceNote, setSourceNote] = useState('')
+  const [editingProfile, setEditingProfile] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [relationshipBusy, setRelationshipBusy] = useState(false)
   const [imageBusy, setImageBusy] = useState<'avatar' | 'header' | null>(null)
@@ -270,7 +340,12 @@ export default function Profile() {
       })
       .catch((e) => setError(String(e)))
     if (token) {
-      getCurrentAccount(token).then((me) => setSelfId(me.id)).catch(() => {})
+      getCurrentAccount(token)
+        .then((me) => {
+          setSelfId(me.id)
+          setSourceNote(me.source?.note ?? '')
+        })
+        .catch(() => {})
     }
   }, [handle, token])
 
@@ -335,6 +410,16 @@ export default function Profile() {
     }
   }
 
+  const saveProfile = async (note: string) => {
+    if (!token) return
+    const updated = await updateAccountProfile(token, { note })
+    setAccount((current) =>
+      current ? { ...current, note: updated.note } : updated,
+    )
+    setSourceNote(updated.source?.note ?? note)
+    setEditingProfile(false)
+  }
+
   const onImageSelected =
     (kind: 'avatar' | 'header') => (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.currentTarget.files?.[0] ?? null
@@ -364,6 +449,13 @@ export default function Profile() {
             closeCrop()
             void updateProfileImage(kind, file)
           }}
+        />
+      )}
+      {editingProfile && (
+        <ProfileEditModal
+          initialNote={sourceNote}
+          onCancel={() => setEditingProfile(false)}
+          onSave={saveProfile}
         />
       )}
       {error && <p className="text-destructive text-sm">{error}</p>}
@@ -472,13 +564,18 @@ export default function Profile() {
               <div className="text-muted-foreground">@{account.acct}</div>
             </div>
             {isSelf && (
-              <Button
-                render={<Link to="/follow-requests" className="no-underline" />}
-                size="sm"
-                variant="outline"
-              >
-                <UserPlus /> Follow requests
-              </Button>
+              <div className="flex flex-col items-end gap-2">
+                <Button size="sm" variant="outline" onClick={() => setEditingProfile(true)}>
+                  <Pencil /> Edit profile
+                </Button>
+                <Button
+                  render={<Link to="/follow-requests" className="no-underline" />}
+                  size="sm"
+                  variant="outline"
+                >
+                  <UserPlus /> Follow requests
+                </Button>
+              </div>
             )}
             {token && rel && !isSelf && (
               <div className="flex flex-col items-end gap-2">
