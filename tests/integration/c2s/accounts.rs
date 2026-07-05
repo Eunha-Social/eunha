@@ -1521,6 +1521,42 @@ async fn test_update_credentials_note() {
     );
 }
 
+/// The top-level `note` is rendered to HTML on the fly (Mastodon's
+/// `account_bio_format`) while `source.note` keeps the raw editable text.
+#[tokio::test]
+async fn test_update_credentials_note_rendered_html() {
+    let ctx = TestContext::new("update-note-html").await;
+
+    let form = reqwest::multipart::Form::new().text("note", "hello https://example.com");
+
+    let resp = ctx
+        .api
+        .http
+        .patch(ctx.api.url("/api/v1/accounts/update_credentials"))
+        .header("host", &ctx.api.host)
+        .bearer_auth(&ctx.alice_token)
+        .multipart(form)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value = resp.json().await.unwrap();
+
+    // source.note stays raw plaintext for editing.
+    assert_eq!(
+        body["source"]["note"].as_str(),
+        Some("hello https://example.com"),
+        "source.note should be raw: {body}",
+    );
+    // Top-level note is rendered HTML with the URL linkified.
+    let note = body["note"].as_str().unwrap_or("");
+    assert!(note.contains("<p>"), "note not wrapped in <p>: {body}");
+    assert!(
+        note.contains("<a href=\"https://example.com\""),
+        "note URL not linkified: {body}",
+    );
+}
+
 /// PATCH /api/v1/accounts/update_credentials with locked=true makes account locked.
 #[tokio::test]
 async fn test_update_credentials_locked() {

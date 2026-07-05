@@ -163,6 +163,22 @@ fn status_url_from_uri(uri: &str) -> Option<String> {
     Some(format!("{}/@{}/{}", base, username, id))
 }
 
+/// Render an account bio to the HTML the API's top-level `note` field serves,
+/// mirroring Mastodon's `account_bio_format` (`html_aware_format(note, local?)`).
+/// Local bios are stored as plain text, so we linkify and wrap them on the fly;
+/// the raw source stays available through `source.note`. Remote bios already
+/// arrive as HTML from federation and are served as-is.
+fn render_account_note(a: &models::Account) -> String {
+    if a.note.is_empty() {
+        return String::new();
+    }
+    if a.domain.is_none() {
+        render_content(&a.note, local_domain(), &std::collections::HashMap::new())
+    } else {
+        a.note.clone()
+    }
+}
+
 pub fn account_from_db(a: &models::Account) -> types::Account {
     let (url, uri) = if a.domain.is_none() {
         // Local accounts: the human url is /@username; the AP uri follows the
@@ -200,7 +216,7 @@ pub fn account_from_db(a: &models::Account) -> types::Account {
         note: if suspended {
             String::new()
         } else {
-            a.note.clone()
+            render_account_note(a)
         },
         url,
         uri,

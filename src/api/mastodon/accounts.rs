@@ -1874,7 +1874,6 @@ pub async fn search_accounts(
 async fn do_update_credentials(
     state: &AppState,
     auth: &AuthenticatedUser,
-    instance_domain: &str,
     mut multipart: Multipart,
 ) -> AppResult<Account> {
     let mut display_name: Option<String> = None;
@@ -2095,17 +2094,12 @@ async fn do_update_credentials(
         .await?;
     }
     if let Some(ref n) = note {
-        let domain = instance_domain;
-        let note_html =
-            super::formatting::render_content(n, domain, &std::collections::HashMap::new());
-        let note_html = if note_html.is_empty() {
-            String::new()
-        } else {
-            note_html
-        };
+        // Store the raw bio text, matching Mastodon: the `note` column holds the
+        // plain source and the HTML is rendered on the fly at serialize time
+        // (see `account_from_db`), keeping `source.note` editable.
         sqlx::query!(
             "UPDATE accounts SET note = $1 WHERE id = $2",
-            note_html,
+            n,
             auth.account_id
         )
         .execute(&state.db)
@@ -2331,7 +2325,7 @@ pub async fn update_credentials(
     multipart: Multipart,
 ) -> AppResult<Json<ApiAccount>> {
     auth.require_scope("write:accounts")?;
-    let account = do_update_credentials(&state, &auth, &instance.domain, multipart).await?;
+    let account = do_update_credentials(&state, &auth, multipart).await?;
     distribute_account_update(&state, &instance.domain, &account).await;
     build_credential_account_response(&state, &auth, account).await
 }
@@ -2347,7 +2341,7 @@ pub async fn patch_profile(
     multipart: Multipart,
 ) -> AppResult<Json<super::types::Profile>> {
     auth.require_scope("write:accounts")?;
-    let account = do_update_credentials(&state, &auth, &instance.domain, multipart).await?;
+    let account = do_update_credentials(&state, &auth, multipart).await?;
     distribute_account_update(&state, &instance.domain, &account).await;
 
     let domain = &instance.domain;
@@ -2390,7 +2384,11 @@ pub async fn patch_profile(
         display_name: a.display_name.clone(),
         note: a.note.clone(),
         fields,
-        formatted_note: a.note.clone(),
+        formatted_note: super::formatting::render_content(
+            &a.note,
+            domain,
+            &std::collections::HashMap::new(),
+        ),
         formatted_fields,
         avatar: Some(super::convert::account_avatar_url_for(a)),
         avatar_static: Some(super::convert::account_avatar_url_for(a)),
@@ -4693,7 +4691,11 @@ async fn build_profile(
         display_name: a.display_name.clone(),
         note: a.note.clone(),
         fields,
-        formatted_note: a.note.clone(),
+        formatted_note: super::formatting::render_content(
+            &a.note,
+            domain,
+            &std::collections::HashMap::new(),
+        ),
         formatted_fields,
         avatar: Some(super::convert::account_avatar_url_for(a)),
         avatar_static: Some(super::convert::account_avatar_url_for(a)),

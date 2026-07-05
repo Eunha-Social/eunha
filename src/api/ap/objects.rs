@@ -268,6 +268,14 @@ pub async fn actor_json(
     let tag =
         crate::api::ap::note::emoji_tags_for(state, &account.display_name, &account.note).await?;
 
+    // The `note` column holds the raw bio; the AP actor `summary` must be HTML,
+    // so render it on the fly (Mastodon's `account_bio_format`).
+    let summary = crate::api::mastodon::formatting::render_content(
+        &account.note,
+        domain,
+        &std::collections::HashMap::new(),
+    );
+
     // Local accounts store an empty `url` column; the human profile URL is
     // `/@username` (matching the Mastodon API serializer and Mastodon core).
     let profile_url = format!("https://{}/@{}", domain, account.username);
@@ -306,7 +314,7 @@ pub async fn actor_json(
         "featuredCollections": format!("{}/collections", actor_url),
         "preferredUsername": account.username,
         "name": account.display_name,
-        "summary": account.note,
+        "summary": summary,
         "url": profile_url,
         "attachment": attachment,
         "tag": tag,
