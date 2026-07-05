@@ -19,6 +19,7 @@ import { Textarea } from '@/components/ui/textarea.tsx'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -351,10 +352,12 @@ export function Compose({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="public">Public</SelectItem>
-                <SelectItem value="unlisted">Unlisted</SelectItem>
-                <SelectItem value="private">Followers</SelectItem>
-                <SelectItem value="direct">Direct</SelectItem>
+                <SelectGroup>
+                  <SelectItem value="public">Public</SelectItem>
+                  <SelectItem value="unlisted">Unlisted</SelectItem>
+                  <SelectItem value="private">Followers</SelectItem>
+                  <SelectItem value="direct">Direct</SelectItem>
+                </SelectGroup>
               </SelectContent>
             </Select>
             {uploading && (
