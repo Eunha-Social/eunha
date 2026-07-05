@@ -202,7 +202,7 @@ export function Compose({
     (text.trim().length > 0 || attachments.length > 0 || !!quoteOf) && !uploading
 
   const content = (
-    <CardContent className="space-y-2">
+    <CardContent className="space-y-2 px-4">
         {replyTo && (
           <div className="text-muted-foreground flex items-center justify-between text-xs">
             <span>Replying to @{replyTo.account.acct}</span>
@@ -341,17 +341,14 @@ export function Compose({
               <Paperclip />
             </Button>
             <Select
+              items={VISIBILITY_LABELS}
               value={visibility}
               onValueChange={(value) =>
                 setVisibility(value as mastodon.v1.StatusVisibility)
               }
             >
               <SelectTrigger size="sm" aria-label="Post visibility">
-                <SelectValue>
-                  {(value: mastodon.v1.StatusVisibility) =>
-                    VISIBILITY_LABELS[value]
-                  }
-                </SelectValue>
+                <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="public">Public</SelectItem>
