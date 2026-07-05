@@ -393,6 +393,15 @@ pub async fn get_notifications(
         let Some(account) = from_account_map.get(&n.from_account_id) else {
             continue;
         };
+        // A status-bearing notification whose target status is gone (deleted or
+        // otherwise unavailable) would be an orphan: Mastodon cascade-deletes
+        // such notifications when the status is removed, so they never appear.
+        // Mirror that by skipping it here instead of emitting a statusless one.
+        if let Some(sid) = notif_status_map_v1.get(&n.id) {
+            if !status_api_map.contains_key(sid) {
+                continue;
+            }
+        }
         let status = notif_status_map_v1
             .get(&n.id)
             .and_then(|sid| status_api_map.get(sid))
@@ -428,10 +437,22 @@ pub async fn get_notifications(
         });
     }
 
-    let link = result.first().zip(result.last()).map(|(newest, oldest)| {
-        let extra = super::non_pagination_query(uri.query());
-        super::link_header(&req_headers, uri.path(), &extra, &newest.id, &oldest.id)
-    });
+    // Base pagination on the raw page boundaries, not the filtered `result`:
+    // a page made up entirely of orphaned (skipped) notifications must still
+    // advance the cursor, otherwise the client would stop paginating early.
+    let link = notifications
+        .first()
+        .zip(notifications.last())
+        .map(|(newest, oldest)| {
+            let extra = super::non_pagination_query(uri.query());
+            super::link_header(
+                &req_headers,
+                uri.path(),
+                &extra,
+                &newest.id.to_string(),
+                &oldest.id.to_string(),
+            )
+        });
     let mut resp_headers = HeaderMap::new();
     if let Some(v) = link {
         if let Ok(val) = v.parse() {
@@ -848,6 +869,16 @@ pub async fn get_notifications_v2(
     let mut acc_map: std::collections::HashMap<String, GroupAcc> = std::collections::HashMap::new();
     for (idx, n) in notifications.iter().enumerate() {
         let target_sid = notif_status_map_v2.get(&n.id).copied();
+        // Skip a status-bearing notification whose target status is unavailable
+        // (deleted). Mastodon cascade-deletes such notifications, so they never
+        // reach the client; emitting one here yields a group with no status,
+        // which the iOS client cannot render (mention/status/quote require a
+        // full post layout) and falls back to an error placeholder.
+        if let Some(sid) = target_sid {
+            if !status_api_map.contains_key(&sid) {
+                continue;
+            }
+        }
         let gk = notification_group_key(n.r#type.as_deref().unwrap_or(""), target_sid, n.id);
         if let Some(a) = acc_map.get_mut(&gk) {
             a.count += 1;

@@ -97,6 +97,86 @@ async fn test_reply_creates_mention_notification() {
     assert!(mention_notif.is_some(), "no mention notification found");
 }
 
+/// When the status a mention notification points at is deleted, the notification
+/// must not surface as a statusless orphan. Mastodon cascade-deletes such
+/// notifications; we mirror that by excluding them from the v1 and v2 feeds so
+/// clients (e.g. mastodon-ios, which renders mentions as a full post row) never
+/// receive a mention/status/quote notification without its status.
+#[tokio::test]
+async fn test_mention_notification_with_deleted_status_is_excluded() {
+    let ctx = TestContext::new("notif-mention-deleted").await;
+
+    let parent = ctx
+        .api
+        .post_status(&ctx.alice_token, "parent for mention", "public")
+        .await;
+    let parent_id = parent["id"].as_str().unwrap();
+
+    let reply = ctx
+        .api
+        .post_json(
+            "/api/v1/statuses",
+            Some(&ctx.bob_token),
+            &json!({
+                "status": "@alice reply here",
+                "in_reply_to_id": parent_id,
+                "visibility": "public"
+            }),
+        )
+        .await
+        .json::<Value>()
+        .await
+        .unwrap();
+    let reply_id = reply["id"].as_str().unwrap();
+
+    // Sanity check: the mention notification exists while the status is live.
+    let notifs: Vec<Value> = ctx
+        .api
+        .get("/api/v1/notifications", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        notifs.iter().any(|n| n["type"] == "mention"),
+        "mention notification should exist before the status is deleted"
+    );
+
+    // Bob deletes the replying status.
+    let del = ctx
+        .api
+        .delete(&format!("/api/v1/statuses/{reply_id}"), &ctx.bob_token)
+        .await;
+    assert!(del.status().is_success(), "delete failed: {}", del.status());
+
+    // v1: the orphaned mention notification must be gone.
+    let notifs_v1: Vec<Value> = ctx
+        .api
+        .get("/api/v1/notifications", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        !notifs_v1.iter().any(|n| n["type"] == "mention"),
+        "mention notification with a deleted status must be excluded from v1"
+    );
+
+    // v2: no notification group should reference the deleted mention either.
+    let v2: Value = ctx
+        .api
+        .get("/api/v2/notifications", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+    let groups = v2["notification_groups"].as_array().cloned().unwrap_or_default();
+    assert!(
+        !groups.iter().any(|g| g["type"] == "mention"),
+        "mention group with a deleted status must be excluded from v2"
+    );
+}
+
 /// GET /api/v1/notifications/:id/dismiss removes the notification.
 #[tokio::test]
 async fn test_dismiss_notification() {
