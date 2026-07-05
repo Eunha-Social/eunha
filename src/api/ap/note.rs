@@ -446,9 +446,14 @@ fn media_attachment_ap(m: &models::MediaAttachment) -> Option<Value> {
     Some(obj)
 }
 
-/// Scan text and spoiler for `:shortcode:` tokens and emit `Emoji` tags for any
-/// matching enabled local custom emoji that has a resolvable image URL.
-async fn emoji_tags_for(state: &AppState, text: &str, spoiler: &str) -> AppResult<Vec<Value>> {
+/// Scan two text sources for `:shortcode:` tokens and emit `Emoji` tags for any
+/// matching enabled local custom emoji that has a resolvable image URL. Used for
+/// both status content (text + spoiler) and actor profiles (display name + note).
+pub(crate) async fn emoji_tags_for(
+    state: &AppState,
+    text: &str,
+    spoiler: &str,
+) -> AppResult<Vec<Value>> {
     let mut shortcodes: Vec<String> = Vec::new();
     for src in [text, spoiler] {
         for cap in EMOJI_RE.captures_iter(src) {

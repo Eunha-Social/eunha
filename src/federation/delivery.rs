@@ -137,6 +137,66 @@ pub async fn fanout_to_followers(
     enqueue_to_inboxes(state, activity, inboxes, key_id).await
 }
 
+/// Compute the set of remote inboxes that should receive an account-level
+/// activity (a profile `Update`), matching Mastodon's `AccountReachFinder`:
+/// followers + reporters + accounts mentioned in the account's recent statuses +
+/// accounts it recently followed + targets of its recent follow requests +
+/// enabled relays, de-duplicated and minus suspended/unavailable domains.
+///
+/// "Recent" is the last two days, mirroring Mastodon's `STATUS_SINCE`.
+pub async fn account_reach_inboxes(
+    state: &AppState,
+    account_id: i64,
+) -> anyhow::Result<Vec<String>> {
+    let rows: Vec<String> = sqlx::query_scalar!(
+        r#"
+        SELECT DISTINCT inbox AS "inbox!" FROM (
+            -- followers
+            SELECT CASE WHEN a.shared_inbox_url <> '' THEN a.shared_inbox_url ELSE a.inbox_url END AS inbox
+            FROM follows f JOIN accounts a ON a.id = f.account_id
+            WHERE f.target_account_id = $1 AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.inbox_url <> ''
+            UNION
+            -- reporters (accounts that reported this account)
+            SELECT CASE WHEN a.shared_inbox_url <> '' THEN a.shared_inbox_url ELSE a.inbox_url END
+            FROM reports r JOIN accounts a ON a.id = r.account_id
+            WHERE r.target_account_id = $1 AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.inbox_url <> ''
+            UNION
+            -- accounts mentioned in this account's recent statuses
+            SELECT CASE WHEN a.shared_inbox_url <> '' THEN a.shared_inbox_url ELSE a.inbox_url END
+            FROM mentions m JOIN accounts a ON a.id = m.account_id JOIN statuses s ON s.id = m.status_id
+            WHERE s.account_id = $1 AND s.deleted_at IS NULL AND s.created_at >= now() - interval '2 days'
+              AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.inbox_url <> ''
+            UNION
+            -- accounts this account recently followed
+            SELECT CASE WHEN a.shared_inbox_url <> '' THEN a.shared_inbox_url ELSE a.inbox_url END
+            FROM follows f JOIN accounts a ON a.id = f.target_account_id
+            WHERE f.account_id = $1 AND f.created_at >= now() - interval '2 days'
+              AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.inbox_url <> ''
+            UNION
+            -- targets of this account's recent follow requests
+            SELECT CASE WHEN a.shared_inbox_url <> '' THEN a.shared_inbox_url ELSE a.inbox_url END
+            FROM follow_requests fr JOIN accounts a ON a.id = fr.target_account_id
+            WHERE fr.account_id = $1 AND fr.created_at >= now() - interval '2 days'
+              AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.inbox_url <> ''
+            UNION
+            -- enabled relays
+            SELECT inbox_url FROM relays WHERE state = 2 AND inbox_url <> ''
+        ) reach
+        WHERE inbox <> ''
+        "#,
+        account_id,
+    )
+    .fetch_all(&state.db)
+    .await?;
+
+    let unavailable = unavailable_domains(state).await;
+    Ok(rows
+        .into_iter()
+        .filter(|i| !i.is_empty())
+        .filter(|i| !inbox_unavailable(i, &unavailable))
+        .collect())
+}
+
 /// Compute the full set of remote inboxes that should receive a status-level
 /// activity (Update/Delete), matching Mastodon's `StatusReachFinder#inboxes`:
 /// followers + mentioned accounts + the replied-to author + the quoted author +

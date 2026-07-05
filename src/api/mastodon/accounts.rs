@@ -2307,8 +2307,16 @@ async fn distribute_account_update(state: &AppState, domain: &str, account: &Acc
         return;
     };
     let key_id = format!("{}#main-key", actor_url);
+    let inboxes = match crate::federation::delivery::account_reach_inboxes(state, account.id).await
+    {
+        Ok(inboxes) => inboxes,
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to compute account Update reach");
+            return;
+        }
+    };
     if let Err(e) =
-        crate::federation::delivery::fanout_to_followers(state, activity, account.id, key_id).await
+        crate::federation::delivery::deliver_to_inboxes(state, activity, inboxes, key_id).await
     {
         tracing::warn!(error = %e, "failed to enqueue account Update fanout");
     }

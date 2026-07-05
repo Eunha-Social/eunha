@@ -242,6 +242,38 @@ pub async fn actor_json(
     let avatar_url = crate::api::mastodon::convert::account_avatar_url_for(account);
     let header_url = crate::api::mastodon::convert::account_header_url_for(account);
 
+    // Profile metadata fields, serialized as `PropertyValue` attachments so
+    // remote servers show the account's fields (Mastodon's `virtual_attachments`).
+    let attachment: Vec<Value> = account
+        .fields
+        .as_ref()
+        .and_then(|f| f.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|f| {
+                    let name = f.get("name")?.as_str()?;
+                    let value = f.get("value")?.as_str()?;
+                    Some(json!({
+                        "type": "PropertyValue",
+                        "name": name,
+                        "value": crate::api::mastodon::formatting::format_field_value(value),
+                    }))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    // Custom emoji used in the display name / bio, serialized as `Emoji` tags so
+    // remote servers can render them (Mastodon's `virtual_tags`, emojis part).
+    let tag =
+        crate::api::ap::note::emoji_tags_for(state, &account.display_name, &account.note).await?;
+
+    // Local accounts store an empty `url` column; the human profile URL is
+    // `/@username` (matching the Mastodon API serializer and Mastodon core).
+    let profile_url = format!("https://{}/@{}", domain, account.username);
+    // Bots federate as `Service`; everyone else as `Person`.
+    let actor_type = account.actor_type.as_deref().unwrap_or("Person");
+
     let actor = json!({
         "@context": [
             "https://www.w3.org/ns/activitystreams",
@@ -250,7 +282,11 @@ pub async fn actor_json(
                 "manuallyApprovesFollowers": "as:manuallyApprovesFollowers",
                 "alsoKnownAs": { "@id": "as:alsoKnownAs", "@type": "@id" },
                 "movedTo": { "@id": "as:movedTo", "@type": "@id" },
+                "schema": "http://schema.org#",
+                "PropertyValue": "schema:PropertyValue",
+                "value": "schema:value",
                 "toot": "http://joinmastodon.org/ns#",
+                "Emoji": "toot:Emoji",
                 "featured": { "@id": "toot:featured", "@type": "@id" },
                 "featuredCollections": { "@id": "toot:featuredCollections", "@type": "@id" },
                 "discoverable": "toot:discoverable",
@@ -261,7 +297,7 @@ pub async fn actor_json(
             }
         ],
         "id": actor_url,
-        "type": "Person",
+        "type": actor_type,
         "following": format!("{}/following", actor_url),
         "followers": format!("{}/followers", actor_url),
         "inbox": format!("{}/inbox", actor_url),
@@ -271,7 +307,9 @@ pub async fn actor_json(
         "preferredUsername": account.username,
         "name": account.display_name,
         "summary": account.note,
-        "url": account.url,
+        "url": profile_url,
+        "attachment": attachment,
+        "tag": tag,
         "manuallyApprovesFollowers": account.locked,
         "discoverable": account.discoverable,
         "indexable": account.indexable,

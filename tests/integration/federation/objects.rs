@@ -170,3 +170,136 @@ async fn test_featured_collection_lists_pins() {
         "pinned status should appear in featured collection: {featured}"
     );
 }
+
+/// The actor document exposes profile metadata fields as `PropertyValue`
+/// attachments and uses the human `/@username` url, so profile edits federate.
+#[tokio::test]
+async fn test_actor_serializes_profile_fields() {
+    let ctx = TestContext::new("ap-actor-fields").await;
+
+    // A local custom emoji referenced in the display name should federate as a tag.
+    sqlx::query(
+        "INSERT INTO custom_emojis (id, shortcode, domain, disabled, uri, image_remote_url, created_at, updated_at)
+         VALUES (nextval('custom_emojis_id_seq'), 'party', NULL, false, $1, $2, now(), now())",
+    )
+    .bind(format!("https://{}/emojis/party", ctx.domain))
+    .bind(format!("https://{}/party.png", ctx.domain))
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+
+    let resp = ctx
+        .api
+        .patch_multipart(
+            "/api/v1/accounts/update_credentials",
+            &ctx.alice_token,
+            &[
+                ("display_name", "Alice :party:"),
+                ("fields_attributes[0][name]", "Website"),
+                ("fields_attributes[0][value]", "https://alice.example"),
+            ],
+        )
+        .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let actor: Value = ctx
+        .api
+        .get("/users/alice", None)
+        .await
+        .json()
+        .await
+        .unwrap();
+
+    assert_eq!(actor["type"].as_str(), Some("Person"));
+    assert_eq!(
+        actor["url"].as_str(),
+        Some(format!("https://{}/@alice", ctx.domain).as_str())
+    );
+
+    let attachment = actor["attachment"]
+        .as_array()
+        .expect("actor should have an attachment array");
+    let website = attachment
+        .iter()
+        .find(|f| f["name"].as_str() == Some("Website"))
+        .expect("Website field should be serialized as an attachment");
+    assert_eq!(website["type"].as_str(), Some("PropertyValue"));
+    // The value is HTML with the URL linkified, mirroring Mastodon.
+    assert!(
+        website["value"]
+            .as_str()
+            .is_some_and(|v| v.contains("https://alice.example") && v.contains("<a ")),
+        "field value should be linkified HTML: {website}"
+    );
+
+    let tag = actor["tag"]
+        .as_array()
+        .expect("actor should have a tag array");
+    let emoji = tag
+        .iter()
+        .find(|t| t["name"].as_str() == Some(":party:"))
+        .expect("custom emoji in display name should be serialized as a tag");
+    assert_eq!(emoji["type"].as_str(), Some("Emoji"));
+    assert!(emoji["icon"]["url"].as_str().is_some_and(|u| !u.is_empty()));
+}
+
+/// A profile update reaches accounts the actor recently followed, not just its
+/// own followers — matching Mastodon's `AccountReachFinder`.
+#[tokio::test]
+async fn test_profile_update_reaches_recently_followed() {
+    let ctx = TestContext::new("ap-actor-reach").await;
+    let alice_id: i64 = ctx.alice_id.parse().unwrap();
+
+    // The fanout only runs for accounts that can sign (have a private key).
+    sqlx::query("UPDATE accounts SET private_key = 'test-private-key' WHERE id = $1")
+        .bind(alice_id)
+        .execute(&ctx.db)
+        .await
+        .unwrap();
+
+    // A remote account alice follows, but which does NOT follow alice back.
+    let remote_inbox = "https://remote.invalid/users/rob/inbox";
+    let remote_id = eunha::snowflake::next_id();
+    sqlx::query(
+        "INSERT INTO accounts (id, username, domain, display_name, note, url, uri, public_key, inbox_url, outbox_url, shared_inbox_url, created_at, updated_at)
+         VALUES ($1, 'rob', 'remote.invalid', 'rob', '', $2, $2, 'k', $3, $2, '', now(), now())",
+    )
+    .bind(remote_id)
+    .bind("https://remote.invalid/users/rob")
+    .bind(remote_inbox)
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO follows (account_id, target_account_id, created_at, updated_at)
+         VALUES ($1, $2, now(), now())",
+    )
+    .bind(alice_id)
+    .bind(remote_id)
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+
+    let resp = ctx
+        .api
+        .patch_multipart(
+            "/api/v1/accounts/update_credentials",
+            &ctx.alice_token,
+            &[("display_name", "Alice Updated")],
+        )
+        .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let delivered: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM eunha.activity_delivery_jobs
+         WHERE inbox_url = $1 AND activity->'object'->>'type' = 'Person'",
+    )
+    .bind(remote_inbox)
+    .fetch_one(&ctx.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        delivered, 1,
+        "recently-followed remote account should receive the profile Update"
+    );
+}
