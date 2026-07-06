@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, NavLink } from 'react-router-dom'
+import { Link, NavLink, useLocation } from 'react-router-dom'
 import { Bell, Home, Info, LogIn, LogOut, Pencil, Search, User } from 'lucide-react'
 
 import { getInstance } from '../api.ts'
@@ -8,13 +8,74 @@ import { clearMe, getMeAccount, loadMe, type MeAccount } from '../me.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { ModeToggle } from '@/components/mode-toggle.tsx'
 import { useComposeModal } from '@/components/compose-modal.tsx'
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarTrigger,
+  useSidebar,
+} from '@/components/ui/sidebar.tsx'
 import { cn } from '@/lib/utils.ts'
 
 const navLink =
   'text-muted-foreground hover:text-foreground flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium no-underline'
 const activeNavLink = 'bg-muted text-foreground'
 
-function Sidebar({
+type IconType = React.ComponentType<{ className?: string }>
+type NavItem = { to: string; end?: boolean; icon: IconType; label: string }
+
+function useNavItems(token: string | null, account: MeAccount | null): NavItem[] {
+  if (!token) return []
+  const items: NavItem[] = [
+    { to: '/', end: true, icon: Home, label: 'Home' },
+    { to: '/search', icon: Search, label: 'Search' },
+    { to: '/notifications', icon: Bell, label: 'Notifications' },
+  ]
+  if (account) {
+    items.push({ to: `/@${account.acct}`, icon: User, label: 'Profile' })
+  }
+  items.push({ to: '/about', icon: Info, label: 'About' })
+  return items
+}
+
+function AuthButton({
+  token,
+  size = 'sm',
+}: {
+  token: string | null
+  size?: React.ComponentProps<typeof Button>['size']
+}) {
+  if (token) {
+    return (
+      <Button
+        variant="ghost"
+        size={size}
+        onClick={() => {
+          logout()
+          clearMe()
+          location.assign('/')
+        }}
+      >
+        <LogOut /> Sign out
+      </Button>
+    )
+  }
+  return (
+    <Button size={size} onClick={() => beginLogin()}>
+      <LogIn /> Sign in
+    </Button>
+  )
+}
+
+// The wide-screen rail: a fixed sidebar floating in the left margin of the
+// centered column. Shown at `xl` and up (see `.sidebar-frame`).
+function DesktopRail({
   token,
   title,
   account,
@@ -24,6 +85,7 @@ function Sidebar({
   account: MeAccount | null
 }) {
   const { openCompose } = useComposeModal()
+  const navItems = useNavItems(token, account)
 
   return (
     <aside className="sidebar-frame">
@@ -31,47 +93,16 @@ function Sidebar({
         {title}
       </Link>
       <nav className="flex flex-col gap-1">
-        {token && (
+        {navItems.map((item) => (
           <NavLink
-            to="/"
-            end
+            key={item.to}
+            to={item.to}
+            end={item.end}
             className={({ isActive }) => cn(navLink, isActive && activeNavLink)}
           >
-            <Home className="size-4" /> Home
+            <item.icon className="size-4" /> {item.label}
           </NavLink>
-        )}
-        {token && (
-          <NavLink
-            to="/search"
-            className={({ isActive }) => cn(navLink, isActive && activeNavLink)}
-          >
-            <Search className="size-4" /> Search
-          </NavLink>
-        )}
-        {token && (
-          <NavLink
-            to="/notifications"
-            className={({ isActive }) => cn(navLink, isActive && activeNavLink)}
-          >
-            <Bell className="size-4" /> Notifications
-          </NavLink>
-        )}
-        {token && account && (
-          <NavLink
-            to={`/@${account.acct}`}
-            className={({ isActive }) => cn(navLink, isActive && activeNavLink)}
-          >
-            <User className="size-4" /> Profile
-          </NavLink>
-        )}
-        {token && (
-          <NavLink
-            to="/about"
-            className={({ isActive }) => cn(navLink, isActive && activeNavLink)}
-          >
-            <Info className="size-4" /> About
-          </NavLink>
-        )}
+        ))}
       </nav>
       {token && (
         <Button className="mt-4 w-full" onClick={() => openCompose()}>
@@ -80,17 +111,96 @@ function Sidebar({
       )}
       <div className="mt-auto flex items-center justify-between gap-2">
         <ModeToggle />
-        {token ? (
+        <AuthButton token={token} />
+      </div>
+    </aside>
+  )
+}
+
+// The small-screen drawer: the shadcn Sidebar component, which renders inside a
+// portaled Sheet toggled by `SidebarTrigger`. Only rendered below `xl`.
+function MobileDrawer({
+  token,
+  title,
+  account,
+}: {
+  token: string | null
+  title: string
+  account: MeAccount | null
+}) {
+  const { openCompose } = useComposeModal()
+  const { setOpenMobile } = useSidebar()
+  const location = useLocation()
+  const navItems = useNavItems(token, account)
+  const close = () => setOpenMobile(false)
+  const isActive = (to: string, end?: boolean) =>
+    end
+      ? location.pathname === to
+      : location.pathname === to || location.pathname.startsWith(`${to}/`)
+
+  return (
+    <Sidebar>
+      <SidebarHeader>
+        <Link
+          to="/"
+          onClick={close}
+          className="px-2 py-1 text-lg font-semibold no-underline"
+        >
+          {title}
+        </Link>
+      </SidebarHeader>
+      <SidebarContent>
+        <SidebarGroup>
+          <SidebarMenu>
+            {navItems.map((item) => (
+              <SidebarMenuItem key={item.to}>
+                <SidebarMenuButton
+                  isActive={isActive(item.to, item.end)}
+                  onClick={close}
+                  render={<NavLink to={item.to} end={item.end} />}
+                >
+                  <item.icon />
+                  <span>{item.label}</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            ))}
+          </SidebarMenu>
+        </SidebarGroup>
+      </SidebarContent>
+      <SidebarFooter>
+        {token && (
           <Button
-            variant="ghost"
-            size="sm"
+            className="w-full"
             onClick={() => {
-              logout()
-              clearMe()
-              location.assign('/')
+              close()
+              openCompose()
             }}
           >
-            <LogOut /> Sign out
+            <Pencil /> Post
+          </Button>
+        )}
+        <div className="flex items-center justify-between gap-2">
+          <ModeToggle />
+          <AuthButton token={token} />
+        </div>
+      </SidebarFooter>
+    </Sidebar>
+  )
+}
+
+function MobileHeader({ token, title }: { token: string | null; title: string }) {
+  const { openCompose } = useComposeModal()
+
+  return (
+    <header className="mb-3 flex items-center gap-2 border-b pb-2 xl:hidden">
+      <SidebarTrigger className="-ml-1" aria-label="Open menu" />
+      <Link to="/" className="text-lg font-semibold no-underline">
+        {title}
+      </Link>
+      <div className="ml-auto flex items-center gap-2">
+        {token ? (
+          <Button size="sm" onClick={() => openCompose()}>
+            <Pencil /> Post
           </Button>
         ) : (
           <Button size="sm" onClick={() => beginLogin()}>
@@ -98,13 +208,36 @@ function Sidebar({
           </Button>
         )}
       </div>
-    </aside>
+    </header>
+  )
+}
+
+function TopBarInner({
+  token,
+  title,
+  account,
+}: {
+  token: string | null
+  title: string
+  account: MeAccount | null
+}) {
+  const { isMobile } = useSidebar()
+
+  return (
+    <>
+      <DesktopRail token={token} title={title} account={account} />
+      <MobileHeader token={token} title={title} />
+      {/* Below `xl` the Sidebar renders as a Sheet drawer; above it the
+          DesktopRail handles navigation, so skip the component's own rail. */}
+      {isMobile && (
+        <MobileDrawer token={token} title={title} account={account} />
+      )}
+    </>
   )
 }
 
 export function TopBar({ title }: { title?: string }) {
   const token = getToken()
-  const { openCompose } = useComposeModal()
   const [instanceTitle, setInstanceTitle] = useState<string | null>(() =>
     document.title === 'eunha' ? null : document.title,
   )
@@ -144,46 +277,8 @@ export function TopBar({ title }: { title?: string }) {
   }, [displayTitle])
 
   return (
-    <>
-      <Sidebar token={token} title={displayTitle} account={account} />
-      <header className="mb-3 flex items-center justify-between border-b pb-2 xl:hidden">
-        <Link to="/" className="text-lg font-semibold no-underline">
-          {displayTitle}
-        </Link>
-        <div className="flex items-center gap-2">
-          {token && (
-            <Button size="sm" onClick={() => openCompose()}>
-              <Pencil /> Post
-            </Button>
-          )}
-          <Button
-            render={<Link to="/search" />}
-            variant="ghost"
-            size="icon"
-            aria-label="Search"
-          >
-            <Search />
-          </Button>
-          {token ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                logout()
-                clearMe()
-                location.assign('/')
-              }}
-            >
-              <LogOut /> Sign out
-            </Button>
-          ) : (
-            <Button size="sm" onClick={() => beginLogin()}>
-              <LogIn /> Sign in
-            </Button>
-          )}
-          <ModeToggle />
-        </div>
-      </header>
-    </>
+    <SidebarProvider className="block min-h-0 w-full">
+      <TopBarInner token={token} title={displayTitle} account={account} />
+    </SidebarProvider>
   )
 }
