@@ -9,9 +9,9 @@ use serde::Serialize;
 
 use super::{
     accounts::{
-        batch_account_emojis, batch_account_roles, batch_quote_data, batch_reblog_data,
-        batch_status_cards, batch_status_emojis, batch_status_media, batch_status_mentions,
-        batch_status_polls, batch_statuses_tags,
+        apply_account_stats, batch_account_emojis, batch_account_roles, batch_quote_data,
+        batch_reblog_data, batch_status_cards, batch_status_emojis, batch_status_media,
+        batch_status_mentions, batch_status_polls, batch_statuses_tags, hydrate_status_stats,
     },
     convert::{account_from_db, status_from_db},
     types::{Account as ApiAccount, Status as ApiStatus},
@@ -371,6 +371,7 @@ async fn build_response(
             }
             result.push(api);
         }
+        hydrate_status_stats(state, result.iter_mut()).await;
         result
     };
 
@@ -379,6 +380,7 @@ async fn build_response(
     let mut api_account = account_from_db(account);
     api_account.emojis = account_emojis.get(&account.id).cloned().unwrap_or_default();
     api_account.roles = account_roles.get(&account.id).cloned().unwrap_or_default();
+    apply_account_stats(state, &mut api_account, account.id).await;
     let api_accounts = vec![api_account];
 
     Ok(AnnualReportsResponse {

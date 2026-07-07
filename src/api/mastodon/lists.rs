@@ -6,8 +6,7 @@ use axum::{
 use serde::Deserialize;
 
 use super::{
-    accounts::{batch_account_emojis, batch_account_roles},
-    convert::account_from_db,
+    accounts::batch_accounts_to_api,
     types::{Account, List},
 };
 use crate::{
@@ -219,17 +218,7 @@ pub async fn get_list_accounts(
     .fetch_all(&state.db)
     .await?;
 
-    let account_emojis_map = batch_account_emojis(&state, &accounts).await;
-    let account_roles_map = batch_account_roles(&state, &accounts).await;
-    let result: Vec<Account> = accounts
-        .iter()
-        .map(|a| {
-            let mut api = account_from_db(a);
-            api.emojis = account_emojis_map.get(&a.id).cloned().unwrap_or_default();
-            api.roles = account_roles_map.get(&a.id).cloned().unwrap_or_default();
-            api
-        })
-        .collect();
+    let result: Vec<Account> = batch_accounts_to_api(&state, &accounts).await;
     let link = if unlimited {
         None
     } else {

@@ -7,9 +7,10 @@ use axum::{
 
 use super::{
     accounts::{
-        batch_account_emojis, batch_account_roles, batch_reblog_data, batch_status_cards,
-        batch_status_emojis, batch_status_media, batch_status_mentions, batch_status_polls,
-        batch_statuses_tags, build_status, fetch_account, fetch_status_media,
+        batch_account_emojis, batch_account_roles, batch_account_stats, batch_reblog_data,
+        batch_status_cards, batch_status_emojis, batch_status_media, batch_status_mentions,
+        batch_status_polls, batch_statuses_tags, build_status, fetch_account, fetch_status_media,
+        hydrate_status_stats,
     },
     convert::{account_from_db, status_from_db},
     statuses::{batch_viewer_contexts, build_viewer_context},
@@ -235,11 +236,17 @@ pub async fn get_conversations(
             }
             enriched_map.insert(conv_id, api);
         }
+        hydrate_status_stats(&state, enriched_map.values_mut()).await;
     }
 
     let participant_roles_map = batch_account_roles(
         &state,
         &participant_acct_map.values().cloned().collect::<Vec<_>>(),
+    )
+    .await;
+    let participant_stats_map = batch_account_stats(
+        &state,
+        &participant_acct_map.keys().copied().collect::<Vec<_>>(),
     )
     .await;
     let mut result = Vec::with_capacity(rows.len());
@@ -261,6 +268,13 @@ pub async fn get_conversations(
                         .get(&a.id)
                         .cloned()
                         .unwrap_or_default();
+                    if let Some(&(statuses, following, followers)) =
+                        participant_stats_map.get(&a.id)
+                    {
+                        api_acct.statuses_count = statuses;
+                        api_acct.following_count = following;
+                        api_acct.followers_count = followers;
+                    }
                     api_acct
                 })
                 .collect(),

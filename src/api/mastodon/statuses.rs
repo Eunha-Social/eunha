@@ -13,7 +13,7 @@ use super::{
         batch_account_emojis, batch_account_roles, batch_accounts_to_api, batch_reblog_data,
         batch_status_cards, batch_status_emojis, batch_status_media, batch_status_mentions,
         batch_status_polls, batch_statuses_tags, build_status, fetch_reblog_data,
-        fetch_status_media, spawn_card_fetch,
+        fetch_status_media, hydrate_status_stats, spawn_card_fetch,
     },
     convert::{account_from_db, status_from_db},
     formatting::{render_content, HASHTAG_RE, MENTION_RE},
@@ -1355,7 +1355,6 @@ pub async fn get_statuses_batch(
     } else {
         HashMap::new()
     };
-
     // Preserve original request order
     let id_order: HashMap<i64, usize> = ids.iter().enumerate().map(|(i, &id)| (id, i)).collect();
     let mut indexed: Vec<(usize, Status)> = Vec::with_capacity(visible.len());
@@ -1390,7 +1389,9 @@ pub async fn get_statuses_batch(
         indexed.push((order, api));
     }
     indexed.sort_by_key(|(i, _)| *i);
-    Ok(Json(indexed.into_iter().map(|(_, s)| s).collect()))
+    let mut out: Vec<Status> = indexed.into_iter().map(|(_, s)| s).collect();
+    hydrate_status_stats(&state, out.iter_mut()).await;
+    Ok(Json(out))
 }
 
 // ── GET /api/v1/statuses/:id ──────────────────────────────────────────────
@@ -2440,6 +2441,7 @@ pub async fn get_status_context(
                 }
                 result.push(api);
             }
+            hydrate_status_stats(&state, result.iter_mut()).await;
             Ok(result)
         }
     };
@@ -3378,6 +3380,7 @@ pub async fn get_status_history(
     let mut api_account = account_from_db(&account);
     api_account.emojis = account_emojis.get(&account.id).cloned().unwrap_or_default();
     api_account.roles = account_roles.get(&account.id).cloned().unwrap_or_default();
+    super::accounts::apply_account_stats(&state, &mut api_account, account.id).await;
 
     // Collect all media attachment IDs needed across all edits, then batch-fetch them.
     let all_media_ids: Vec<i64> = edits

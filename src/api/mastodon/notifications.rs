@@ -8,10 +8,11 @@ use serde::Deserialize;
 
 use super::{
     accounts::{
-        batch_account_emojis, batch_account_roles, batch_accounts_to_api, batch_reblog_data,
-        batch_status_cards, batch_status_emojis, batch_status_media, batch_status_mentions,
-        batch_status_polls, batch_statuses_tags, build_status, fetch_account_emojis,
-        fetch_reblog_data, fetch_status_media,
+        apply_account_stats, batch_account_emojis, batch_account_roles, batch_account_stats,
+        batch_accounts_to_api, batch_reblog_data, batch_status_cards, batch_status_emojis,
+        batch_status_media, batch_status_mentions, batch_status_polls, batch_statuses_tags,
+        build_status, fetch_account_emojis, fetch_reblog_data, fetch_status_media,
+        hydrate_status_stats,
     },
     convert::{account_from_db, status_from_db},
     types::{
@@ -70,12 +71,19 @@ async fn fetch_reports_map(
     };
     let ta_vec: Vec<Account> = target_accounts.values().cloned().collect();
     let ta_emojis_map = batch_account_emojis(state, &ta_vec).await;
+    let ta_stats_map =
+        batch_account_stats(state, &target_accounts.keys().copied().collect::<Vec<_>>()).await;
     for r in rows {
         let Some(ta) = target_accounts.get(&r.target_account_id) else {
             continue;
         };
         let mut ta_api = account_from_db(ta);
         ta_api.emojis = ta_emojis_map.get(&ta.id).cloned().unwrap_or_default();
+        if let Some(&(statuses_c, following, followers)) = ta_stats_map.get(&ta.id) {
+            ta_api.statuses_count = statuses_c;
+            ta_api.following_count = following;
+            ta_api.followers_count = followers;
+        }
         map.insert(
             r.id,
             super::types::Report {
@@ -235,6 +243,11 @@ pub async fn get_notifications(
             batch_account_roles(&state, &accs).await,
         )
     };
+    let from_account_stats_map = batch_account_stats(
+        &state,
+        &from_account_map.keys().copied().collect::<Vec<_>>(),
+    )
+    .await;
 
     let notif_ids_v1: Vec<i64> = notifications.iter().map(|n| n.id).collect();
     let notif_status_map_v1 = batch_notification_status_ids(&state, &notif_ids_v1).await;
@@ -366,6 +379,7 @@ pub async fn get_notifications(
             }
             map.insert(s.id, api);
         }
+        hydrate_status_stats(&state, map.values_mut()).await;
         map
     } else {
         std::collections::HashMap::new()
@@ -421,6 +435,11 @@ pub async fn get_notifications(
             .get(&account.id)
             .cloned()
             .unwrap_or_default();
+        if let Some(&(statuses_c, following, followers)) = from_account_stats_map.get(&account.id) {
+            notif_account.statuses_count = statuses_c;
+            notif_account.following_count = following;
+            notif_account.followers_count = followers;
+        }
         result.push(Notification {
             id: n.id.to_string(),
             notification_type: n.r#type.clone().unwrap_or_default(),
@@ -670,6 +689,11 @@ pub async fn get_notifications_v2(
     .await?;
     let from_account_map: std::collections::HashMap<i64, Account> =
         from_accounts_vec.into_iter().map(|a| (a.id, a)).collect();
+    let from_account_stats_map_v2 = batch_account_stats(
+        &state,
+        &from_account_map.keys().copied().collect::<Vec<_>>(),
+    )
+    .await;
     let (from_account_emojis_map_v2, from_account_roles_map_v2) = {
         let accs: Vec<Account> = from_account_map.values().cloned().collect();
         (
@@ -833,6 +857,7 @@ pub async fn get_notifications_v2(
             }
             map.insert(s.id, api);
         }
+        hydrate_status_stats(&state, map.values_mut()).await;
         map
     } else {
         std::collections::HashMap::new()
@@ -851,6 +876,11 @@ pub async fn get_notifications_v2(
             .get(&a.id)
             .cloned()
             .unwrap_or_default();
+        if let Some(&(statuses_c, following, followers)) = from_account_stats_map_v2.get(&a.id) {
+            api_account.statuses_count = statuses_c;
+            api_account.following_count = following;
+            api_account.followers_count = followers;
+        }
         accounts_map.insert(a.id.to_string(), api_account);
     }
     let mut statuses_resp_map: std::collections::HashMap<String, super::types::Status> =
@@ -1547,6 +1577,7 @@ pub async fn get_notification_requests(
             }
             last_status_map.insert(s.id, api);
         }
+        hydrate_status_stats(&state, last_status_map.values_mut()).await;
     }
 
     // Batch-fetch account emojis/roles for notification request senders
@@ -1565,6 +1596,11 @@ pub async fn get_notification_requests(
     };
     let req_acc_emojis_map = batch_account_emojis(&state, &req_db_accounts).await;
     let req_acc_roles_map = batch_account_roles(&state, &req_db_accounts).await;
+    let req_acc_stats_map = batch_account_stats(
+        &state,
+        &req_db_accounts.iter().map(|a| a.id).collect::<Vec<_>>(),
+    )
+    .await;
     let req_acc_map: std::collections::HashMap<i64, Account> =
         req_db_accounts.into_iter().map(|a| (a.id, a)).collect();
 
@@ -1577,6 +1613,11 @@ pub async fn get_notification_requests(
         let mut api_account = super::convert::account_from_db(acc);
         api_account.emojis = req_acc_emojis_map.get(&acc.id).cloned().unwrap_or_default();
         api_account.roles = req_acc_roles_map.get(&acc.id).cloned().unwrap_or_default();
+        if let Some(&(statuses_c, following, followers)) = req_acc_stats_map.get(&acc.id) {
+            api_account.statuses_count = statuses_c;
+            api_account.following_count = following;
+            api_account.followers_count = followers;
+        }
         result.push(NotificationRequest {
             id: r.id.to_string(),
             created_at: super::convert::mastodon_date(r.created_at),
@@ -1714,6 +1755,7 @@ pub async fn get_notification_request(
         let m = batch_account_roles(&state, std::slice::from_ref(&acc)).await;
         m.get(&acc.id).cloned().unwrap_or_default()
     };
+    apply_account_stats(&state, &mut api_account, acc.id).await;
     Ok(Json(NotificationRequest {
         id: r.id.to_string(),
         created_at: super::convert::mastodon_date(r.created_at),
@@ -1875,6 +1917,7 @@ async fn build_notification(state: &AppState, n: &DbNotification) -> AppResult<N
                 let m = batch_account_roles(state, std::slice::from_ref(&ta)).await;
                 m.get(&ta.id).cloned().unwrap_or_default()
             };
+            apply_account_stats(state, &mut ta_api, ta.id).await;
             Some(super::types::Report {
                 id: rid.to_string(),
                 action_taken: action_taken_at.is_some(),
@@ -1901,6 +1944,7 @@ async fn build_notification(state: &AppState, n: &DbNotification) -> AppResult<N
         let m = batch_account_roles(state, std::slice::from_ref(&from_account)).await;
         m.get(&from_account.id).cloned().unwrap_or_default()
     };
+    apply_account_stats(state, &mut notif_account, from_account.id).await;
     Ok(Notification {
         id: n.id.to_string(),
         notification_type: n.r#type.clone().unwrap_or_default(),

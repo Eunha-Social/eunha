@@ -136,6 +136,7 @@ pub async fn file_report(
         let m = batch_account_roles(&state, std::slice::from_ref(&target_account)).await;
         m.get(&target_account.id).cloned().unwrap_or_default()
     };
+    super::accounts::apply_account_stats(&state, &mut ta_api, target_account.id).await;
     Ok(Json(Report {
         id: report.id.to_string(),
         action_taken: false,

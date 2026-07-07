@@ -8,7 +8,7 @@ use super::{
     accounts::{
         batch_account_emojis, batch_account_roles, batch_reblog_data, batch_status_cards,
         batch_status_emojis, batch_status_media, batch_status_mentions, batch_status_polls,
-        batch_statuses_tags,
+        batch_statuses_tags, hydrate_status_stats,
     },
     convert::status_from_db,
     types::{Status, Tag},
@@ -246,6 +246,7 @@ pub async fn trending_statuses(
         }
         result.push(api);
     }
+    hydrate_status_stats(&state, result.iter_mut()).await;
 
     Ok(Json(result))
 }

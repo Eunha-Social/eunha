@@ -8,9 +8,9 @@ use serde::Deserialize;
 
 use super::{
     accounts::{
-        batch_account_emojis, batch_account_roles, batch_account_stats, batch_quote_data,
-        batch_reblog_data, batch_status_cards, batch_status_emojis, batch_status_media,
-        batch_status_mentions, batch_status_polls, batch_status_stats, batch_statuses_tags,
+        batch_account_emojis, batch_account_roles, batch_quote_data, batch_reblog_data,
+        batch_status_cards, batch_status_emojis, batch_status_media, batch_status_mentions,
+        batch_status_polls, batch_statuses_tags, hydrate_status_stats,
     },
     convert::status_from_db,
     types::{PaginationParams, Status},
@@ -1227,9 +1227,6 @@ async fn build_status_list(
     };
     let account_emojis_map = batch_account_emojis(state, &all_accounts_for_emoji).await;
     let account_roles_map = batch_account_roles(state, &all_accounts_for_emoji).await;
-    let stats_account_ids: Vec<i64> = all_accounts_for_emoji.iter().map(|a| a.id).collect();
-    let account_stats_map = batch_account_stats(state, &stats_account_ids).await;
-    let status_stats_map = batch_status_stats(state, &enrich_ids).await;
 
     let mut result = Vec::with_capacity(statuses.len());
     for s in &statuses {
@@ -1253,17 +1250,6 @@ async fn build_status_list(
             .get(&account.id)
             .cloned()
             .unwrap_or_default();
-        if let Some(&(statuses, following, followers)) = account_stats_map.get(&account.id) {
-            api.account.statuses_count = statuses;
-            api.account.following_count = following;
-            api.account.followers_count = followers;
-        }
-        if let Some(&(replies, reblogs, favourites, quotes)) = status_stats_map.get(&s.id) {
-            api.replies_count = replies;
-            api.reblogs_count = reblogs;
-            api.favourites_count = favourites;
-            api.quotes_count = quotes;
-        }
         api.tags = tags_map.get(&s.id).cloned().unwrap_or_default();
         api.mentions = mentions;
         api.emojis = emojis_map.get(&s.id).cloned().unwrap_or_default();
@@ -1275,17 +1261,6 @@ async fn build_status_list(
             let rb_id: i64 = rb.account.id.parse().unwrap_or(0);
             rb.account.emojis = account_emojis_map.get(&rb_id).cloned().unwrap_or_default();
             rb.account.roles = account_roles_map.get(&rb_id).cloned().unwrap_or_default();
-            if let Some(&(statuses, following, followers)) = account_stats_map.get(&rb_id) {
-                rb.account.statuses_count = statuses;
-                rb.account.following_count = following;
-                rb.account.followers_count = followers;
-            }
-            if let Some(&(replies, reblogs, favourites, quotes)) = status_stats_map.get(&rid) {
-                rb.replies_count = replies;
-                rb.reblogs_count = reblogs;
-                rb.favourites_count = favourites;
-                rb.quotes_count = quotes;
-            }
             rb.tags = tags_map.get(&rid).cloned().unwrap_or_default();
             rb.mentions = rb_mentions;
             rb.emojis = emojis_map.get(&rid).cloned().unwrap_or_default();
@@ -1294,6 +1269,7 @@ async fn build_status_list(
         }
         result.push(api);
     }
+    hydrate_status_stats(state, result.iter_mut()).await;
     Ok(result)
 }
 

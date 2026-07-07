@@ -3,6 +3,54 @@ use serde_json::{json, Value};
 
 use crate::helpers::TestContext;
 
+/// The account-statuses feed (the iOS profile timeline) embeds real account
+/// stats and status stats, matching Mastodon — not hard-coded zeros.
+#[tokio::test]
+async fn test_account_statuses_embeds_real_stats() {
+    let ctx = TestContext::new("acct-stat-stats").await;
+
+    // Bob follows Alice so Alice has a non-zero follower count.
+    ctx.api.follow(&ctx.bob_token, &ctx.alice_id).await;
+    let status = ctx
+        .api
+        .post_status(&ctx.alice_token, "profile feed post", "public")
+        .await;
+    let id = status["id"].as_str().unwrap().to_string();
+    ctx.api
+        .post_json(
+            &format!("/api/v1/statuses/{id}/favourite"),
+            Some(&ctx.bob_token),
+            &json!({}),
+        )
+        .await;
+
+    let resp = ctx
+        .api
+        .get(&format!("/api/v1/accounts/{}/statuses", ctx.alice_id), None)
+        .await;
+    let statuses: Vec<Value> = resp.json().await.unwrap();
+    let s = statuses
+        .iter()
+        .find(|s| s["id"].as_str() == Some(id.as_str()))
+        .expect("posted status missing from account feed");
+
+    assert_eq!(
+        s["favourites_count"].as_i64(),
+        Some(1),
+        "account-feed status should report favourites_count"
+    );
+    assert_eq!(
+        s["account"]["followers_count"].as_i64(),
+        Some(1),
+        "account-feed embedded account should report followers_count"
+    );
+    assert_eq!(
+        s["account"]["statuses_count"].as_i64(),
+        Some(1),
+        "account-feed embedded account should report statuses_count"
+    );
+}
+
 // ── account statuses visibility ──────────────────────────────────────────────
 
 /// Private statuses are hidden from unauthenticated viewers.
