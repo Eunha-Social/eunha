@@ -3232,8 +3232,42 @@ pub async fn batch_reblog_data(
     .fetch_all(&state.db)
     .await?;
 
-    let reblog_account_ids: Vec<i64> = reblog_statuses
+    let nested_reblog_ids: Vec<i64> = reblog_statuses
         .iter()
+        .filter_map(|s| s.reblog_of_id)
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect();
+
+    let nested_reblog_statuses = if nested_reblog_ids.is_empty() {
+        vec![]
+    } else {
+        sqlx::query_as!(
+            crate::db::models::Status,
+            "SELECT * FROM statuses WHERE id = ANY($1::bigint[]) AND deleted_at IS NULL",
+            &nested_reblog_ids,
+        )
+        .fetch_all(&state.db)
+        .await?
+    };
+    let nested_reblog_status_map: HashMap<i64, crate::db::models::Status> = nested_reblog_statuses
+        .into_iter()
+        .map(|s| (s.id, s))
+        .collect();
+
+    let resolved_reblog_status_map: HashMap<i64, crate::db::models::Status> = reblog_statuses
+        .into_iter()
+        .map(|s| {
+            let resolved = s
+                .reblog_of_id
+                .and_then(|id| nested_reblog_status_map.get(&id).cloned())
+                .unwrap_or_else(|| s.clone());
+            (s.id, resolved)
+        })
+        .collect();
+
+    let reblog_account_ids: Vec<i64> = resolved_reblog_status_map
+        .values()
         .map(|s| s.account_id)
         .collect::<HashSet<_>>()
         .into_iter()
@@ -3250,18 +3284,15 @@ pub async fn batch_reblog_data(
     let reblog_account_map: HashMap<i64, Account> =
         reblog_accounts.into_iter().map(|a| (a.id, a)).collect();
 
-    let reblog_status_ids: Vec<i64> = reblog_statuses.iter().map(|s| s.id).collect();
+    let reblog_status_ids: Vec<i64> = resolved_reblog_status_map.values().map(|s| s.id).collect();
     let reblog_media = batch_status_media(state, &reblog_status_ids).await?;
-
-    let reblog_status_map: HashMap<i64, crate::db::models::Status> =
-        reblog_statuses.into_iter().map(|s| (s.id, s)).collect();
 
     let mut result = HashMap::new();
     for s in statuses {
         if let Some(reblog_id) = s.reblog_of_id {
-            if let Some(rs) = reblog_status_map.get(&reblog_id) {
+            if let Some(rs) = resolved_reblog_status_map.get(&reblog_id) {
                 if let Some(ra) = reblog_account_map.get(&rs.account_id) {
-                    let media = reblog_media.get(&reblog_id).cloned().unwrap_or_default();
+                    let media = reblog_media.get(&rs.id).cloned().unwrap_or_default();
                     result.insert(s.id, (rs.clone(), ra.clone(), media));
                 }
             }
@@ -3653,6 +3684,18 @@ pub async fn fetch_reblog_data(
     .await?;
     let Some(reblog) = reblog else {
         return Ok(None);
+    };
+    let reblog = if let Some(original_id) = reblog.reblog_of_id {
+        sqlx::query_as!(
+            crate::db::models::Status,
+            "SELECT * FROM statuses WHERE id = $1 AND deleted_at IS NULL",
+            original_id,
+        )
+        .fetch_optional(&state.db)
+        .await?
+        .unwrap_or(reblog)
+    } else {
+        reblog
     };
     let reblog_account = sqlx::query_as!(
         Account,

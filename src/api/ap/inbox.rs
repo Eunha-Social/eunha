@@ -1869,9 +1869,19 @@ async fn handle_announce(
         original_id = fetch_remote_status(state, boosted_uri).await?;
     }
 
-    let Some(original_id) = original_id else {
+    let Some(mut original_id) = original_id else {
         return Ok(());
     };
+    if let Some(unwrapped_id) = sqlx::query_scalar!(
+        "SELECT reblog_of_id FROM statuses WHERE id = $1 AND deleted_at IS NULL",
+        original_id,
+    )
+    .fetch_optional(&state.db)
+    .await?
+    .flatten()
+    {
+        original_id = unwrapped_id;
+    }
 
     let published = activity
         .get("published")

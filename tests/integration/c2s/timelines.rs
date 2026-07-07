@@ -101,6 +101,69 @@ async fn test_public_timeline_embeds_real_stats() {
     );
 }
 
+/// Timeline serialization must normalize stored boost-of-boost rows to a
+/// single-level reblog, matching Mastodon and the official iOS client's model.
+#[tokio::test]
+async fn test_account_timeline_normalizes_nested_reblogs() {
+    let ctx = TestContext::new("timeline-nested-reblog").await;
+
+    let original = ctx
+        .api
+        .post_status(&ctx.alice_token, "original for nested boost", "public")
+        .await;
+    let original_id = original["id"].as_str().unwrap().to_string();
+
+    let bob_boost: Value = ctx
+        .api
+        .post_json(
+            &format!("/api/v1/statuses/{original_id}/reblog"),
+            Some(&ctx.bob_token),
+            &json!({}),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    let bob_boost_id: i64 = bob_boost["id"].as_str().unwrap().parse().unwrap();
+
+    let nested_boost_id = eunha::snowflake::next_id();
+    let bob_id: i64 = ctx.bob_id.parse().unwrap();
+    sqlx::query(
+        r#"INSERT INTO statuses
+             (id, account_id, text, visibility, reblog_of_id, local, created_at, updated_at)
+           VALUES ($1, $2, '', 0, $3, true, now(), now())"#,
+    )
+    .bind(nested_boost_id)
+    .bind(bob_id)
+    .bind(bob_boost_id)
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+
+    let timeline: Value = ctx
+        .api
+        .get(
+            &format!("/api/v1/accounts/{}/statuses", ctx.bob_id),
+            Some(&ctx.alice_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    let timeline = timeline.as_array().unwrap();
+    let nested_boost_id_string = nested_boost_id.to_string();
+    let nested = timeline
+        .iter()
+        .find(|s| s["id"].as_str() == Some(nested_boost_id_string.as_str()))
+        .expect("nested boost not found in account timeline");
+
+    assert_eq!(nested["reblog"]["id"].as_str(), Some(original_id.as_str()));
+    assert!(
+        nested["reblog"]["reblog"].is_null(),
+        "timeline must not return reblog.reblog for a boost"
+    );
+}
+
 /// Unlisted statuses must not appear on the public timeline.
 #[tokio::test]
 async fn test_unlisted_absent_from_public_timeline() {
