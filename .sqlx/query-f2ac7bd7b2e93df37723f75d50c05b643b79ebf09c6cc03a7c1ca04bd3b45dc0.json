@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id FROM users WHERE account_id = $1",
+  "query": "SELECT reblog_of_id FROM statuses WHERE id = $1 AND deleted_at IS NULL",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "id",
+        "name": "reblog_of_id",
         "type_info": "Int8"
       }
     ],
@@ -15,8 +15,8 @@
       ]
     },
     "nullable": [
-      false
+      true
     ]
   },
-  "hash": "3432d9bd313e52b85ec5f1014df8335f8511babe362451ae790b649d612d1e67"
+  "hash": "f2ac7bd7b2e93df37723f75d50c05b643b79ebf09c6cc03a7c1ca04bd3b45dc0"
 }
