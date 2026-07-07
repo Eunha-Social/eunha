@@ -3488,7 +3488,10 @@ pub async fn batch_quote_data(
             .cloned()
             .unwrap_or_else(|| "accepted".to_string());
 
-        // Derive effective display state and whether to include the quoted status body
+        // Derive effective display state and whether to include the quoted
+        // status body. Mastodon's REST::BaseQuoteSerializer only embeds the
+        // quoted status for accepted quotes; pending/rejected/revoked quotes
+        // are state-only.
         let (effective_state, include_status) = if deleted_ids.contains(&qid) {
             ("deleted".to_string(), false)
         } else {
@@ -3502,7 +3505,8 @@ pub async fn batch_quote_data(
             if unauthorized {
                 ("unauthorized".to_string(), false)
             } else {
-                (state_str.clone(), true)
+                let include_status = state_str == "accepted";
+                (state_str.clone(), include_status)
             }
         };
 

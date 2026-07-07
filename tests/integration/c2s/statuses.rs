@@ -6436,6 +6436,10 @@ async fn test_pending_quote_is_null_in_response() {
         Some("pending"),
         "pending quote must have state 'pending'"
     );
+    assert!(
+        quote["quote"]["quoted_status"].is_null(),
+        "pending quote must not embed quoted_status"
+    );
 }
 
 /// GET /api/v1/statuses/:id/quotes does not return pending or rejected quotes.
