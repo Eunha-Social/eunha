@@ -3,6 +3,49 @@ use serde_json::{json, Value};
 
 use crate::helpers::TestContext;
 
+/// `recount_follows` reconciles a local account's drifted follow counters from
+/// the `follows` table (Mastodon's `refresh_counts`), fixing negative values
+/// left by legacy code paths.
+#[tokio::test]
+async fn test_recount_follows_fixes_drift() {
+    let ctx = TestContext::new("recount-follows").await;
+
+    // One real follow edge: Bob follows Alice.
+    ctx.api.follow(&ctx.bob_token, &ctx.alice_id).await;
+    let alice_id: i64 = ctx.alice_id.parse().unwrap();
+
+    // Corrupt Alice's stored counters the way legacy drift did (negative).
+    sqlx::query!(
+        "UPDATE account_stats SET followers_count = -25, following_count = -1 WHERE account_id = $1",
+        alice_id,
+    )
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+
+    eunha::counters::recount_follows(&ctx.db, alice_id)
+        .await
+        .unwrap();
+
+    let alice: Value = ctx
+        .api
+        .get(&format!("/api/v1/accounts/{alice_id}"), Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        alice["followers_count"].as_i64(),
+        Some(1),
+        "followers_count should be recomputed from the follows table"
+    );
+    assert_eq!(
+        alice["following_count"].as_i64(),
+        Some(0),
+        "following_count should be recomputed to the true value"
+    );
+}
+
 /// The account-statuses feed (the iOS profile timeline) embeds real account
 /// stats and status stats, matching Mastodon — not hard-coded zeros.
 #[tokio::test]

@@ -101,14 +101,9 @@ pub async fn block_domain(
     .unwrap_or_default();
 
     for row in &removed {
-        let _ = sqlx::query!(
-            "UPDATE account_stats SET following_count = GREATEST(following_count - 1, 0), updated_at = now() WHERE account_id = $1",
-            row.account_id
-        ).execute(&state.db).await;
-        let _ = sqlx::query!(
-            "UPDATE account_stats SET followers_count = GREATEST(followers_count - 1, 0), updated_at = now() WHERE account_id = $1",
-            row.target_account_id
-        ).execute(&state.db).await;
+        let _ =
+            crate::counters::on_follow_removed(&state.db, row.account_id, row.target_account_id)
+                .await;
     }
 
     // Drop pending follow requests in either direction with that domain

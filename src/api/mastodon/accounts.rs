@@ -997,18 +997,7 @@ pub async fn follow_account(
     .execute(&state.db)
     .await?;
 
-    sqlx::query!(
-        "INSERT INTO account_stats (account_id, followers_count, created_at, updated_at) VALUES ($1, 1, now(), now()) ON CONFLICT (account_id) DO UPDATE SET followers_count = account_stats.followers_count + 1, updated_at = now()",
-        target_id
-    )
-    .execute(&state.db)
-    .await?;
-    sqlx::query!(
-        "INSERT INTO account_stats (account_id, following_count, created_at, updated_at) VALUES ($1, 1, now(), now()) ON CONFLICT (account_id) DO UPDATE SET following_count = account_stats.following_count + 1, updated_at = now()",
-        auth.account_id
-    )
-    .execute(&state.db)
-    .await?;
+    crate::counters::on_follow_created(&state.db, auth.account_id, target_id).await?;
 
     push::create_and_push(
         &state,
@@ -1056,18 +1045,7 @@ pub async fn unfollow_account(
     .await?;
 
     let follow_uri_opt: Option<String> = if let Some(ref d) = deleted {
-        sqlx::query!(
-            "UPDATE account_stats SET followers_count = GREATEST(followers_count - 1, 0), updated_at = now() WHERE account_id = $1",
-            target_id
-        )
-        .execute(&state.db)
-        .await?;
-        sqlx::query!(
-            "UPDATE account_stats SET following_count = GREATEST(following_count - 1, 0), updated_at = now() WHERE account_id = $1",
-            auth.account_id
-        )
-        .execute(&state.db)
-        .await?;
+        crate::counters::on_follow_removed(&state.db, auth.account_id, target_id).await?;
         d.uri.clone()
     } else {
         // Canceling a pending request: keep its uri so the Undo(Follow)
@@ -2162,18 +2140,9 @@ async fn do_update_credentials(
                 )
                 .execute(&state.db)
                 .await;
-                let _ = sqlx::query!(
-                    "INSERT INTO account_stats (account_id, followers_count, created_at, updated_at) VALUES ($1, 1, now(), now()) ON CONFLICT (account_id) DO UPDATE SET followers_count = account_stats.followers_count + 1, updated_at = now()",
-                    auth.account_id
-                )
-                .execute(&state.db)
-                .await;
-                let _ = sqlx::query!(
-                    "INSERT INTO account_stats (account_id, following_count, created_at, updated_at) VALUES ($1, 1, now(), now()) ON CONFLICT (account_id) DO UPDATE SET following_count = account_stats.following_count + 1, updated_at = now()",
-                    row.account_id
-                )
-                .execute(&state.db)
-                .await;
+                let _ =
+                    crate::counters::on_follow_created(&state.db, row.account_id, auth.account_id)
+                        .await;
                 crate::push::create_and_push(
                     state,
                     auth.account_id,
@@ -2585,14 +2554,9 @@ pub async fn block_account(
     .fetch_all(&state.db)
     .await?;
     for row in &deleted {
-        let _ = sqlx::query!(
-            "UPDATE account_stats SET following_count = GREATEST(following_count - 1, 0), updated_at = now() WHERE account_id = $1",
-            row.account_id,
-        ).execute(&state.db).await;
-        let _ = sqlx::query!(
-            "UPDATE account_stats SET followers_count = GREATEST(followers_count - 1, 0), updated_at = now() WHERE account_id = $1",
-            row.target_account_id,
-        ).execute(&state.db).await;
+        let _ =
+            crate::counters::on_follow_removed(&state.db, row.account_id, row.target_account_id)
+                .await;
     }
     // Also delete any pending follow requests in both directions, keeping uris.
     let deleted_requests = sqlx::query!(
@@ -3046,19 +3010,7 @@ pub async fn authorize_follow_request(
         )
         .execute(&state.db)
         .await?;
-        sqlx::query!(
-            "INSERT INTO account_stats (account_id, followers_count, created_at, updated_at) VALUES ($1, 1, now(), now()) ON CONFLICT (account_id) DO UPDATE SET followers_count = account_stats.followers_count + 1, updated_at = now()",
-            auth.account_id
-        )
-        .execute(&state.db)
-        .await?;
-
-        sqlx::query!(
-            "INSERT INTO account_stats (account_id, following_count, created_at, updated_at) VALUES ($1, 1, now(), now()) ON CONFLICT (account_id) DO UPDATE SET following_count = account_stats.following_count + 1, updated_at = now()",
-            requester_id
-        )
-        .execute(&state.db)
-        .await?;
+        crate::counters::on_follow_created(&state.db, requester_id, auth.account_id).await?;
 
         let accepter = fetch_account(&state, auth.account_id).await?;
         let requester = fetch_account(&state, requester_id).await?;
@@ -4382,18 +4334,7 @@ pub async fn remove_from_followers(
     .await?;
 
     if let Some(ref row) = deleted {
-        sqlx::query!(
-            "UPDATE account_stats SET followers_count = GREATEST(followers_count - 1, 0), updated_at = now() WHERE account_id = $1",
-            auth.account_id
-        )
-        .execute(&state.db)
-        .await?;
-        sqlx::query!(
-            "UPDATE account_stats SET following_count = GREATEST(following_count - 1, 0), updated_at = now() WHERE account_id = $1",
-            requester_id
-        )
-        .execute(&state.db)
-        .await?;
+        crate::counters::on_follow_removed(&state.db, requester_id, auth.account_id).await?;
 
         // Tell a removed remote follower they're no longer following us
         // (Mastodon RemoveFromFollowersService → Reject(Follow)).

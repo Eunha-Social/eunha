@@ -2105,23 +2105,11 @@ async fn handle_accept_reject(
                 .await?;
 
                 // Update follower/following counts
-                let _ = sqlx::query!(
-                    r#"INSERT INTO account_stats (account_id, followers_count, created_at, updated_at)
-                       VALUES ($1, 1, now(), now())
-                       ON CONFLICT (account_id) DO UPDATE
-                         SET followers_count = account_stats.followers_count + 1, updated_at = now()"#,
+                let _ = crate::counters::on_follow_created(
+                    &state.db,
+                    row.account_id,
                     row.target_account_id,
                 )
-                .execute(&state.db)
-                .await;
-                let _ = sqlx::query!(
-                    r#"INSERT INTO account_stats (account_id, following_count, created_at, updated_at)
-                       VALUES ($1, 1, now(), now())
-                       ON CONFLICT (account_id) DO UPDATE
-                         SET following_count = account_stats.following_count + 1, updated_at = now()"#,
-                    row.account_id,
-                )
-                .execute(&state.db)
                 .await;
             }
         } else {
@@ -2738,8 +2726,9 @@ async fn handle_block(state: &AppState, activity: &Value) -> AppResult<()> {
         blocker_id, target_id,
     ).fetch_all(&state.db).await?;
     for row in &deleted {
-        let _ = sqlx::query!("UPDATE account_stats SET following_count = GREATEST(following_count-1,0), updated_at=now() WHERE account_id=$1", row.account_id).execute(&state.db).await;
-        let _ = sqlx::query!("UPDATE account_stats SET followers_count = GREATEST(followers_count-1,0), updated_at=now() WHERE account_id=$1", row.target_account_id).execute(&state.db).await;
+        let _ =
+            crate::counters::on_follow_removed(&state.db, row.account_id, row.target_account_id)
+                .await;
     }
     sqlx::query!(
         "DELETE FROM follow_requests WHERE (account_id=$1 AND target_account_id=$2) OR (account_id=$2 AND target_account_id=$1)",
