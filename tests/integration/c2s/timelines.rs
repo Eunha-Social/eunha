@@ -39,6 +39,68 @@ async fn test_public_timeline_only_shows_public() {
     );
 }
 
+/// Statuses embedded in a timeline carry real account stats (followers_count,
+/// following_count, statuses_count) and status stats (reblogs_count,
+/// favourites_count), matching Mastodon — not hard-coded zeros.
+#[tokio::test]
+async fn test_public_timeline_embeds_real_stats() {
+    let ctx = TestContext::new("timeline-stats").await;
+
+    // Bob follows Alice: Alice gains 1 follower, Bob gains 1 following.
+    ctx.api.follow(&ctx.bob_token, &ctx.alice_id).await;
+
+    let status = ctx
+        .api
+        .post_status(&ctx.alice_token, "stat-bearing post", "public")
+        .await;
+    let id = status["id"].as_str().unwrap().to_string();
+
+    // Bob favourites and reblogs it.
+    ctx.api
+        .post_json(
+            &format!("/api/v1/statuses/{id}/favourite"),
+            Some(&ctx.bob_token),
+            &json!({}),
+        )
+        .await;
+    ctx.api
+        .post_json(
+            &format!("/api/v1/statuses/{id}/reblog"),
+            Some(&ctx.bob_token),
+            &json!({}),
+        )
+        .await;
+
+    let timeline = ctx.api.public_timeline().await;
+    let status = timeline
+        .iter()
+        .find(|s| s["id"].as_str() == Some(id.as_str()))
+        .expect("posted status not found in public timeline");
+
+    assert_eq!(
+        status["favourites_count"].as_i64(),
+        Some(1),
+        "embedded status should report its favourites_count"
+    );
+    assert_eq!(
+        status["reblogs_count"].as_i64(),
+        Some(1),
+        "embedded status should report its reblogs_count"
+    );
+
+    let account = &status["account"];
+    assert_eq!(
+        account["followers_count"].as_i64(),
+        Some(1),
+        "embedded account should report its followers_count"
+    );
+    assert_eq!(
+        account["statuses_count"].as_i64(),
+        Some(1),
+        "embedded account should report its statuses_count"
+    );
+}
+
 /// Unlisted statuses must not appear on the public timeline.
 #[tokio::test]
 async fn test_unlisted_absent_from_public_timeline() {

@@ -383,6 +383,10 @@ pub async fn get_account_statuses(
         let pin_account_emojis_map =
             batch_account_emojis(&state, &pin_all_accounts_for_emoji).await;
         let pin_account_roles_map = batch_account_roles(&state, &pin_all_accounts_for_emoji).await;
+        let pin_stats_account_ids: Vec<i64> =
+            pin_all_accounts_for_emoji.iter().map(|a| a.id).collect();
+        let pin_account_stats_map = batch_account_stats(&state, &pin_stats_account_ids).await;
+        let pin_status_stats_map = batch_status_stats(&state, &pin_enrich_ids).await;
         let mut result = Vec::with_capacity(pinned_statuses.len());
         for s in &pinned_statuses {
             let media = pin_media_map.get(&s.id).cloned().unwrap_or_default();
@@ -405,6 +409,17 @@ pub async fn get_account_statuses(
                 .get(&account.id)
                 .cloned()
                 .unwrap_or_default();
+            if let Some(&(statuses, following, followers)) = pin_account_stats_map.get(&account.id) {
+                api_status.account.statuses_count = statuses;
+                api_status.account.following_count = following;
+                api_status.account.followers_count = followers;
+            }
+            if let Some(&(replies, reblogs, favourites, quotes)) = pin_status_stats_map.get(&s.id) {
+                api_status.replies_count = replies;
+                api_status.reblogs_count = reblogs;
+                api_status.favourites_count = favourites;
+                api_status.quotes_count = quotes;
+            }
             api_status.tags = pin_tags_map.get(&s.id).cloned().unwrap_or_default();
             api_status.mentions = mentions;
             api_status.emojis = pin_emojis_map.get(&s.id).cloned().unwrap_or_default();
@@ -422,6 +437,19 @@ pub async fn get_account_statuses(
                     .get(&rb_id)
                     .cloned()
                     .unwrap_or_default();
+                if let Some(&(statuses, following, followers)) = pin_account_stats_map.get(&rb_id) {
+                    rb.account.statuses_count = statuses;
+                    rb.account.following_count = following;
+                    rb.account.followers_count = followers;
+                }
+                if let Some(&(replies, reblogs, favourites, quotes)) =
+                    pin_status_stats_map.get(&rid)
+                {
+                    rb.replies_count = replies;
+                    rb.reblogs_count = reblogs;
+                    rb.favourites_count = favourites;
+                    rb.quotes_count = quotes;
+                }
                 rb.tags = pin_tags_map.get(&rid).cloned().unwrap_or_default();
                 rb.mentions = rb_mentions;
                 rb.emojis = pin_emojis_map.get(&rid).cloned().unwrap_or_default();
@@ -627,6 +655,9 @@ pub async fn get_account_statuses(
     };
     let account_emojis_map = batch_account_emojis(&state, &all_accounts_for_emoji).await;
     let statuses_roles_map = batch_account_roles(&state, &all_accounts_for_emoji).await;
+    let stats_account_ids: Vec<i64> = all_accounts_for_emoji.iter().map(|a| a.id).collect();
+    let account_stats_map = batch_account_stats(&state, &stats_account_ids).await;
+    let status_stats_map = batch_status_stats(&state, &enrich_ids).await;
 
     let mut result = Vec::with_capacity(statuses.len());
     for s in &statuses {
@@ -649,6 +680,17 @@ pub async fn get_account_statuses(
             .get(&account.id)
             .cloned()
             .unwrap_or_default();
+        if let Some(&(statuses_c, following, followers)) = account_stats_map.get(&account.id) {
+            api.account.statuses_count = statuses_c;
+            api.account.following_count = following;
+            api.account.followers_count = followers;
+        }
+        if let Some(&(replies, reblogs, favourites, quotes)) = status_stats_map.get(&s.id) {
+            api.replies_count = replies;
+            api.reblogs_count = reblogs;
+            api.favourites_count = favourites;
+            api.quotes_count = quotes;
+        }
         api.tags = tags_map.get(&s.id).cloned().unwrap_or_default();
         api.mentions = mentions;
         api.emojis = emojis_map.get(&s.id).cloned().unwrap_or_default();
@@ -660,6 +702,17 @@ pub async fn get_account_statuses(
             let rb_id: i64 = rb.account.id.parse().unwrap_or(0);
             rb.account.emojis = account_emojis_map.get(&rb_id).cloned().unwrap_or_default();
             rb.account.roles = statuses_roles_map.get(&rb_id).cloned().unwrap_or_default();
+            if let Some(&(statuses_c, following, followers)) = account_stats_map.get(&rb_id) {
+                rb.account.statuses_count = statuses_c;
+                rb.account.following_count = following;
+                rb.account.followers_count = followers;
+            }
+            if let Some(&(replies, reblogs, favourites, quotes)) = status_stats_map.get(&rid) {
+                rb.replies_count = replies;
+                rb.reblogs_count = reblogs;
+                rb.favourites_count = favourites;
+                rb.quotes_count = quotes;
+            }
             rb.tags = tags_map.get(&rid).cloned().unwrap_or_default();
             rb.mentions = rb_mentions;
             rb.emojis = emojis_map.get(&rid).cloned().unwrap_or_default();
@@ -5459,6 +5512,7 @@ pub async fn build_status_with_app(
     let id: i64 = api.id.parse().unwrap_or(0);
     api.account.emojis = fetch_account_emojis(state, account).await;
     api.account.roles = fetch_account_roles(state, account.id).await;
+    apply_account_stats(state, &mut api.account, account.id).await;
     api.tags = fetch_statuses_tags(state, id).await?;
     api.mentions = mentions;
     api.emojis = status_emojis;
@@ -5493,6 +5547,7 @@ pub async fn build_status_with_app(
                 rb.account.emojis = fetch_account_emojis(state, &rb_db_acct).await;
                 rb.account.roles = fetch_account_roles(state, rb_account_id).await;
             }
+            apply_account_stats(state, &mut rb.account, rb_account_id).await;
         }
         rb.tags = fetch_statuses_tags(state, rid).await?;
         rb.mentions = reblog_mentions;
@@ -5766,6 +5821,67 @@ pub async fn batch_account_roles(
     .collect()
 }
 
+/// Batch-fetch `account_stats` for the given account ids.
+/// Returns a map of `account_id` → `(statuses_count, following_count, followers_count)`.
+/// Accounts with no stats row are absent from the map (callers default to 0).
+pub async fn batch_account_stats(
+    state: &AppState,
+    account_ids: &[i64],
+) -> std::collections::HashMap<i64, (i64, i64, i64)> {
+    if account_ids.is_empty() {
+        return std::collections::HashMap::new();
+    }
+    sqlx::query!(
+        "SELECT account_id, statuses_count, following_count, followers_count
+         FROM account_stats WHERE account_id = ANY($1::bigint[])",
+        account_ids,
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|r| {
+        (
+            r.account_id,
+            (r.statuses_count, r.following_count, r.followers_count),
+        )
+    })
+    .collect()
+}
+
+/// Batch-fetch `status_stats` for the given status ids.
+/// Returns a map of `status_id` → `(replies_count, reblogs_count, favourites_count, quotes_count)`.
+/// Statuses with no stats row are absent from the map (callers default to 0).
+pub async fn batch_status_stats(
+    state: &AppState,
+    status_ids: &[i64],
+) -> std::collections::HashMap<i64, (i64, i64, i64, i64)> {
+    if status_ids.is_empty() {
+        return std::collections::HashMap::new();
+    }
+    sqlx::query!(
+        "SELECT status_id, replies_count, reblogs_count, favourites_count, quotes_count
+         FROM status_stats WHERE status_id = ANY($1::bigint[])",
+        status_ids,
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|r| {
+        (
+            r.status_id,
+            (
+                r.replies_count,
+                r.reblogs_count,
+                r.favourites_count,
+                r.quotes_count,
+            ),
+        )
+    })
+    .collect()
+}
+
 /// Look up an already-cached preview card for a status. Never does network I/O.
 pub(super) async fn fetch_status_card(
     state: &AppState,
@@ -5820,22 +5936,7 @@ pub async fn batch_accounts_to_api(
     let emojis_map = batch_account_emojis(state, accounts).await;
     let roles_map = batch_account_roles(state, accounts).await;
     let ids: Vec<i64> = accounts.iter().map(|a| a.id).collect();
-    let stats_map: std::collections::HashMap<i64, (i64, i64, i64)> = sqlx::query!(
-        "SELECT account_id, statuses_count, following_count, followers_count
-         FROM account_stats WHERE account_id = ANY($1::bigint[])",
-        &ids,
-    )
-    .fetch_all(&state.db)
-    .await
-    .unwrap_or_default()
-    .into_iter()
-    .map(|r| {
-        (
-            r.account_id,
-            (r.statuses_count, r.following_count, r.followers_count),
-        )
-    })
-    .collect();
+    let stats_map = batch_account_stats(state, &ids).await;
     accounts
         .iter()
         .map(|a| {
