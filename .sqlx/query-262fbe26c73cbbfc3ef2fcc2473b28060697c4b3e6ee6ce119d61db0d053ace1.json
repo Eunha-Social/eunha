@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT u.account_id, ur.id AS \"role_id!\", ur.name AS \"role_name!\", ur.color AS \"role_color!\"\n           FROM users u\n           JOIN user_roles ur ON ur.id = u.role_id\n           WHERE u.account_id = ANY($1::bigint[])",
+  "query": "SELECT u.account_id, ur.id AS \"role_id!\", ur.name AS \"role_name!\", ur.color AS \"role_color!\"\n           FROM users u\n           JOIN user_roles ur ON ur.id = u.role_id\n           WHERE u.account_id = ANY($1::bigint[]) AND ur.highlighted",
   "describe": {
     "columns": [
       {
@@ -36,5 +36,5 @@
       false
     ]
   },
-  "hash": "63f4a50eb923168afd590ea0cac63c8cb39e9812aa7ac812d72db8295ad7befd"
+  "hash": "262fbe26c73cbbfc3ef2fcc2473b28060697c4b3e6ee6ce119d61db0d053ace1"
 }

@@ -70,10 +70,12 @@ pub async fn verify_credentials(
 /// remote accounts (they have no row in `users`).
 async fn fetch_account_roles(state: &AppState, account_id: i64) -> Vec<super::types::AccountRole> {
     let row = sqlx::query!(
+        // Only highlighted roles are exposed publicly, matching Mastodon's
+        // AccountSerializer#roles (`filter(&:highlighted?)`).
         r#"SELECT ur.id, ur.name, ur.color
            FROM users u
            JOIN user_roles ur ON ur.id = u.role_id
-           WHERE u.account_id = $1"#,
+           WHERE u.account_id = $1 AND ur.highlighted"#,
         account_id,
     )
     .fetch_optional(&state.db)
@@ -5710,10 +5712,12 @@ pub async fn batch_account_roles(
         return std::collections::HashMap::new();
     }
     sqlx::query!(
+        // Only highlighted roles are exposed publicly, matching Mastodon's
+        // AccountSerializer#roles (`filter(&:highlighted?)`).
         r#"SELECT u.account_id, ur.id AS "role_id!", ur.name AS "role_name!", ur.color AS "role_color!"
            FROM users u
            JOIN user_roles ur ON ur.id = u.role_id
-           WHERE u.account_id = ANY($1::bigint[])"#,
+           WHERE u.account_id = ANY($1::bigint[]) AND ur.highlighted"#,
         &local_ids,
     )
     .fetch_all(&state.db)

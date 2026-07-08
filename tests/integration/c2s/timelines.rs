@@ -164,6 +164,68 @@ async fn test_account_timeline_normalizes_nested_reblogs() {
     );
 }
 
+/// A local status (and boost) with a NULL stored `uri` must serialize the
+/// canonical ActivityPub URI computed from the account, matching Mastodon's
+/// `TagManager#uri_for` — never a bare snowflake id. A bare-id `uri` crashes
+/// the official iOS client when it renders the timeline.
+#[tokio::test]
+async fn test_local_status_uri_never_bare_id() {
+    let ctx = TestContext::new("timeline-local-uri").await;
+
+    let original = ctx
+        .api
+        .post_status(&ctx.alice_token, "boost me", "public")
+        .await;
+    let original_id: i64 = original["id"].as_str().unwrap().parse().unwrap();
+
+    // A local boost inserted without a `uri` (as freshly-created boosts are).
+    let boost_id = eunha::snowflake::next_id();
+    let bob_id: i64 = ctx.bob_id.parse().unwrap();
+    sqlx::query(
+        r#"INSERT INTO statuses
+             (id, account_id, text, visibility, reblog_of_id, local, created_at, updated_at)
+           VALUES ($1, $2, '', 0, $3, true, now(), now())"#,
+    )
+    .bind(boost_id)
+    .bind(bob_id)
+    .bind(original_id)
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+
+    let timeline: Value = ctx
+        .api
+        .get(
+            &format!("/api/v1/accounts/{}/statuses", ctx.bob_id),
+            Some(&ctx.alice_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    let timeline = timeline.as_array().unwrap();
+
+    let boost_id_string = boost_id.to_string();
+    let boost = timeline
+        .iter()
+        .find(|s| s["id"].as_str() == Some(boost_id_string.as_str()))
+        .expect("boost not found in account timeline");
+
+    let uri = boost["uri"].as_str().unwrap();
+    assert_ne!(uri, boost_id_string, "boost uri must not be the bare id");
+    assert!(
+        uri.contains("/users/") && uri.ends_with(&format!("/statuses/{boost_id}/activity")),
+        "boost uri should be the canonical AP activity uri, got {uri}"
+    );
+
+    // The boosted (regular) local status uses the non-activity form.
+    let inner_uri = boost["reblog"]["uri"].as_str().unwrap();
+    assert!(
+        inner_uri.ends_with(&format!("/statuses/{original_id}")),
+        "boosted status uri should be the canonical AP uri, got {inner_uri}"
+    );
+}
+
 /// Unlisted statuses must not appear on the public timeline.
 #[tokio::test]
 async fn test_unlisted_absent_from_public_timeline() {

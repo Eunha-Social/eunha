@@ -475,7 +475,27 @@ pub fn status_from_db_with_app(
         spoiler_text: s.spoiler_text.clone(),
         visibility: crate::db::models::vis::to_str(s.visibility).to_owned(),
         language: s.language.clone(),
-        uri: s.uri.clone().unwrap_or_else(|| s.id.to_string()),
+        uri: if account.domain.is_none() {
+            // Local status: the canonical AP uri is always computed from the
+            // account's id_scheme, matching Mastodon's `TagManager#uri_for`
+            // (`.../statuses/{id}` for posts, `.../statuses/{id}/activity` for
+            // boosts). Local rows may store a NULL `uri`, so never fall back to
+            // the bare id.
+            let base = crate::federation::tag::status_uri(
+                local_domain(),
+                account.id,
+                account.id_scheme,
+                &account.username,
+                s.id,
+            );
+            if s.reblog_of_id.is_some() {
+                format!("{base}/activity")
+            } else {
+                base
+            }
+        } else {
+            s.uri.clone().unwrap_or_else(|| s.id.to_string())
+        },
         url: if account.domain.is_none() {
             // Local status: human permalink is /@username/{id}; prefer a stored
             // non-AP url, otherwise derive from the (id_scheme-independent) username.
