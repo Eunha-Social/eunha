@@ -1347,37 +1347,7 @@ async fn handle_create(
         } else {
             Some(media_type_str.clone())
         };
-        let width = att.get("width").and_then(|v| v.as_i64());
-        let height = att.get("height").and_then(|v| v.as_i64());
-        let duration = att.get("duration").and_then(|v| v.as_f64());
-        // focalPoint [x, y] -> meta.focus { x, y } (Mastodon's focus).
-        let focus = att
-            .get("focalPoint")
-            .and_then(|v| v.as_array())
-            .and_then(|a| Some((a.first()?.as_f64()?, a.get(1)?.as_f64()?)));
-        let file_meta: Option<serde_json::Value> =
-            if width.is_some() || height.is_some() || duration.is_some() || focus.is_some() {
-                let mut meta = serde_json::Map::new();
-                if width.is_some() || height.is_some() || duration.is_some() {
-                    let mut orig = serde_json::Map::new();
-                    if let Some(w) = width {
-                        orig.insert("width".into(), w.into());
-                    }
-                    if let Some(h) = height {
-                        orig.insert("height".into(), h.into());
-                    }
-                    if let Some(d) = duration {
-                        orig.insert("duration".into(), d.into());
-                    }
-                    meta.insert("original".into(), serde_json::Value::Object(orig));
-                }
-                if let Some((x, y)) = focus {
-                    meta.insert("focus".into(), serde_json::json!({ "x": x, "y": y }));
-                }
-                Some(serde_json::Value::Object(meta))
-            } else {
-                None
-            };
+        let file_meta = ap_attachment_file_meta(att);
 
         let media_id = crate::snowflake::next_id();
         match sqlx::query_scalar!(
@@ -2488,10 +2458,11 @@ async fn handle_update(
                 } else {
                     Some(media_type_str.to_owned())
                 };
+                let file_meta = ap_attachment_file_meta(att);
                 let media_id = crate::snowflake::next_id();
                 if let Ok(id) = sqlx::query_scalar!(
-                    r#"INSERT INTO media_attachments (id, account_id, status_id, remote_url, description, blurhash, type, thumbnail_remote_url, file_content_type, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now(), now()) RETURNING id"#,
-                    media_id, row.account_id, row.id, remote_url, description, blurhash, att_type, thumbnail_remote_url, file_content_type,
+                    r#"INSERT INTO media_attachments (id, account_id, status_id, remote_url, description, blurhash, type, thumbnail_remote_url, file_content_type, file_meta, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now(), now()) RETURNING id"#,
+                    media_id, row.account_id, row.id, remote_url, description, blurhash, att_type, thumbnail_remote_url, file_content_type, file_meta,
                 ).fetch_one(&state.db).await { media_ids.push(id); }
             }
             if !media_ids.is_empty() {
@@ -3662,10 +3633,11 @@ async fn fetch_remote_status_depth(
             .and_then(|v| v.as_str())
             .map(str::to_owned);
         let file_content_type = (!media_type_str.is_empty()).then(|| media_type_str.to_owned());
+        let file_meta = ap_attachment_file_meta(att);
         let _ = sqlx::query!(
             r#"INSERT INTO media_attachments
-                 (id, account_id, status_id, remote_url, description, blurhash, type, file_content_type, created_at, updated_at)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now(), now())"#,
+                 (id, account_id, status_id, remote_url, description, blurhash, type, file_content_type, file_meta, created_at, updated_at)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now(), now())"#,
             crate::snowflake::next_id(),
             account_id,
             new_id,
@@ -3674,6 +3646,7 @@ async fn fetch_remote_status_depth(
             blurhash,
             att_type,
             file_content_type,
+            file_meta,
         )
         .execute(&state.db)
         .await;
@@ -3938,6 +3911,53 @@ fn attachment_url(value: &Value) -> Option<(String, Option<String>)> {
         }
         _ => None,
     }
+}
+
+/// Build a Mastodon-style `file_meta` (`{"original": {...}, "focus": {...}}`)
+/// from an ActivityPub attachment's `width`/`height`/`duration`/`focalPoint`.
+/// Returns `None` when the attachment carries no geometry.
+///
+/// This must run on every media-ingestion path: the official iOS client sizes
+/// its image grid by dividing the container width by the sum of the images'
+/// aspect ratios, and an image with no dimensions contributes nothing — so a
+/// post whose images all lack `meta.original.{width,height}` divides by zero,
+/// producing a NaN layout that aborts the app (`CALayer position contains NaN`).
+fn ap_attachment_file_meta(att: &serde_json::Value) -> Option<serde_json::Value> {
+    let width = att.get("width").and_then(|v| v.as_i64());
+    let height = att.get("height").and_then(|v| v.as_i64());
+    let duration = att.get("duration").and_then(|v| v.as_f64());
+    // focalPoint [x, y] -> meta.focus { x, y } (Mastodon's focus).
+    let focus = att
+        .get("focalPoint")
+        .and_then(|v| v.as_array())
+        .and_then(|a| Some((a.first()?.as_f64()?, a.get(1)?.as_f64()?)));
+    if width.is_none() && height.is_none() && duration.is_none() && focus.is_none() {
+        return None;
+    }
+    let mut meta = serde_json::Map::new();
+    if width.is_some() || height.is_some() || duration.is_some() {
+        let mut orig = serde_json::Map::new();
+        if let Some(w) = width {
+            orig.insert("width".into(), w.into());
+        }
+        if let Some(h) = height {
+            orig.insert("height".into(), h.into());
+        }
+        if let (Some(w), Some(h)) = (width, height) {
+            orig.insert("size".into(), format!("{w}x{h}").into());
+            if h != 0 {
+                orig.insert("aspect".into(), (w as f64 / h as f64).into());
+            }
+        }
+        if let Some(d) = duration {
+            orig.insert("duration".into(), d.into());
+        }
+        meta.insert("original".into(), serde_json::Value::Object(orig));
+    }
+    if let Some((x, y)) = focus {
+        meta.insert("focus".into(), serde_json::json!({ "x": x, "y": y }));
+    }
+    Some(serde_json::Value::Object(meta))
 }
 
 fn classify_attachment_type(att_type_str: &str, media_type_str: &str) -> i32 {
