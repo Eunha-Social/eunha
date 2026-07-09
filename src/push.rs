@@ -791,10 +791,11 @@ async fn build_notification_payload(
     from_account_id: i64,
     status_id: Option<i64>,
 ) -> Option<String> {
-    use crate::api::mastodon::accounts::{
-        build_status, fetch_account_emojis, fetch_reblog_data, fetch_status_media,
-    };
+    use crate::api::mastodon::accounts::fetch_account_emojis;
     use crate::api::mastodon::convert::account_from_db;
+    use crate::api::mastodon::status_serialize::{
+        build_status, fetch_reblog_data, fetch_status_media,
+    };
 
     let created_at = sqlx::query_scalar!(
         "SELECT created_at FROM notifications WHERE id = $1",

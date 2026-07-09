@@ -9,14 +9,14 @@ use std::collections::HashMap;
 
 use super::scheduled_statuses::ScheduledStatusResponse;
 use super::{
-    accounts::{
-        batch_account_emojis, batch_account_roles, batch_accounts_to_api, batch_reblog_data,
-        batch_status_cards, batch_status_emojis, batch_status_media, batch_status_mentions,
-        batch_status_polls, batch_statuses_tags, build_status, fetch_reblog_data,
-        fetch_status_media, hydrate_status_stats, spawn_card_fetch,
-    },
+    accounts::{batch_account_emojis, batch_account_roles, batch_accounts_to_api},
     convert::{account_from_db, status_from_db},
     formatting::{render_content, HASHTAG_RE, MENTION_RE},
+    status_serialize::{
+        batch_reblog_data, batch_status_cards, batch_status_emojis, batch_status_media,
+        batch_status_mentions, batch_status_polls, batch_statuses_tags, build_status,
+        fetch_reblog_data, fetch_status_media, hydrate_status_stats, spawn_card_fetch,
+    },
     types::{PaginationParams, Status, StatusContext, StatusEdit, StatusSource},
 };
 use crate::{
@@ -186,7 +186,7 @@ pub async fn post_status(
                 let viewer_ctx = build_viewer_context(&state, auth.account_id, status.id)
                     .await
                     .ok();
-                let api_status = super::accounts::build_status_with_app(
+                let api_status = super::status_serialize::build_status_with_app(
                     &state, &status, &account, media, None, viewer_ctx, None,
                 )
                 .await?;
@@ -820,7 +820,7 @@ pub async fn post_status(
     let viewer_ctx = build_viewer_context(&state, auth.account_id, status.id)
         .await
         .ok();
-    let api_status = super::accounts::build_status_with_app(
+    let api_status = super::status_serialize::build_status_with_app(
         &state,
         &status,
         &account,
@@ -1508,7 +1508,7 @@ pub async fn get_status(
         None
     };
 
-    let s = super::accounts::build_status_with_app(
+    let s = super::status_serialize::build_status_with_app(
         &state,
         &status,
         &account,
@@ -1734,9 +1734,7 @@ pub async fn delete_status(
         }
     }
 
-    let media = fetch_status_media(&state, id).await?;
-    let reblog = fetch_reblog_data(&state, &status).await?;
-    let mut s = build_status(&state, &status, &account, media, reblog, None).await?;
+    let mut s = serialize_status(&state, &status, None).await?;
     s.text = Some(status.text.clone());
     Ok(Json(s))
 }
@@ -1771,9 +1769,6 @@ pub async fn favourite_status(
     .await?;
 
     let (status, account) = fetch_status_with_account(&state, id).await?;
-    let media = fetch_status_media(&state, id).await?;
-    let reblog = fetch_reblog_data(&state, &status).await?;
-    let ctx = build_viewer_context(&state, auth.account_id, id).await?;
 
     // Notify status author
     let from_account = fetch_account(&state, auth.account_id).await?;
@@ -1818,7 +1813,7 @@ pub async fn favourite_status(
     }
 
     Ok(Json(
-        build_status(&state, &status, &account, media, reblog, Some(ctx)).await?,
+        serialize_status(&state, &status, Some(auth.account_id)).await?,
     ))
 }
 
@@ -1884,11 +1879,8 @@ pub async fn unfavourite_status(
     }
 
     let (status, _) = fetch_status_with_account(&state, id).await?;
-    let media = fetch_status_media(&state, id).await?;
-    let reblog = fetch_reblog_data(&state, &status).await?;
-    let ctx = build_viewer_context(&state, auth.account_id, id).await?;
     Ok(Json(
-        build_status(&state, &status, &account, media, reblog, Some(ctx)).await?,
+        serialize_status(&state, &status, Some(auth.account_id)).await?,
     ))
 }
 
@@ -2538,12 +2530,9 @@ pub async fn unreblog_status(
         }
     }
 
-    let (original, account) = fetch_status_with_account(&state, original_id).await?;
-    let media = fetch_status_media(&state, original_id).await?;
-    let reblog = fetch_reblog_data(&state, &original).await?;
-    let ctx = build_viewer_context(&state, auth.account_id, original_id).await?;
+    let (original, _) = fetch_status_with_account(&state, original_id).await?;
     Ok(Json(
-        build_status(&state, &original, &account, media, reblog, Some(ctx)).await?,
+        serialize_status(&state, &original, Some(auth.account_id)).await?,
     ))
 }
 
@@ -2555,7 +2544,7 @@ pub async fn bookmark_status(
     Extension(auth): Extension<AuthenticatedUser>,
 ) -> AppResult<Json<Status>> {
     auth.require_scope("write:bookmarks")?;
-    let (s, account) = fetch_status_with_account(&state, id).await?;
+    let (s, _) = fetch_status_with_account(&state, id).await?;
     check_status_visible(&state, &s, auth.account_id).await?;
 
     sqlx::query!(
@@ -2566,11 +2555,8 @@ pub async fn bookmark_status(
     .await?;
 
     let (status, _) = fetch_status_with_account(&state, id).await?;
-    let media = fetch_status_media(&state, id).await?;
-    let reblog = fetch_reblog_data(&state, &status).await?;
-    let ctx = build_viewer_context(&state, auth.account_id, id).await?;
     Ok(Json(
-        build_status(&state, &status, &account, media, reblog, Some(ctx)).await?,
+        serialize_status(&state, &status, Some(auth.account_id)).await?,
     ))
 }
 
@@ -2582,7 +2568,7 @@ pub async fn unbookmark_status(
     Extension(auth): Extension<AuthenticatedUser>,
 ) -> AppResult<Json<Status>> {
     auth.require_scope("write:bookmarks")?;
-    let (s, account) = fetch_status_with_account(&state, id).await?;
+    let (s, _) = fetch_status_with_account(&state, id).await?;
     check_status_visible(&state, &s, auth.account_id).await?;
 
     sqlx::query!(
@@ -2594,11 +2580,8 @@ pub async fn unbookmark_status(
     .await?;
 
     let (status, _) = fetch_status_with_account(&state, id).await?;
-    let media = fetch_status_media(&state, id).await?;
-    let reblog = fetch_reblog_data(&state, &status).await?;
-    let ctx = build_viewer_context(&state, auth.account_id, id).await?;
     Ok(Json(
-        build_status(&state, &status, &account, media, reblog, Some(ctx)).await?,
+        serialize_status(&state, &status, Some(auth.account_id)).await?,
     ))
 }
 
@@ -2684,11 +2667,8 @@ pub async fn pin_status(
     if inserted.rows_affected() > 0 {
         federate_pin_change(&state, &account, &status, true).await;
     }
-    let media = fetch_status_media(&state, id).await?;
-    let reblog = fetch_reblog_data(&state, &status).await?;
-    let ctx = build_viewer_context(&state, auth.account_id, id).await?;
     Ok(Json(
-        build_status(&state, &status, &account, media, reblog, Some(ctx)).await?,
+        serialize_status(&state, &status, Some(auth.account_id)).await?,
     ))
 }
 
@@ -2711,11 +2691,8 @@ pub async fn unpin_status(
     if deleted.rows_affected() > 0 {
         federate_pin_change(&state, &account, &status, false).await;
     }
-    let media = fetch_status_media(&state, id).await?;
-    let reblog = fetch_reblog_data(&state, &status).await?;
-    let ctx = build_viewer_context(&state, auth.account_id, id).await?;
     Ok(Json(
-        build_status(&state, &status, &account, media, reblog, Some(ctx)).await?,
+        serialize_status(&state, &status, Some(auth.account_id)).await?,
     ))
 }
 
@@ -2727,7 +2704,7 @@ pub async fn mute_status(
     Extension(auth): Extension<AuthenticatedUser>,
 ) -> AppResult<Json<Status>> {
     auth.require_scope("write:mutes")?;
-    let (status, account) = fetch_status_with_account(&state, id).await?;
+    let (status, _) = fetch_status_with_account(&state, id).await?;
     // Every status now has a conversation_id assigned at creation time.
     let cid = status.conversation_id.ok_or(AppError::NotFound)?;
     sqlx::query!(
@@ -2736,11 +2713,8 @@ pub async fn mute_status(
     )
     .execute(&state.db)
     .await?;
-    let media = fetch_status_media(&state, id).await?;
-    let reblog = fetch_reblog_data(&state, &status).await?;
-    let ctx = build_viewer_context(&state, auth.account_id, id).await?;
     Ok(Json(
-        build_status(&state, &status, &account, media, reblog, Some(ctx)).await?,
+        serialize_status(&state, &status, Some(auth.account_id)).await?,
     ))
 }
 
@@ -2752,18 +2726,15 @@ pub async fn unmute_status(
     Extension(auth): Extension<AuthenticatedUser>,
 ) -> AppResult<Json<Status>> {
     auth.require_scope("write:mutes")?;
-    let (status, account) = fetch_status_with_account(&state, id).await?;
+    let (status, _) = fetch_status_with_account(&state, id).await?;
     sqlx::query!(
         "DELETE FROM conversation_mutes WHERE account_id = $1 AND conversation_id = (SELECT conversation_id FROM statuses WHERE id = $2)",
         auth.account_id, id
     )
     .execute(&state.db)
     .await?;
-    let media = fetch_status_media(&state, id).await?;
-    let reblog = fetch_reblog_data(&state, &status).await?;
-    let ctx = build_viewer_context(&state, auth.account_id, id).await?;
     Ok(Json(
-        build_status(&state, &status, &account, media, reblog, Some(ctx)).await?,
+        serialize_status(&state, &status, Some(auth.account_id)).await?,
     ))
 }
 
@@ -3086,11 +3057,8 @@ pub async fn edit_status(
         || poll_changed;
 
     if !significant {
-        let media = fetch_status_media(&state, id).await?;
-        let reblog = fetch_reblog_data(&state, &status).await?;
-        let ctx = build_viewer_context(&state, auth.account_id, id).await?;
         return Ok(Json(
-            build_status(&state, &status, &account, media, reblog, Some(ctx)).await?,
+            serialize_status(&state, &status, Some(auth.account_id)).await?,
         ));
     }
 
@@ -3286,11 +3254,7 @@ pub async fn edit_status(
     }
 
     let (updated_status, _) = fetch_status_with_account(&state, id).await?;
-    let media = fetch_status_media(&state, id).await?;
-    let reblog = fetch_reblog_data(&state, &updated_status).await?;
-    let ctx = build_viewer_context(&state, auth.account_id, id).await?;
-    let api_status =
-        build_status(&state, &updated_status, &account, media, reblog, Some(ctx)).await?;
+    let api_status = serialize_status(&state, &updated_status, Some(auth.account_id)).await?;
 
     if matches!(
         updated_status.visibility,
@@ -3364,7 +3328,7 @@ pub async fn get_status_history(
     .await?;
 
     // Render current version content on the fly
-    let current_mentions = super::accounts::fetch_status_mentions(&state, id)
+    let current_mentions = super::status_serialize::fetch_status_mentions(&state, id)
         .await
         .unwrap_or_default();
     let current_content = if account.domain.is_none() {
@@ -3576,7 +3540,7 @@ pub async fn get_status_card(
         }
     }
 
-    let card = super::accounts::fetch_status_card(&state, id).await;
+    let card = super::status_serialize::fetch_status_card(&state, id).await;
     Ok(Json(match card {
         Some(c) => serde_json::to_value(c).unwrap_or(serde_json::Value::Null),
         None => serde_json::Value::Null,
@@ -3655,12 +3619,8 @@ pub async fn update_interaction_policy(
     .await?
     .ok_or(AppError::NotFound)?;
 
-    let account = super::accounts::fetch_account(&state, status.account_id).await?;
-    let media = super::accounts::fetch_status_media(&state, id).await?;
-    let reblog = fetch_reblog_data(&state, &status).await?;
-    let ctx = build_viewer_context(&state, auth.account_id, id).await?;
     Ok(Json(
-        build_status(&state, &status, &account, media, reblog, Some(ctx)).await?,
+        serialize_status(&state, &status, Some(auth.account_id)).await?,
     ))
 }
 
@@ -4068,90 +4028,51 @@ pub async fn revoke_quote(
     Ok(Json(api_status))
 }
 
+/// Fully serialize a single status for an optional viewer.
+///
+/// Performs the account / media / reblog / viewer-context fetches that every
+/// single-status endpoint needs, then delegates to [`build_status`]. Pass
+/// `viewer_id` as `None` for unauthenticated serialization (omits per-viewer
+/// flags such as `favourited`). This is the single entry point single-status
+/// endpoints should use instead of re-inlining the fetch quintet.
+pub async fn serialize_status(
+    state: &AppState,
+    status: &DbStatus,
+    viewer_id: Option<i64>,
+) -> AppResult<super::types::Status> {
+    let account = fetch_account(state, status.account_id).await?;
+    let media = fetch_status_media(state, status.id).await?;
+    let reblog = fetch_reblog_data(state, status).await?;
+    let viewer_ctx = match viewer_id {
+        Some(vid) => Some(build_viewer_context(state, vid, status.id).await?),
+        None => None,
+    };
+    build_status(state, status, &account, media, reblog, viewer_ctx).await
+}
+
 pub async fn build_viewer_context(
     state: &AppState,
     viewer_id: i64,
     status_id: i64,
 ) -> AppResult<super::convert::StatusViewerContext> {
-    let favourited = sqlx::query!(
-        "SELECT 1 as e FROM favourites WHERE account_id = $1 AND status_id = $2",
-        viewer_id,
-        status_id
-    )
-    .fetch_optional(&state.db)
-    .await?
-    .is_some();
-
-    let reblogged = sqlx::query!(
-        "SELECT 1 as e FROM statuses WHERE account_id = $1 AND reblog_of_id = $2 AND deleted_at IS NULL",
-        viewer_id, status_id
-    )
-    .fetch_optional(&state.db)
-    .await?
-    .is_some();
-
-    let bookmarked = sqlx::query!(
-        "SELECT 1 as e FROM bookmarks WHERE account_id = $1 AND status_id = $2",
-        viewer_id,
-        status_id
-    )
-    .fetch_optional(&state.db)
-    .await?
-    .is_some();
-
-    let muted = sqlx::query!(
-        "SELECT 1 as e FROM conversation_mutes cm JOIN statuses s ON s.id = $2 WHERE cm.account_id = $1 AND cm.conversation_id = s.conversation_id",
-        viewer_id, status_id
-    )
-    .fetch_optional(&state.db)
-    .await?
-    .is_some();
-
-    let pinned = sqlx::query!(
-        "SELECT 1 as e FROM status_pins WHERE account_id = $1 AND status_id = $2",
-        viewer_id,
-        status_id
-    )
-    .fetch_optional(&state.db)
-    .await?
-    .is_some();
-
-    let author_id: i64 =
-        sqlx::query_scalar!("SELECT account_id FROM statuses WHERE id = $1", status_id)
-            .fetch_optional(&state.db)
-            .await
-            .ok()
-            .flatten()
-            .unwrap_or(0);
-
-    let follows_author = sqlx::query!(
-        "SELECT 1 as e FROM follows WHERE account_id = $1 AND target_account_id = $2",
-        viewer_id,
-        author_id
-    )
-    .fetch_optional(&state.db)
-    .await?
-    .is_some();
-
-    let author_follows = sqlx::query!(
-        "SELECT 1 as e FROM follows WHERE account_id = $1 AND target_account_id = $2",
-        author_id,
-        viewer_id
-    )
-    .fetch_optional(&state.db)
-    .await?
-    .is_some();
-
-    Ok(super::convert::StatusViewerContext {
-        account_id: viewer_id,
-        follows_author,
-        author_follows,
-        favourited,
-        reblogged,
-        muted,
-        bookmarked,
-        pinned,
-    })
+    // Delegate to the batched implementation so the per-viewer flag logic
+    // (favourited / reblogged / bookmarked / muted / pinned + follow
+    // relationships) lives in exactly one place. `batch_viewer_contexts`
+    // inserts an entry for every requested id, so the fallback is a safety
+    // net that only fires if the id list is somehow dropped.
+    Ok(batch_viewer_contexts(state, viewer_id, &[status_id])
+        .await?
+        .remove(&status_id)
+        .unwrap_or(super::convert::StatusViewerContext {
+            account_id: viewer_id,
+            follows_author: false,
+            author_follows: false,
+            favourited: false,
+            reblogged: false,
+            muted: false,
+            bookmarked: false,
+            pinned: false,
+        }))
 }
 
 pub fn extract_hashtags(text: &str) -> Vec<String> {

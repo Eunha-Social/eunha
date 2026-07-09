@@ -214,7 +214,9 @@ async fn publish_one(
     }
 
     // Publish to streaming and fan-out to feeds
-    use crate::api::mastodon::accounts::{build_status, fetch_status_media, spawn_card_fetch};
+    use crate::api::mastodon::status_serialize::{
+        build_status, fetch_status_media, spawn_card_fetch,
+    };
     let mut status_with_uri = status.clone();
     status_with_uri.uri = Some(uri);
     spawn_card_fetch(state, status_with_uri.id, content);

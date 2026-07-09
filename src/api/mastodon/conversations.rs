@@ -6,13 +6,13 @@ use axum::{
 };
 
 use super::{
-    accounts::{
-        batch_account_emojis, batch_account_roles, batch_account_stats, batch_reblog_data,
-        batch_status_cards, batch_status_emojis, batch_status_media, batch_status_mentions,
-        batch_status_polls, batch_statuses_tags, build_status, fetch_account, fetch_status_media,
-        hydrate_status_stats,
-    },
+    accounts::{batch_account_emojis, batch_account_roles, batch_account_stats, fetch_account},
     convert::{account_from_db, status_from_db},
+    status_serialize::{
+        batch_reblog_data, batch_status_cards, batch_status_emojis, batch_status_media,
+        batch_status_mentions, batch_status_polls, batch_statuses_tags, build_status,
+        fetch_status_media, hydrate_status_stats,
+    },
     statuses::{batch_viewer_contexts, build_viewer_context},
     types::{Conversation, PaginationParams},
 };
@@ -437,7 +437,7 @@ async fn build_conversation_response(
         if let Some(s) = s {
             let saccount = fetch_account(state, s.account_id).await?;
             let media = fetch_status_media(state, s.id).await?;
-            let reblog = super::accounts::fetch_reblog_data(state, &s).await?;
+            let reblog = super::status_serialize::fetch_reblog_data(state, &s).await?;
             let ctx = build_viewer_context(state, viewer_account_id, s.id).await?;
             Some(build_status(state, &s, &saccount, media, reblog, Some(ctx)).await?)
         } else {

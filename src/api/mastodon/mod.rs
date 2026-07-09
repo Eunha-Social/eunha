@@ -27,6 +27,7 @@ pub mod reports;
 pub mod scheduled_statuses;
 pub mod search;
 pub mod signup;
+pub mod status_serialize;
 pub mod statuses;
 pub mod streaming;
 pub mod tags;
