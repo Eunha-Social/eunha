@@ -297,6 +297,43 @@ pub fn fields_from_db(fields: &serde_json::Value) -> Vec<types::Field> {
         .unwrap_or_default()
 }
 
+/// Serialize a media attachment's `meta`, guaranteeing that visual media
+/// (image/gifv/video) always carry `original.{width,height}`. The official iOS
+/// client sizes its image grid by dividing the row width by the sum of the
+/// images' aspect ratios; a visual attachment with no dimensions contributes a
+/// zero, and a post whose images are all dimensionless divides by zero and
+/// aborts (`CALayer position contains NaN`). Real dimensions are captured at
+/// ingestion; this is a last-resort net for peers that omit them entirely.
+fn media_meta_for_serialization(m: &models::MediaAttachment) -> serde_json::Value {
+    let visual = matches!(
+        super::media::media_type_str(m.r#type),
+        "image" | "gifv" | "video"
+    );
+    ensure_visual_dims(m.file_meta.clone(), visual)
+}
+
+/// Return a `meta` object; if `visual` and it lacks positive `original.width`
+/// and `original.height`, inject a neutral 1:1 default so the client never
+/// divides by a zero aspect-ratio sum.
+fn ensure_visual_dims(file_meta: Option<serde_json::Value>, visual: bool) -> serde_json::Value {
+    let mut meta = file_meta.unwrap_or_else(|| serde_json::json!({}));
+    if !meta.is_object() {
+        meta = serde_json::json!({});
+    }
+    let has_dims = meta
+        .get("original")
+        .and_then(|o| Some((o.get("width")?.as_f64()?, o.get("height")?.as_f64()?)))
+        .map(|(w, h)| w > 0.0 && h > 0.0)
+        .unwrap_or(false);
+    if visual && !has_dims {
+        meta.as_object_mut().unwrap().insert(
+            "original".into(),
+            serde_json::json!({ "width": 1, "height": 1, "size": "1x1", "aspect": 1.0 }),
+        );
+    }
+    meta
+}
+
 pub fn media_from_db(m: &models::MediaAttachment) -> types::MediaAttachment {
     types::MediaAttachment {
         id: m.id.to_string(),
@@ -316,7 +353,7 @@ pub fn media_from_db(m: &models::MediaAttachment) -> types::MediaAttachment {
         text_url: None,
         description: m.description.clone(),
         blurhash: m.blurhash.clone(),
-        meta: Some(m.file_meta.clone().unwrap_or_else(|| serde_json::json!({}))),
+        meta: Some(media_meta_for_serialization(m)),
     }
 }
 
@@ -559,4 +596,44 @@ pub struct StatusViewerContext {
     pub muted: bool,
     pub bookmarked: bool,
     pub pinned: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ensure_visual_dims;
+    use serde_json::json;
+
+    #[test]
+    fn injects_default_dims_for_dimensionless_visual_media() {
+        // NULL meta on an image → neutral 1:1 original so the iOS grid never
+        // divides by a zero aspect-ratio sum.
+        let meta = ensure_visual_dims(None, true);
+        assert_eq!(meta["original"]["width"], json!(1));
+        assert_eq!(meta["original"]["height"], json!(1));
+
+        // Empty object likewise.
+        let meta = ensure_visual_dims(Some(json!({})), true);
+        assert_eq!(meta["original"]["height"], json!(1));
+
+        // `original` present but without usable dimensions.
+        let meta = ensure_visual_dims(Some(json!({ "original": { "duration": 3.0 } })), true);
+        assert_eq!(meta["original"]["width"], json!(1));
+    }
+
+    #[test]
+    fn preserves_real_dims() {
+        let meta = ensure_visual_dims(
+            Some(json!({ "original": { "width": 1206, "height": 2622 } })),
+            true,
+        );
+        assert_eq!(meta["original"]["width"], json!(1206));
+        assert_eq!(meta["original"]["height"], json!(2622));
+    }
+
+    #[test]
+    fn leaves_non_visual_media_untouched() {
+        // Audio has no dimensions and needs none — don't fabricate them.
+        let meta = ensure_visual_dims(None, false);
+        assert!(meta.get("original").is_none());
+    }
 }
