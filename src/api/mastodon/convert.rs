@@ -297,19 +297,14 @@ pub fn fields_from_db(fields: &serde_json::Value) -> Vec<types::Field> {
         .unwrap_or_default()
 }
 
-/// Serialize a media attachment's `meta`, guaranteeing that visual media
-/// (image/gifv/video) always carry `original.{width,height}`. The official iOS
-/// client sizes its image grid by dividing the row width by the sum of the
-/// images' aspect ratios; a visual attachment with no dimensions contributes a
-/// zero, and a post whose images are all dimensionless divides by zero and
-/// aborts (`CALayer position contains NaN`). Real dimensions are captured at
-/// ingestion; this is a last-resort net for peers that omit them entirely.
+/// Serialize a media attachment's `meta`, guaranteeing that visual media always
+/// carry `original.{width,height}` and a `small` block, mirroring Mastodon's
+/// stored `file.meta`. The official iOS client sizes its image grid by dividing
+/// the row width by the sum of the images' aspect ratios; a visual attachment
+/// with no dimensions contributes a zero, and a post whose images are all
+/// dimensionless divides by zero and aborts (`CALayer position contains NaN`).
 fn media_meta_for_serialization(m: &models::MediaAttachment) -> serde_json::Value {
-    let visual = matches!(
-        super::media::media_type_str(m.r#type),
-        "image" | "gifv" | "video"
-    );
-    ensure_visual_dims(m.file_meta.clone(), visual)
+    ensure_media_dims(m.file_meta.clone(), super::media::media_type_str(m.r#type))
 }
 
 /// `{width, height, size: "WxH", aspect: width/height}`, matching Mastodon's
@@ -337,18 +332,25 @@ fn scaled_to_pixels(w: i64, h: i64, max_px: i64) -> (i64, i64) {
     )
 }
 
-/// For visual media, guarantee `meta.original.{width,height,size,aspect}` and a
-/// matching `meta.small`, mirroring Mastodon's stored `file.meta` (which always
-/// carries both an `original` and a 230_400px `small` for images). Existing
-/// blocks are preserved; missing ones are filled — `original` falls back to a
-/// neutral 1:1 for media whose dimensions are unknown so the iOS image grid
-/// never divides by a zero aspect-ratio sum.
-fn ensure_visual_dims(file_meta: Option<serde_json::Value>, visual: bool) -> serde_json::Value {
+/// Guarantee the `meta` shape Mastodon stores for visual media, per type:
+/// - **image**: `original` and `small` are both `image_geometry`
+///   (`{width,height,size,aspect}`).
+/// - **gifv/video**: `original` is `video_metadata`
+///   (`{width,height,[frame_rate],[duration],[bitrate]}` — no size/aspect),
+///   and `small` is the `image_geometry` of a 230_400px thumbnail.
+/// - **audio/unknown**: untouched.
+///
+/// Existing blocks are preserved (so real imported/ffmpeg metadata is kept);
+/// missing pieces are filled, and `original` falls back to a neutral 1:1 when
+/// dimensions are unknown so the iOS image grid never divides by zero.
+fn ensure_media_dims(file_meta: Option<serde_json::Value>, media_type: &str) -> serde_json::Value {
     let mut meta = file_meta.unwrap_or_else(|| serde_json::json!({}));
     if !meta.is_object() {
         meta = serde_json::json!({});
     }
-    if !visual {
+    let is_image = media_type == "image";
+    let is_video = matches!(media_type, "gifv" | "video");
+    if !is_image && !is_video {
         return meta;
     }
     let dims = meta
@@ -359,18 +361,30 @@ fn ensure_visual_dims(file_meta: Option<serde_json::Value>, visual: bool) -> ser
     let (w, h) = match dims {
         Some(d) => d,
         None => {
-            obj.insert("original".into(), image_geometry(1, 1));
+            // Image originals carry size/aspect; video originals never do.
+            let orig = if is_image {
+                image_geometry(1, 1)
+            } else {
+                serde_json::json!({ "width": 1, "height": 1 })
+            };
+            obj.insert("original".into(), orig);
             (1, 1)
         }
     };
-    // Older federated rows stored only width/height; backfill size/aspect (kept
-    // by Mastodon's image_geometry) without disturbing extra keys like duration.
-    if let Some(orig) = obj.get_mut("original").and_then(|o| o.as_object_mut()) {
-        orig.entry("size")
-            .or_insert_with(|| format!("{w}x{h}").into());
-        orig.entry("aspect")
-            .or_insert_with(|| (w as f64 / h as f64).into());
+    // Only image originals get size/aspect (Mastodon's image_geometry); video
+    // originals mirror video_metadata, which has neither. Older federated image
+    // rows stored only width/height — backfill the pair without disturbing any
+    // extra keys.
+    if is_image {
+        if let Some(orig) = obj.get_mut("original").and_then(|o| o.as_object_mut()) {
+            orig.entry("size")
+                .or_insert_with(|| format!("{w}x{h}").into());
+            orig.entry("aspect")
+                .or_insert_with(|| (w as f64 / h as f64).into());
+        }
     }
+    // Both images and videos carry a 230_400px `small` (image_geometry of the
+    // thumbnail).
     if !obj.contains_key("small") {
         let (sw, sh) = scaled_to_pixels(w, h, 230_400);
         obj.insert("small".into(), image_geometry(sw, sh));
@@ -644,70 +658,79 @@ pub struct StatusViewerContext {
 
 #[cfg(test)]
 mod tests {
-    use super::ensure_visual_dims;
+    use super::ensure_media_dims;
     use serde_json::json;
 
     #[test]
-    fn injects_default_dims_for_dimensionless_visual_media() {
+    fn injects_default_dims_for_dimensionless_images() {
         // NULL meta on an image → neutral 1:1 original so the iOS grid never
         // divides by a zero aspect-ratio sum, plus a matching small.
-        let meta = ensure_visual_dims(None, true);
+        let meta = ensure_media_dims(None, "image");
         assert_eq!(meta["original"]["width"], json!(1));
         assert_eq!(meta["original"]["height"], json!(1));
         assert_eq!(meta["small"]["width"], json!(1));
 
         // Empty object likewise.
-        let meta = ensure_visual_dims(Some(json!({})), true);
+        let meta = ensure_media_dims(Some(json!({})), "image");
         assert_eq!(meta["original"]["height"], json!(1));
-
-        // `original` present but without usable dimensions.
-        let meta = ensure_visual_dims(Some(json!({ "original": { "duration": 3.0 } })), true);
-        assert_eq!(meta["original"]["width"], json!(1));
     }
 
     #[test]
-    fn preserves_real_dims_and_computes_small() {
+    fn image_matches_mastodon_geometry() {
         // Matches Mastodon's image_geometry + 230_400px small exactly:
         // baram.me serves original 1206x1706 with small 404x571.
-        let meta = ensure_visual_dims(
+        let meta = ensure_media_dims(
             Some(json!({ "original": { "width": 1206, "height": 1706 } })),
-            true,
+            "image",
         );
-        assert_eq!(meta["original"]["width"], json!(1206));
-        assert_eq!(meta["original"]["height"], json!(1706));
         assert_eq!(meta["original"]["size"], json!("1206x1706"));
         assert_eq!(meta["small"]["width"], json!(404));
         assert_eq!(meta["small"]["height"], json!(571));
     }
 
     #[test]
+    fn video_original_has_no_size_or_aspect() {
+        // Mastodon's video_metadata is {width,height,frame_rate,duration,bitrate}
+        // with no size/aspect; small is the 230_400px image_geometry.
+        // 720x1280 -> small 360x640.
+        let meta = ensure_media_dims(
+            Some(json!({
+                "original": { "width": 720, "height": 1280, "frame_rate": "30/1", "duration": 25.4, "bitrate": 3266734 },
+            })),
+            "video",
+        );
+        assert!(meta["original"].get("size").is_none());
+        assert!(meta["original"].get("aspect").is_none());
+        assert_eq!(meta["original"]["frame_rate"], json!("30/1"));
+        assert_eq!(meta["original"]["bitrate"], json!(3266734));
+        assert_eq!(meta["small"], json!({ "width": 360, "height": 640, "size": "360x640", "aspect": 0.5625 }));
+    }
+
+    #[test]
+    fn video_without_dims_gets_bare_original() {
+        let meta = ensure_media_dims(None, "video");
+        assert_eq!(meta["original"]["width"], json!(1));
+        assert!(meta["original"].get("size").is_none());
+        assert_eq!(meta["small"]["width"], json!(1));
+    }
+
+    #[test]
     fn preserves_existing_small() {
         // Imported Mastodon media already carry a real small — don't clobber it.
-        let meta = ensure_visual_dims(
+        let meta = ensure_media_dims(
             Some(json!({
                 "original": { "width": 100, "height": 100 },
                 "small": { "width": 50, "height": 50, "size": "50x50", "aspect": 1.0 },
             })),
-            true,
+            "image",
         );
         assert_eq!(meta["small"]["width"], json!(50));
     }
 
     #[test]
-    fn small_not_enlarged_for_tiny_images() {
-        let meta = ensure_visual_dims(
-            Some(json!({ "original": { "width": 80, "height": 60 } })),
-            true,
-        );
-        // 80*60 = 4800 <= 230_400, so small == original.
-        assert_eq!(meta["small"]["width"], json!(80));
-        assert_eq!(meta["small"]["height"], json!(60));
-    }
-
-    #[test]
     fn leaves_non_visual_media_untouched() {
         // Audio has no dimensions and needs none — don't fabricate them.
-        let meta = ensure_visual_dims(None, false);
+        let meta = ensure_media_dims(None, "audio");
         assert!(meta.get("original").is_none());
         assert!(meta.get("small").is_none());
     }

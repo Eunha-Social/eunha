@@ -3831,6 +3831,19 @@ mod tests {
     use super::*;
 
     #[test]
+    fn parse_ap_duration_handles_iso8601_and_numbers() {
+        use serde_json::json;
+        // Mastodon sends ISO8601 time durations.
+        assert_eq!(parse_ap_duration(&json!("PT25.4S")), Some(25.4));
+        assert_eq!(parse_ap_duration(&json!("PT1M5S")), Some(65.0));
+        assert_eq!(parse_ap_duration(&json!("PT1H2M3S")), Some(3723.0));
+        // Misskey/others may send a plain number.
+        assert_eq!(parse_ap_duration(&json!(12.5)), Some(12.5));
+        // Garbage → None.
+        assert_eq!(parse_ap_duration(&json!("nonsense")), None);
+    }
+
+    #[test]
     fn signed_headers_list_parses_covered_set() {
         let sig = r#"keyId="https://a.test/users/x#main-key",algorithm="rsa-sha256",headers="(request-target) Host Date Digest",signature="abc""#;
         let covered = signed_headers_list(sig);
@@ -3925,7 +3938,10 @@ fn attachment_url(value: &Value) -> Option<(String, Option<String>)> {
 fn ap_attachment_file_meta(att: &serde_json::Value) -> Option<serde_json::Value> {
     let width = att.get("width").and_then(|v| v.as_i64());
     let height = att.get("height").and_then(|v| v.as_i64());
-    let duration = att.get("duration").and_then(|v| v.as_f64());
+    // Mastodon serializes a video's `duration` as an ISO8601 duration string
+    // (e.g. "PT25.4S"); Misskey/others may send a number. `size`/`aspect` are
+    // added at serialization (image only, mirroring Mastodon's meta shape).
+    let duration = att.get("duration").and_then(parse_ap_duration);
     // focalPoint [x, y] -> meta.focus { x, y } (Mastodon's focus).
     let focus = att
         .get("focalPoint")
@@ -3943,12 +3959,6 @@ fn ap_attachment_file_meta(att: &serde_json::Value) -> Option<serde_json::Value>
         if let Some(h) = height {
             orig.insert("height".into(), h.into());
         }
-        if let (Some(w), Some(h)) = (width, height) {
-            orig.insert("size".into(), format!("{w}x{h}").into());
-            if h != 0 {
-                orig.insert("aspect".into(), (w as f64 / h as f64).into());
-            }
-        }
         if let Some(d) = duration {
             orig.insert("duration".into(), d.into());
         }
@@ -3958,6 +3968,32 @@ fn ap_attachment_file_meta(att: &serde_json::Value) -> Option<serde_json::Value>
         meta.insert("focus".into(), serde_json::json!({ "x": x, "y": y }));
     }
     Some(serde_json::Value::Object(meta))
+}
+
+/// Parse an ActivityPub attachment `duration` into seconds. Accepts a plain
+/// number or an ISO8601 duration's time part (`PT[nH][nM][nS]`, e.g. "PT25.4S").
+fn parse_ap_duration(v: &serde_json::Value) -> Option<f64> {
+    if let Some(n) = v.as_f64() {
+        return Some(n);
+    }
+    let rest = v.as_str()?.strip_prefix("PT")?;
+    let mut total = 0.0;
+    let mut num = String::new();
+    for c in rest.chars() {
+        if c.is_ascii_digit() || c == '.' {
+            num.push(c);
+        } else {
+            let val: f64 = num.parse().ok()?;
+            total += match c {
+                'H' => val * 3600.0,
+                'M' => val * 60.0,
+                'S' => val,
+                _ => return None,
+            };
+            num.clear();
+        }
+    }
+    (total > 0.0).then_some(total)
 }
 
 fn classify_attachment_type(att_type_str: &str, media_type_str: &str) -> i32 {
