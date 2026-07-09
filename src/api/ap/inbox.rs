@@ -1212,21 +1212,14 @@ async fn handle_create(
         .map(|s| s.to_string())
         .filter(|s| ["ko", "en"].contains(&s.as_str()));
 
+    // FEP-044f quote linkage. Resolved after the status is inserted (below) so a
+    // quoted post that quotes back can't recurse forever.
     let quote_uri = object
         .get("quote")
         .and_then(|v| v.as_str())
         .or_else(|| object.get("quoteUrl").and_then(|v| v.as_str()))
         .or_else(|| object.get("quoteUri").and_then(|v| v.as_str()))
         .or_else(|| object.get("_misskey_quote").and_then(|v| v.as_str()));
-    let quote_of_id: Option<i64> = if let Some(uri) = quote_uri {
-        sqlx::query_scalar!("SELECT id FROM statuses WHERE uri = $1", uri)
-            .fetch_optional(&state.db)
-            .await
-            .ok()
-            .flatten()
-    } else {
-        None
-    };
 
     let status_id = crate::snowflake::next_id();
     let created_at = published.unwrap_or_else(|| chrono::Utc::now().naive_utc());
@@ -1264,14 +1257,40 @@ async fn handle_create(
         return Ok(()); // duplicate
     };
 
-    if let Some(qid) = quote_of_id {
-        let _ = sqlx::query!(
-            "INSERT INTO quotes (status_id, quoted_status_id, state, created_at, updated_at) VALUES ($1, $2, 1, now(), now()) ON CONFLICT DO NOTHING",
-            inserted_id,
-            qid,
+    // Record the FEP-044f quote. Matching Mastodon, fetch the quoted post when
+    // it isn't cached locally so the quote serializes instead of being silently
+    // dropped; the fetch is bounded by fetch_remote_status's depth limit.
+    if let Some(q) = quote_uri {
+        let mut quoted: Option<(i64, i64)> = sqlx::query!(
+            "SELECT id, account_id FROM statuses WHERE uri = $1 AND deleted_at IS NULL",
+            q,
         )
-        .execute(&state.db)
-        .await;
+        .fetch_optional(&state.db)
+        .await?
+        .map(|r| (r.id, r.account_id));
+        if quoted.is_none() {
+            if let Some(qid) = fetch_remote_status(state, q).await? {
+                quoted = sqlx::query!("SELECT id, account_id FROM statuses WHERE id = $1", qid)
+                    .fetch_optional(&state.db)
+                    .await?
+                    .map(|r| (r.id, r.account_id));
+            }
+        }
+        if let Some((quoted_id, quoted_account_id)) = quoted {
+            let _ = sqlx::query!(
+                r#"INSERT INTO quotes
+                     (id, status_id, quoted_status_id, account_id, quoted_account_id, state, created_at, updated_at)
+                   VALUES ($1, $2, $3, $4, $5, 1, now(), now())
+                   ON CONFLICT (status_id) DO NOTHING"#,
+                crate::snowflake::next_id(),
+                inserted_id,
+                quoted_id,
+                account_id,
+                quoted_account_id,
+            )
+            .execute(&state.db)
+            .await;
+        }
     }
 
     // Media attachments. Domains blocked with `reject_media` (or fully
