@@ -1,6 +1,6 @@
 use axum::{
     extract::{Extension, Path, Query, RawQuery, State},
-    http::{header, HeaderMap, Uri},
+    http::{HeaderMap, Uri},
     response::IntoResponse,
     Json,
 };
@@ -461,25 +461,15 @@ pub async fn get_notifications(
     // Base pagination on the raw page boundaries, not the filtered `result`:
     // a page made up entirely of orphaned (skipped) notifications must still
     // advance the cursor, otherwise the client would stop paginating early.
-    let link = notifications
+    let bounds = notifications
         .first()
         .zip(notifications.last())
-        .map(|(newest, oldest)| {
-            let extra = super::non_pagination_query(uri.query());
-            super::link_header(
-                &req_headers,
-                uri.path(),
-                &extra,
-                &newest.id.to_string(),
-                &oldest.id.to_string(),
-            )
-        });
-    let mut resp_headers = HeaderMap::new();
-    if let Some(v) = link {
-        if let Ok(val) = v.parse() {
-            resp_headers.insert(header::LINK, val);
-        }
-    }
+        .map(|(n, o)| (n.id.to_string(), o.id.to_string()));
+    let resp_headers = super::link_headers(
+        &req_headers,
+        &uri,
+        bounds.as_ref().map(|(n, o)| (n.as_str(), o.as_str())),
+    );
     Ok((resp_headers, Json(result)))
 }
 
@@ -1630,16 +1620,11 @@ pub async fn get_notification_requests(
         });
     }
 
-    let link = result.first().zip(result.last()).map(|(newest, oldest)| {
-        let extra = super::non_pagination_query(uri.query());
-        super::link_header(&req_headers, uri.path(), &extra, &newest.id, &oldest.id)
-    });
-    let mut resp_headers = HeaderMap::new();
-    if let Some(v) = link {
-        if let Ok(val) = v.parse() {
-            resp_headers.insert(header::LINK, val);
-        }
-    }
+    let bounds = result
+        .first()
+        .zip(result.last())
+        .map(|(n, o)| (n.id.as_str(), o.id.as_str()));
+    let resp_headers = super::link_headers(&req_headers, &uri, bounds);
     Ok((resp_headers, Json(result)))
 }
 

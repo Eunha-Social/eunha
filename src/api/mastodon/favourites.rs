@@ -1,6 +1,6 @@
 use axum::{
     extract::{Extension, Query, State},
-    http::{header, HeaderMap, Uri},
+    http::{HeaderMap, Uri},
     response::IntoResponse,
     Json,
 };
@@ -214,24 +214,14 @@ pub async fn get_favourites(
     hydrate_status_stats(&state, result.iter_mut()).await;
 
     // Link header cursors use sort_ids (favourite creation order), not status IDs.
-    let link = sort_ids
+    let bounds = sort_ids
         .first()
         .zip(sort_ids.last())
-        .map(|(newest_sort, oldest_sort)| {
-            let extra = super::non_pagination_query(uri.query());
-            super::link_header(
-                &req_headers,
-                uri.path(),
-                &extra,
-                &newest_sort.to_string(),
-                &oldest_sort.to_string(),
-            )
-        });
-    let mut resp_headers = HeaderMap::new();
-    if let Some(v) = link {
-        if let Ok(val) = v.parse() {
-            resp_headers.insert(header::LINK, val);
-        }
-    }
+        .map(|(n, o)| (n.to_string(), o.to_string()));
+    let resp_headers = super::link_headers(
+        &req_headers,
+        &uri,
+        bounds.as_ref().map(|(n, o)| (n.as_str(), o.as_str())),
+    );
     Ok((resp_headers, Json(result)))
 }

@@ -87,6 +87,29 @@ pub(crate) fn non_pagination_query(raw_query: Option<&str>) -> String {
         .join("&")
 }
 
+/// Build the response `HeaderMap` carrying the pagination `Link` header for a
+/// page whose newest/oldest cursor ids are `bounds` (`None` for an empty page).
+///
+/// Combines [`non_pagination_query`] and [`link_header`] with the header
+/// insertion every paginated list endpoint would otherwise repeat. Callers only
+/// need to express how they derive the two cursor ids, e.g.
+/// `result.first().zip(result.last()).map(|(n, o)| (n.id.as_str(), o.id.as_str()))`.
+pub(crate) fn link_headers(
+    req_headers: &HeaderMap,
+    uri: &axum::http::Uri,
+    bounds: Option<(&str, &str)>,
+) -> HeaderMap {
+    let mut resp_headers = HeaderMap::new();
+    if let Some((newest, oldest)) = bounds {
+        let extra = non_pagination_query(uri.query());
+        let link = link_header(req_headers, uri.path(), &extra, newest, oldest);
+        if let Ok(val) = link.parse() {
+            resp_headers.insert(axum::http::header::LINK, val);
+        }
+    }
+    resp_headers
+}
+
 pub fn router(state: AppState) -> Router<AppState> {
     let auth_required = Router::new()
         // Accounts — authenticated

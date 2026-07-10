@@ -1,6 +1,6 @@
 use axum::{
     extract::{Extension, Json, Path, Query, State},
-    http::{header, HeaderMap, Uri},
+    http::{HeaderMap, Uri},
     response::IntoResponse,
 };
 use serde::Deserialize;
@@ -219,20 +219,15 @@ pub async fn get_list_accounts(
     .await?;
 
     let result: Vec<Account> = batch_accounts_to_api(&state, &accounts).await;
-    let link = if unlimited {
+    let bounds = if unlimited {
         None
     } else {
-        result.first().zip(result.last()).map(|(newest, oldest)| {
-            let extra = super::non_pagination_query(uri.query());
-            super::link_header(&req_headers, uri.path(), &extra, &newest.id, &oldest.id)
-        })
+        result
+            .first()
+            .zip(result.last())
+            .map(|(n, o)| (n.id.as_str(), o.id.as_str()))
     };
-    let mut resp_headers = HeaderMap::new();
-    if let Some(v) = link {
-        if let Ok(val) = v.parse() {
-            resp_headers.insert(header::LINK, val);
-        }
-    }
+    let resp_headers = super::link_headers(&req_headers, &uri, bounds);
     Ok((resp_headers, Json(result)))
 }
 

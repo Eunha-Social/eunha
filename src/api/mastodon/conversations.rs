@@ -1,6 +1,6 @@
 use axum::{
     extract::{Extension, Path, Query, State},
-    http::{header, HeaderMap, Uri},
+    http::{HeaderMap, Uri},
     response::IntoResponse,
     Json,
 };
@@ -291,16 +291,12 @@ pub async fn get_conversations(
         .last()
         .and_then(|r| r.last_status_id)
         .map(|id| id.to_string());
-    let link = newest_cursor.zip(oldest_cursor).map(|(newest, oldest)| {
-        let extra = super::non_pagination_query(uri.query());
-        super::link_header(&req_headers, uri.path(), &extra, &newest, &oldest)
-    });
-    let mut resp_headers = HeaderMap::new();
-    if let Some(v) = link {
-        if let Ok(val) = v.parse() {
-            resp_headers.insert(header::LINK, val);
-        }
-    }
+    let bounds = newest_cursor.zip(oldest_cursor);
+    let resp_headers = super::link_headers(
+        &req_headers,
+        &uri,
+        bounds.as_ref().map(|(n, o)| (n.as_str(), o.as_str())),
+    );
     Ok((resp_headers, Json(result)))
 }
 

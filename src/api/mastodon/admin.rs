@@ -10,7 +10,7 @@ use crate::{
 };
 use axum::{
     extract::{Extension, Multipart, Path, Query, State},
-    http::{header, HeaderMap, StatusCode, Uri},
+    http::{HeaderMap, StatusCode, Uri},
     response::IntoResponse,
     Json,
 };
@@ -300,16 +300,11 @@ pub async fn list_admin_accounts(
         result.push(build_admin_account(&state, a).await?);
     }
 
-    let link = result.first().zip(result.last()).map(|(newest, oldest)| {
-        let extra = super::non_pagination_query(uri.query());
-        super::link_header(&req_headers, uri.path(), &extra, &newest.id, &oldest.id)
-    });
-    let mut resp_headers = HeaderMap::new();
-    if let Some(v) = link {
-        if let Ok(val) = v.parse() {
-            resp_headers.insert(header::LINK, val);
-        }
-    }
+    let bounds = result
+        .first()
+        .zip(result.last())
+        .map(|(n, o)| (n.id.as_str(), o.id.as_str()));
+    let resp_headers = super::link_headers(&req_headers, &uri, bounds);
     Ok((resp_headers, Json(result)))
 }
 
@@ -395,16 +390,11 @@ pub async fn list_admin_accounts_v2(
         result.push(build_admin_account(&state, a).await?);
     }
 
-    let link = result.first().zip(result.last()).map(|(newest, oldest)| {
-        let extra = super::non_pagination_query(uri.query());
-        super::link_header(&req_headers, uri.path(), &extra, &newest.id, &oldest.id)
-    });
-    let mut resp_headers = HeaderMap::new();
-    if let Some(v) = link {
-        if let Ok(val) = v.parse() {
-            resp_headers.insert(header::LINK, val);
-        }
-    }
+    let bounds = result
+        .first()
+        .zip(result.last())
+        .map(|(n, o)| (n.id.as_str(), o.id.as_str()));
+    let resp_headers = super::link_headers(&req_headers, &uri, bounds);
     Ok((resp_headers, Json(result)))
 }
 
@@ -705,16 +695,11 @@ pub async fn list_admin_reports(
         result.push(build_admin_report(&state, &row).await?);
     }
 
-    let link = result.first().zip(result.last()).map(|(newest, oldest)| {
-        let extra = super::non_pagination_query(uri.query());
-        super::link_header(&req_headers, uri.path(), &extra, &newest.id, &oldest.id)
-    });
-    let mut resp_headers = HeaderMap::new();
-    if let Some(v) = link {
-        if let Ok(val) = v.parse() {
-            resp_headers.insert(header::LINK, val);
-        }
-    }
+    let bounds = result
+        .first()
+        .zip(result.last())
+        .map(|(n, o)| (n.id.as_str(), o.id.as_str()));
+    let resp_headers = super::link_headers(&req_headers, &uri, bounds);
     Ok((resp_headers, Json(result)))
 }
 

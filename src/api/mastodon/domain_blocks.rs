@@ -1,6 +1,6 @@
 use axum::{
     extract::{Extension, Query, State},
-    http::{header, HeaderMap, Uri},
+    http::{HeaderMap, Uri},
     response::IntoResponse,
     Json,
 };
@@ -42,20 +42,15 @@ pub async fn get_domain_blocks(
 
     let domains: Vec<String> = rows.iter().map(|r| r.domain.clone()).collect();
 
-    let mut resp_headers = HeaderMap::new();
-    if let (Some(first), Some(last)) = (rows.first(), rows.last()) {
-        let extra = super::non_pagination_query(uri.query());
-        let link = super::link_header(
-            &req_headers,
-            uri.path(),
-            &extra,
-            &first.id.to_string(),
-            &last.id.to_string(),
-        );
-        if let Ok(val) = link.parse() {
-            resp_headers.insert(header::LINK, val);
-        }
-    }
+    let bounds = rows
+        .first()
+        .zip(rows.last())
+        .map(|(n, o)| (n.id.to_string(), o.id.to_string()));
+    let resp_headers = super::link_headers(
+        &req_headers,
+        &uri,
+        bounds.as_ref().map(|(n, o)| (n.as_str(), o.as_str())),
+    );
 
     Ok((resp_headers, Json(domains)))
 }

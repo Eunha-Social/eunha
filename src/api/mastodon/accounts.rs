@@ -1,6 +1,6 @@
 use axum::{
     extract::{Extension, Multipart, Path, Query, RawQuery, State},
-    http::{header, HeaderMap, Uri},
+    http::{HeaderMap, Uri},
     response::IntoResponse,
     Json,
 };
@@ -684,16 +684,11 @@ pub async fn get_account_statuses(
     }
     hydrate_status_stats(&state, result.iter_mut()).await;
 
-    let link = result.first().zip(result.last()).map(|(newest, oldest)| {
-        let extra = super::non_pagination_query(uri.query());
-        super::link_header(&req_headers, uri.path(), &extra, &newest.id, &oldest.id)
-    });
-    let mut resp_headers = HeaderMap::new();
-    if let Some(v) = link {
-        if let Ok(val) = v.parse() {
-            resp_headers.insert(header::LINK, val);
-        }
-    }
+    let bounds = result
+        .first()
+        .zip(result.last())
+        .map(|(n, o)| (n.id.as_str(), o.id.as_str()));
+    let resp_headers = super::link_headers(&req_headers, &uri, bounds);
     Ok((resp_headers, Json(result)))
 }
 
@@ -1421,16 +1416,12 @@ pub async fn get_account_followers(
         .collect();
 
     let api_accounts = batch_accounts_to_api(&state, &accounts).await;
-    let link = first_follow_id.zip(last_follow_id).map(|(newest, oldest)| {
-        let extra = super::non_pagination_query(uri.query());
-        super::link_header(&req_headers, uri.path(), &extra, &newest, &oldest)
-    });
-    let mut resp_headers = HeaderMap::new();
-    if let Some(v) = link {
-        if let Ok(val) = v.parse() {
-            resp_headers.insert(header::LINK, val);
-        }
-    }
+    let bounds = first_follow_id.zip(last_follow_id);
+    let resp_headers = super::link_headers(
+        &req_headers,
+        &uri,
+        bounds.as_ref().map(|(n, o)| (n.as_str(), o.as_str())),
+    );
     Ok((resp_headers, Json(api_accounts)))
 }
 
@@ -1539,16 +1530,12 @@ pub async fn get_account_following(
         .collect();
 
     let api_accounts = batch_accounts_to_api(&state, &accounts).await;
-    let link = first_follow_id.zip(last_follow_id).map(|(newest, oldest)| {
-        let extra = super::non_pagination_query(uri.query());
-        super::link_header(&req_headers, uri.path(), &extra, &newest, &oldest)
-    });
-    let mut resp_headers = HeaderMap::new();
-    if let Some(v) = link {
-        if let Ok(val) = v.parse() {
-            resp_headers.insert(header::LINK, val);
-        }
-    }
+    let bounds = first_follow_id.zip(last_follow_id);
+    let resp_headers = super::link_headers(
+        &req_headers,
+        &uri,
+        bounds.as_ref().map(|(n, o)| (n.as_str(), o.as_str())),
+    );
     Ok((resp_headers, Json(api_accounts)))
 }
 
@@ -2796,16 +2783,12 @@ pub async fn get_blocks(
         .collect();
 
     let api_accounts = batch_accounts_to_api(&state, &accounts_ordered).await;
-    let link = first_block_id.zip(last_block_id).map(|(newest, oldest)| {
-        let extra = super::non_pagination_query(uri.query());
-        super::link_header(&req_headers, uri.path(), &extra, &newest, &oldest)
-    });
-    let mut resp_headers = HeaderMap::new();
-    if let Some(v) = link {
-        if let Ok(val) = v.parse() {
-            resp_headers.insert(header::LINK, val);
-        }
-    }
+    let bounds = first_block_id.zip(last_block_id);
+    let resp_headers = super::link_headers(
+        &req_headers,
+        &uri,
+        bounds.as_ref().map(|(n, o)| (n.as_str(), o.as_str())),
+    );
     Ok((resp_headers, Json(api_accounts)))
 }
 
@@ -2880,16 +2863,12 @@ pub async fn get_mutes(
             api
         })
         .collect();
-    let link = first_mute_id.zip(last_mute_id).map(|(newest, oldest)| {
-        let extra = super::non_pagination_query(uri.query());
-        super::link_header(&req_headers, uri.path(), &extra, &newest, &oldest)
-    });
-    let mut resp_headers = HeaderMap::new();
-    if let Some(v) = link {
-        if let Ok(val) = v.parse() {
-            resp_headers.insert(header::LINK, val);
-        }
-    }
+    let bounds = first_mute_id.zip(last_mute_id);
+    let resp_headers = super::link_headers(
+        &req_headers,
+        &uri,
+        bounds.as_ref().map(|(n, o)| (n.as_str(), o.as_str())),
+    );
     Ok((resp_headers, Json(api_accounts)))
 }
 
@@ -2965,16 +2944,12 @@ pub async fn get_follow_requests(
         .collect();
 
     let api_accounts = batch_accounts_to_api(&state, &accounts_ordered).await;
-    let link = first_req_id.zip(last_req_id).map(|(newest, oldest)| {
-        let extra = super::non_pagination_query(uri.query());
-        super::link_header(&req_headers, uri.path(), &extra, &newest, &oldest)
-    });
-    let mut resp_headers = HeaderMap::new();
-    if let Some(v) = link {
-        if let Ok(val) = v.parse() {
-            resp_headers.insert(header::LINK, val);
-        }
-    }
+    let bounds = first_req_id.zip(last_req_id);
+    let resp_headers = super::link_headers(
+        &req_headers,
+        &uri,
+        bounds.as_ref().map(|(n, o)| (n.as_str(), o.as_str())),
+    );
     Ok((resp_headers, Json(api_accounts)))
 }
 
@@ -3996,19 +3971,11 @@ pub async fn get_endorsements(
     .await?;
 
     let api_accounts = batch_accounts_to_api(&state, &accounts).await;
-    let link = api_accounts
+    let bounds = api_accounts
         .first()
         .zip(api_accounts.last())
-        .map(|(newest, oldest)| {
-            let extra = super::non_pagination_query(uri.query());
-            super::link_header(&req_headers, uri.path(), &extra, &newest.id, &oldest.id)
-        });
-    let mut resp_headers = HeaderMap::new();
-    if let Some(v) = link {
-        if let Ok(val) = v.parse() {
-            resp_headers.insert(header::LINK, val);
-        }
-    }
+        .map(|(n, o)| (n.id.as_str(), o.id.as_str()));
+    let resp_headers = super::link_headers(&req_headers, &uri, bounds);
     Ok((resp_headers, Json(api_accounts)))
 }
 
@@ -4051,23 +4018,15 @@ pub async fn get_my_endorsements(
     .await?;
 
     let api_accounts = batch_accounts_to_api(&state, &accounts).await;
-    let link = if unlimited {
+    let bounds = if unlimited {
         None
     } else {
         api_accounts
             .first()
             .zip(api_accounts.last())
-            .map(|(newest, oldest)| {
-                let extra = super::non_pagination_query(uri.query());
-                super::link_header(&req_headers, uri.path(), &extra, &newest.id, &oldest.id)
-            })
+            .map(|(n, o)| (n.id.as_str(), o.id.as_str()))
     };
-    let mut resp_headers = HeaderMap::new();
-    if let Some(v) = link {
-        if let Ok(val) = v.parse() {
-            resp_headers.insert(header::LINK, val);
-        }
-    }
+    let resp_headers = super::link_headers(&req_headers, &uri, bounds);
     Ok((resp_headers, Json(api_accounts)))
 }
 

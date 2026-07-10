@@ -2824,16 +2824,12 @@ pub async fn favourited_by(
         .collect();
 
     let result = batch_accounts_to_api(&state, &accounts).await;
-    let link = first_fav_id.zip(last_fav_id).map(|(newest, oldest)| {
-        let extra = super::non_pagination_query(uri.query());
-        super::link_header(&req_headers, uri.path(), &extra, &newest, &oldest)
-    });
-    let mut resp_headers = HeaderMap::new();
-    if let Some(v) = link {
-        if let Ok(val) = v.parse() {
-            resp_headers.insert(header::LINK, val);
-        }
-    }
+    let bounds = first_fav_id.zip(last_fav_id);
+    let resp_headers = super::link_headers(
+        &req_headers,
+        &uri,
+        bounds.as_ref().map(|(n, o)| (n.as_str(), o.as_str())),
+    );
     Ok((resp_headers, Json(result)))
 }
 
@@ -2924,16 +2920,12 @@ pub async fn reblogged_by(
         .collect();
 
     let result = batch_accounts_to_api(&state, &accounts).await;
-    let link = first_reblog_id.zip(last_reblog_id).map(|(newest, oldest)| {
-        let extra = super::non_pagination_query(uri.query());
-        super::link_header(&req_headers, uri.path(), &extra, &newest, &oldest)
-    });
-    let mut resp_headers = HeaderMap::new();
-    if let Some(v) = link {
-        if let Ok(val) = v.parse() {
-            resp_headers.insert(header::LINK, val);
-        }
-    }
+    let bounds = first_reblog_id.zip(last_reblog_id);
+    let resp_headers = super::link_headers(
+        &req_headers,
+        &uri,
+        bounds.as_ref().map(|(n, o)| (n.as_str(), o.as_str())),
+    );
     Ok((resp_headers, Json(result)))
 }
 
