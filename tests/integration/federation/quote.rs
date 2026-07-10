@@ -67,7 +67,17 @@ async fn test_quote_consent_handshake_between_instances() {
         .json()
         .await
         .unwrap();
-    let s_uri = s["uri"].as_str().unwrap().to_string();
+    // Read bob's canonical stored uri from B's own DB. (The serialized API
+    // `uri` is derived from the process-global local_domain(), which in this
+    // two-instances-in-one-process test is instance A's domain — not B's. B
+    // matches incoming QuoteRequests against the stored uri, and that is what B
+    // would federate in production, so use it here.)
+    let s_id: i64 = s["id"].as_str().unwrap().parse().unwrap();
+    let s_uri: String = sqlx::query_scalar!("SELECT uri FROM statuses WHERE id = $1", s_id)
+        .fetch_one(&b.db)
+        .await
+        .unwrap()
+        .expect("local status must have a stored uri");
     // b.alice is the author on instance B; treat it as "bob" for clarity.
     let bob_uri = format!("https://{}/users/alice", b.domain);
 
