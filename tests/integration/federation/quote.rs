@@ -67,11 +67,12 @@ async fn test_quote_consent_handshake_between_instances() {
         .json()
         .await
         .unwrap();
-    // Read bob's canonical stored uri from B's own DB. (The serialized API
-    // `uri` is derived from the process-global local_domain(), which in this
-    // two-instances-in-one-process test is instance A's domain — not B's. B
-    // matches incoming QuoteRequests against the stored uri, and that is what B
-    // would federate in production, so use it here.)
+    // Read bob's canonical stored uri from B's own DB. The serialized API `uri`
+    // is derived from the process-global local_domain() (a OnceLock set by the
+    // first AppState::new in the process), so under parallel test load it is
+    // whichever instance initialized first — not necessarily B. B matches
+    // incoming QuoteRequests against the stored uri, and that is what B would
+    // federate in production, so use it here.
     let s_id: i64 = s["id"].as_str().unwrap().parse().unwrap();
     let s_uri: String = sqlx::query_scalar!("SELECT uri FROM statuses WHERE id = $1", s_id)
         .fetch_one(&b.db)
@@ -106,7 +107,17 @@ async fn test_quote_consent_handshake_between_instances() {
         .json()
         .await
         .unwrap();
-    let quote_post_uri = quote_post["uri"].as_str().unwrap().to_string();
+    // Use alice's canonical stored uri (see the note on s_uri below): the
+    // serialized API `uri` derives from the process-global local_domain(),
+    // which under parallel test load is whichever instance built its AppState
+    // first — not necessarily A. The stored uri always carries A's domain.
+    let quote_post_id: i64 = quote_post["id"].as_str().unwrap().parse().unwrap();
+    let quote_post_uri: String =
+        sqlx::query_scalar!("SELECT uri FROM statuses WHERE id = $1", quote_post_id)
+            .fetch_one(&a.db)
+            .await
+            .unwrap()
+            .expect("local status must have a stored uri");
     let alice_uri = format!("https://{}/users/alice", a.domain);
 
     // A recorded the quote as pending with a QuoteRequest activity_uri.

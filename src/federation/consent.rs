@@ -115,7 +115,6 @@ pub fn quote_authorization(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
 
     #[test]
     fn feature_request_shape() {
@@ -172,17 +171,20 @@ mod tests {
         )
         .unwrap();
         assert_eq!(q["type"], "QuoteAuthorization");
+        assert_eq!(q["id"], "https://b.test/notes/9/approvals/1");
         assert_eq!(q["attributedTo"], "https://b.test/users/bob");
-        assert_eq!(
-            q,
-            json!({
-                "@context": "https://www.w3.org/ns/activitystreams",
-                "type": "QuoteAuthorization",
-                "id": "https://b.test/notes/9/approvals/1",
-                "attributedTo": "https://b.test/users/bob",
-                "interactingObject": "https://a.test/notes/1",
-                "interactionTarget": "https://b.test/notes/9",
-            })
+        assert_eq!(q["interactingObject"], "https://a.test/notes/1");
+        assert_eq!(q["interactionTarget"], "https://b.test/notes/9");
+        // The @context is a compound array declaring the FEP-044f
+        // QuoteAuthorization term (plus GoToSocial's interaction term
+        // definitions) so the markers resolve for remote consumers.
+        let ctx = &q["@context"];
+        assert!(
+            ctx.as_array().is_some_and(|entries| entries.iter().any(|e| e
+                .get("QuoteAuthorization")
+                .and_then(|v| v.as_str())
+                == Some("https://w3id.org/fep/044f#QuoteAuthorization"))),
+            "compound @context must declare the QuoteAuthorization term: {ctx}"
         );
     }
 }
