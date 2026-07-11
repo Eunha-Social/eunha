@@ -1,0 +1,836 @@
+//! The authenticated account's own credentials and profile: verify,
+//! update_credentials (avatar/header/fields), the /profile endpoints, and
+//! propagating profile Updates to the fediverse.
+
+use super::*;
+
+// ── GET /api/v1/accounts/verify_credentials ────────────────────────────────
+
+pub async fn verify_credentials(
+    State(state): State<AppState>,
+    Extension(ResolvedInstance(_instance)): Extension<ResolvedInstance>,
+    Extension(auth): Extension<AuthenticatedUser>,
+) -> AppResult<Json<ApiAccount>> {
+    auth.require_scope("read:accounts")?;
+    let account = fetch_account(&state, auth.account_id).await?;
+    let mut api_account = account_from_db(&account);
+    api_account.emojis = fetch_account_emojis(&state, &account).await;
+    apply_account_stats(&state, &mut api_account, account.id).await;
+
+    let d = user_defaults(&state, account.id).await;
+    let (default_privacy, default_sensitive, default_language, default_quote_policy) =
+        (d.privacy, d.sensitive, d.language, d.quote_policy);
+
+    let follow_requests: i64 = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM (SELECT 1 FROM follow_requests WHERE target_account_id = $1 LIMIT 40) sub",
+        account.id
+    )
+    .fetch_one(&state.db)
+    .await?
+    .unwrap_or(0);
+
+    api_account.source = Some(crate::api::mastodon::types::AccountSource {
+        privacy: default_privacy,
+        sensitive: default_sensitive,
+        language: default_language,
+        note: account.note.clone(),
+        fields: crate::api::mastodon::convert::fields_from_db(
+            account.fields.as_ref().unwrap_or(&serde_json::json!([])),
+        ),
+        follow_requests_count: follow_requests,
+        discoverable: account.discoverable,
+        indexable: account.indexable,
+        hide_collections: account.hide_collections,
+        attribution_domains: account.attribution_domains.clone().unwrap_or_default(),
+        quote_policy: default_quote_policy,
+    });
+
+    api_account.roles = fetch_account_roles(&state, account.id).await;
+    api_account.role = fetch_account_role(&state, account.id).await;
+
+    Ok(Json(api_account))
+}
+
+// ── PATCH /api/v1/accounts/update_credentials ─────────────────────────────
+
+async fn do_update_credentials(
+    state: &AppState,
+    auth: &AuthenticatedUser,
+    mut multipart: Multipart,
+) -> AppResult<Account> {
+    let mut display_name: Option<String> = None;
+    let mut note: Option<String> = None;
+    let mut locked: Option<bool> = None;
+    let mut bot: Option<bool> = None;
+    let mut discoverable: Option<bool> = None;
+    let mut avatar_url: Option<String> = None;
+    let mut avatar_content_type: Option<String> = None;
+    let mut header_url: Option<String> = None;
+    let mut header_content_type: Option<String> = None;
+    let mut source_privacy: Option<String> = None;
+    let mut source_sensitive: Option<bool> = None;
+    let mut source_language: Option<Option<String>> = None;
+    let mut source_hide_collections: Option<bool> = None;
+    let mut source_quote_policy: Option<String> = None;
+    let mut indexable: Option<bool> = None;
+    // fields_attributes[N][name] / fields_attributes[N][value]
+    let mut fields_map: std::collections::BTreeMap<u32, (String, String)> =
+        std::collections::BTreeMap::new();
+    let mut fields_submitted = false;
+    let mut attribution_domains: Option<Vec<String>> = None;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::Unprocessable(e.to_string()))?
+    {
+        let name = field.name().unwrap_or("").to_string();
+        // Parse attribution_domains[] array fields
+        if name == "attribution_domains[]" {
+            let v = field
+                .text()
+                .await
+                .map_err(|e| AppError::Unprocessable(e.to_string()))?;
+            attribution_domains.get_or_insert_with(Vec::new).push(v);
+            continue;
+        }
+        // Parse fields_attributes[N][name] and fields_attributes[N][value]
+        if let Some(rest) = name.strip_prefix("fields_attributes[") {
+            if let Some((idx_str, key)) = rest.split_once(']') {
+                if let Ok(idx) = idx_str.parse::<u32>() {
+                    let text = field
+                        .text()
+                        .await
+                        .map_err(|e| AppError::Unprocessable(e.to_string()))?;
+                    fields_submitted = true;
+                    let entry = fields_map.entry(idx).or_default();
+                    match key {
+                        "[name]" => entry.0 = text,
+                        "[value]" => entry.1 = text,
+                        _ => {}
+                    }
+                }
+            }
+            continue;
+        }
+        match name.as_str() {
+            "display_name" => {
+                display_name = Some(
+                    field
+                        .text()
+                        .await
+                        .map_err(|e| AppError::Unprocessable(e.to_string()))?,
+                );
+            }
+            "note" => {
+                note = Some(
+                    field
+                        .text()
+                        .await
+                        .map_err(|e| AppError::Unprocessable(e.to_string()))?,
+                );
+            }
+            "locked" => {
+                let v = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::Unprocessable(e.to_string()))?;
+                locked = Some(v == "true" || v == "1");
+            }
+            "bot" => {
+                let v = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::Unprocessable(e.to_string()))?;
+                bot = Some(v == "true" || v == "1");
+            }
+            "discoverable" => {
+                let v = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::Unprocessable(e.to_string()))?;
+                discoverable = Some(v == "true" || v == "1");
+            }
+            "source[privacy]" => {
+                let v = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::Unprocessable(e.to_string()))?;
+                if matches!(v.as_str(), "public" | "unlisted" | "private" | "direct") {
+                    source_privacy = Some(v);
+                }
+            }
+            "source[sensitive]" => {
+                let v = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::Unprocessable(e.to_string()))?;
+                source_sensitive = Some(v == "true" || v == "1");
+            }
+            "source[language]" => {
+                let v = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::Unprocessable(e.to_string()))?;
+                source_language = Some(if v.is_empty() { None } else { Some(v) });
+            }
+            "hide_collections" | "source[hide_collections]" => {
+                let v = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::Unprocessable(e.to_string()))?;
+                source_hide_collections = Some(v == "true" || v == "1");
+            }
+            "source[quote_policy]" => {
+                let v = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::Unprocessable(e.to_string()))?;
+                if matches!(v.as_str(), "public" | "followers" | "nobody") {
+                    source_quote_policy = Some(v);
+                }
+            }
+            "indexable" | "source[indexable]" => {
+                let v = field
+                    .text()
+                    .await
+                    .map_err(|e| AppError::Unprocessable(e.to_string()))?;
+                indexable = Some(v == "true" || v == "1");
+            }
+            "avatar" => {
+                let ct = field
+                    .content_type()
+                    .unwrap_or("application/octet-stream")
+                    .to_string();
+                let data = field
+                    .bytes()
+                    .await
+                    .map_err(|e| AppError::Unprocessable(e.to_string()))?;
+                if !data.is_empty() {
+                    let key = crate::media::account_avatar_key(auth.account_id, &ct);
+                    state.storage.store(&data, &key, &ct).await?;
+                    avatar_url = key.rsplit('/').next().map(str::to_string);
+                    avatar_content_type = Some(ct);
+                }
+            }
+            "header" => {
+                let ct = field
+                    .content_type()
+                    .unwrap_or("application/octet-stream")
+                    .to_string();
+                let data = field
+                    .bytes()
+                    .await
+                    .map_err(|e| AppError::Unprocessable(e.to_string()))?;
+                if !data.is_empty() {
+                    let key = crate::media::account_header_key(auth.account_id, &ct);
+                    state.storage.store(&data, &key, &ct).await?;
+                    header_url = key.rsplit('/').next().map(str::to_string);
+                    header_content_type = Some(ct);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Enforce Mastodon's local-account length validations before writing:
+    // display_name ≤ 40 chars (Account::DISPLAY_NAME_LENGTH_LIMIT) and note ≤ 500
+    // (Account::NOTE_LENGTH_LIMIT, counted via the same URL/mention-aware rule as
+    // status length — reuse `countable_length`).
+    if let Some(ref dn) = display_name {
+        if dn.chars().count() > 40 {
+            return Err(AppError::Unprocessable(
+                "Validation failed: Display name is too long (maximum is 40 characters)".into(),
+            ));
+        }
+    }
+    if let Some(ref n) = note {
+        if crate::api::mastodon::formatting::countable_length(n, "") > 500 {
+            return Err(AppError::Unprocessable(
+                "Validation failed: Note is too long (maximum is 500 characters)".into(),
+            ));
+        }
+    }
+
+    // Persist posting preferences into users.settings (JSON).
+    if source_privacy.is_some()
+        || source_sensitive.is_some()
+        || source_language.is_some()
+        || source_quote_policy.is_some()
+    {
+        let mut settings = user_settings_json(state, auth.account_id).await;
+        let obj = settings.as_object_mut().expect("settings json object");
+        if let Some(p) = &source_privacy {
+            obj.insert("default_privacy".into(), serde_json::json!(p));
+        }
+        if let Some(s) = source_sensitive {
+            obj.insert("web.default_sensitive".into(), serde_json::json!(s));
+        }
+        if let Some(l) = &source_language {
+            obj.insert(
+                "default_language".into(),
+                serde_json::to_value(l).unwrap_or(serde_json::Value::Null),
+            );
+        }
+        if let Some(q) = &source_quote_policy {
+            obj.insert("default_quote_policy".into(), serde_json::json!(q));
+        }
+        let s = settings.to_string();
+        sqlx::query!(
+            "UPDATE users SET settings = $1, updated_at = now() WHERE account_id = $2",
+            s,
+            auth.account_id,
+        )
+        .execute(&state.db)
+        .await?;
+    }
+
+    if let Some(ref dn) = display_name {
+        sqlx::query!(
+            "UPDATE accounts SET display_name = $1 WHERE id = $2",
+            dn,
+            auth.account_id
+        )
+        .execute(&state.db)
+        .await?;
+    }
+    if let Some(ref n) = note {
+        // Store the raw bio text, matching Mastodon: the `note` column holds the
+        // plain source and the HTML is rendered on the fly at serialize time
+        // (see `account_from_db`), keeping `source.note` editable.
+        sqlx::query!(
+            "UPDATE accounts SET note = $1 WHERE id = $2",
+            n,
+            auth.account_id
+        )
+        .execute(&state.db)
+        .await?;
+    }
+    if let Some(l) = locked {
+        sqlx::query!(
+            "UPDATE accounts SET locked = $1 WHERE id = $2",
+            l,
+            auth.account_id
+        )
+        .execute(&state.db)
+        .await?;
+        // Auto-approve pending follow requests when account becomes unlocked
+        if !l {
+            // Promote all pending follow requests to accepted follows
+            let pending = sqlx::query!(
+                "DELETE FROM follow_requests WHERE target_account_id = $1 RETURNING account_id",
+                auth.account_id,
+            )
+            .fetch_all(&state.db)
+            .await?;
+            if !pending.is_empty() {
+                // Mirror Mastodon's FollowRequest dependent: :destroy — auto-approving
+                // the pending requests removes their follow_request notifications too.
+                sqlx::query!(
+                    "DELETE FROM notifications WHERE account_id = $1 AND type = 'follow_request'",
+                    auth.account_id,
+                )
+                .execute(&state.db)
+                .await?;
+            }
+            for row in &pending {
+                let _ = sqlx::query!(
+                    r#"INSERT INTO follows (account_id, target_account_id, created_at, updated_at)
+                       VALUES ($1, $2, now(), now()) ON CONFLICT DO NOTHING"#,
+                    row.account_id,
+                    auth.account_id
+                )
+                .execute(&state.db)
+                .await;
+                let _ =
+                    crate::counters::on_follow_created(&state.db, row.account_id, auth.account_id)
+                        .await;
+                crate::push::create_and_push(
+                    state,
+                    auth.account_id,
+                    row.account_id,
+                    "follow",
+                    None,
+                    "New follower".into(),
+                    "".into(),
+                    "".into(),
+                )
+                .await;
+            }
+        }
+    }
+    if let Some(b) = bot {
+        let actor_type = if b { "Service" } else { "Person" };
+        sqlx::query!(
+            "UPDATE accounts SET actor_type = $1 WHERE id = $2",
+            actor_type,
+            auth.account_id
+        )
+        .execute(&state.db)
+        .await?;
+    }
+    if let Some(d) = discoverable {
+        sqlx::query!(
+            "UPDATE accounts SET discoverable = $1 WHERE id = $2",
+            d,
+            auth.account_id
+        )
+        .execute(&state.db)
+        .await?;
+    }
+    if let Some(ix) = indexable {
+        sqlx::query!(
+            "UPDATE accounts SET indexable = $1 WHERE id = $2",
+            ix,
+            auth.account_id
+        )
+        .execute(&state.db)
+        .await?;
+    }
+    if let Some(ref filename) = avatar_url {
+        sqlx::query!(
+            "UPDATE accounts SET avatar_file_name = $1, avatar_content_type = $2, avatar_updated_at = now() WHERE id = $3",
+            filename, avatar_content_type, auth.account_id
+        )
+        .execute(&state.db).await?;
+    }
+    if let Some(ref filename) = header_url {
+        sqlx::query!(
+            "UPDATE accounts SET header_file_name = $1, header_content_type = $2, header_updated_at = now() WHERE id = $3",
+            filename, header_content_type, auth.account_id
+        )
+        .execute(&state.db).await?;
+    }
+
+    // Collect non-empty fields and save as JSONB
+    if fields_submitted {
+        // Drop fully-blank entries, then enforce Mastodon's limits: at most 4
+        // fields (Account::DEFAULT_FIELDS_SIZE), each name/value <= 255 chars
+        // (Account::Field::MAX_CHARACTERS_LOCAL).
+        let fields: Vec<(String, String)> = fields_map
+            .into_values()
+            .filter(|(n, v)| !(n.is_empty() && v.is_empty()))
+            .collect();
+        if fields.len() > 4 {
+            return Err(AppError::Unprocessable(
+                "Validation failed: Fields can't have more than 4 entries".into(),
+            ));
+        }
+        for (n, v) in &fields {
+            if n.chars().count() > 255 || v.chars().count() > 255 {
+                return Err(AppError::Unprocessable(
+                    "Validation failed: Field name and value can't be longer than 255 characters"
+                        .into(),
+                ));
+            }
+        }
+        // Preserve an existing `verified_at` when a field's value is unchanged,
+        // mirroring Mastodon's `Account#fields_attributes=`; a changed value
+        // clears the badge and re-verification is enqueued below.
+        let old_fields: Vec<serde_json::Value> =
+            sqlx::query_scalar!("SELECT fields FROM accounts WHERE id = $1", auth.account_id,)
+                .fetch_one(&state.db)
+                .await?
+                .and_then(|v| v.as_array().cloned())
+                .unwrap_or_default();
+        let fields_json: serde_json::Value = fields
+            .into_iter()
+            .filter(|(n, _)| !n.is_empty())
+            .map(|(n, v)| {
+                let verified_at = old_fields
+                    .iter()
+                    .find(|of| of.get("value").and_then(|ov| ov.as_str()) == Some(v.as_str()))
+                    .and_then(|of| of.get("verified_at").cloned())
+                    .filter(|va| !va.is_null())
+                    .unwrap_or(serde_json::Value::Null);
+                serde_json::json!({"name": n, "value": v, "verified_at": verified_at})
+            })
+            .collect();
+        sqlx::query!(
+            "UPDATE accounts SET fields = $1 WHERE id = $2",
+            fields_json,
+            auth.account_id
+        )
+        .execute(&state.db)
+        .await?;
+    }
+
+    // default_privacy, default_sensitive, default_language are stored in users.settings (YAML)
+    // in Mastodon's schema; we don't persist them here.
+    let _ = (&source_privacy, source_sensitive, &source_language);
+    if let Some(hc) = source_hide_collections {
+        sqlx::query!(
+            "UPDATE accounts SET hide_collections = $1 WHERE id = $2",
+            hc,
+            auth.account_id
+        )
+        .execute(&state.db)
+        .await?;
+    }
+    if let Some(ref domains) = attribution_domains {
+        sqlx::query!(
+            "UPDATE accounts SET attribution_domains = $1 WHERE id = $2",
+            domains,
+            auth.account_id
+        )
+        .execute(&state.db)
+        .await?;
+    }
+    // default_quote_policy is in users.settings (YAML) in Mastodon's schema; not persisted here.
+    let _ = &source_quote_policy;
+
+    sqlx::query!(
+        "UPDATE accounts SET updated_at = now() WHERE id = $1",
+        auth.account_id
+    )
+    .execute(&state.db)
+    .await?;
+
+    fetch_account(state, auth.account_id).await
+}
+
+async fn distribute_account_update(state: &AppState, domain: &str, account: &Account) {
+    if account.private_key.as_deref().is_none_or(|s| s.is_empty()) {
+        return;
+    }
+    if account.domain.is_some() {
+        return;
+    }
+    let actor_url = crate::federation::tag::account_uri_of(domain, account);
+    let Ok(actor) = crate::api::ap::objects::actor_json(state, domain, account).await else {
+        return;
+    };
+    let update_id = format!(
+        "{}#updates/{}",
+        actor_url,
+        account.updated_at.and_utc().timestamp()
+    );
+    let Ok(activity) = crate::federation::activity::update_actor(&update_id, &actor_url, actor)
+    else {
+        return;
+    };
+    let key_id = format!("{}#main-key", actor_url);
+    let inboxes = match crate::federation::delivery::account_reach_inboxes(state, account.id).await
+    {
+        Ok(inboxes) => inboxes,
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to compute account Update reach");
+            return;
+        }
+    };
+    if let Err(e) =
+        crate::federation::delivery::deliver_to_inboxes(state, activity, inboxes, key_id).await
+    {
+        tracing::warn!(error = %e, "failed to enqueue account Update fanout");
+    }
+}
+
+pub async fn update_credentials(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedUser>,
+    Extension(crate::middleware::ResolvedInstance(instance)): Extension<
+        crate::middleware::ResolvedInstance,
+    >,
+    multipart: Multipart,
+) -> AppResult<Json<ApiAccount>> {
+    auth.require_scope("write:accounts")?;
+    let account = do_update_credentials(&state, &auth, multipart).await?;
+    distribute_account_update(&state, &instance.domain, &account).await;
+    crate::link_verification::spawn(&state, auth.account_id);
+    build_credential_account_response(&state, &auth, account).await
+}
+
+// ── PATCH /api/v1/profile (profile-specific update) ──────────────────────
+
+pub async fn patch_profile(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedUser>,
+    Extension(crate::middleware::ResolvedInstance(instance)): Extension<
+        crate::middleware::ResolvedInstance,
+    >,
+    multipart: Multipart,
+) -> AppResult<Json<crate::api::mastodon::types::Profile>> {
+    auth.require_scope("write:accounts")?;
+    let account = do_update_credentials(&state, &auth, multipart).await?;
+    distribute_account_update(&state, &instance.domain, &account).await;
+    crate::link_verification::spawn(&state, auth.account_id);
+
+    let domain = &instance.domain;
+    let featured_tag_rows = sqlx::query!(
+        r#"SELECT ft.id, t.name, ft.statuses_count, ft.last_status_at
+           FROM featured_tags ft
+           JOIN tags t ON t.id = ft.tag_id
+           WHERE ft.account_id = $1
+           ORDER BY ft.id"#,
+        account.id,
+    )
+    .fetch_all(&state.db)
+    .await?;
+
+    let featured_tags = featured_tag_rows
+        .into_iter()
+        .map(|r| crate::api::mastodon::types::FeaturedTag {
+            id: r.id.to_string(),
+            name: r.name.clone(),
+            url: format!("https://{}/@{}/tagged/{}", domain, account.username, r.name),
+            statuses_count: r.statuses_count.to_string(),
+            last_status_at: r.last_status_at.map(|t| t.format("%Y-%m-%d").to_string()),
+        })
+        .collect();
+
+    let a = &account;
+    let fields =
+        crate::api::mastodon::convert::fields_from_db(a.fields.as_ref().unwrap_or(&serde_json::json!([])));
+    let formatted_fields = fields
+        .iter()
+        .map(|f| crate::api::mastodon::types::Field {
+            name: f.name.clone(),
+            value: crate::api::mastodon::formatting::format_field_value(&f.value),
+            verified_at: f.verified_at.clone(),
+        })
+        .collect();
+    Ok(Json(crate::api::mastodon::types::Profile {
+        id: a.id.to_string(),
+        username: a.username.clone(),
+        display_name: a.display_name.clone(),
+        note: a.note.clone(),
+        fields,
+        formatted_note: crate::api::mastodon::formatting::render_content(
+            &a.note,
+            domain,
+            &std::collections::HashMap::new(),
+        ),
+        formatted_fields,
+        avatar: Some(crate::api::mastodon::convert::account_avatar_url_for(a)),
+        avatar_static: Some(crate::api::mastodon::convert::account_avatar_url_for(a)),
+        header: Some(crate::api::mastodon::convert::account_header_url_for(a)),
+        header_static: Some(crate::api::mastodon::convert::account_header_url_for(a)),
+        locked: a.locked,
+        bot: a.actor_type.as_deref() == Some("Service"),
+        hide_collections: a.hide_collections,
+        discoverable: a.discoverable,
+        indexable: a.indexable,
+        attribution_domains: a.attribution_domains.clone().unwrap_or_default(),
+        featured_tags,
+    }))
+}
+
+async fn build_credential_account_response(
+    state: &AppState,
+    auth: &AuthenticatedUser,
+    account: Account,
+) -> AppResult<Json<ApiAccount>> {
+    let fields =
+        crate::api::mastodon::convert::fields_from_db(account.fields.as_ref().unwrap_or(&serde_json::json!([])));
+    let mut api_account = account_from_db(&account);
+    api_account.emojis = fetch_account_emojis(state, &account).await;
+    apply_account_stats(state, &mut api_account, account.id).await;
+    let follow_requests_count: i64 = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM (SELECT 1 FROM follow_requests WHERE target_account_id = $1 LIMIT 40) sub",
+        auth.account_id,
+    )
+    .fetch_one(&state.db)
+    .await?
+    .unwrap_or(0);
+
+    // Reflect the user's actual stored posting defaults (Mastodon's
+    // CredentialAccountSerializer#source reads the user's settings), not
+    // hardcoded values.
+    let defaults = user_defaults(state, auth.account_id).await;
+
+    api_account.source = Some(crate::api::mastodon::types::AccountSource {
+        privacy: defaults.privacy,
+        sensitive: defaults.sensitive,
+        language: defaults.language,
+        note: account.note.clone(),
+        fields: fields.clone(),
+        follow_requests_count,
+        discoverable: account.discoverable,
+        indexable: account.indexable,
+        hide_collections: account.hide_collections,
+        attribution_domains: account.attribution_domains.clone().unwrap_or_default(),
+        quote_policy: defaults.quote_policy,
+    });
+    api_account.roles = fetch_account_roles(state, auth.account_id).await;
+    api_account.role = fetch_account_role(state, auth.account_id).await;
+    Ok(Json(api_account))
+}
+
+// ── GET /api/v1/preferences ───────────────────────────────────────────────
+
+pub async fn get_preferences(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedUser>,
+) -> AppResult<Json<Preferences>> {
+    auth.require_scope("read:accounts")?;
+    let d = user_defaults(&state, auth.account_id).await;
+    let (privacy, sensitive, language, quote_policy) =
+        (d.privacy, d.sensitive, d.language, d.quote_policy);
+
+    Ok(Json(Preferences {
+        posting_default_visibility: privacy,
+        posting_default_sensitive: sensitive,
+        posting_default_language: language,
+        posting_default_quote_policy: quote_policy,
+        reading_expand_media: "default".into(),
+        reading_expand_spoilers: false,
+        reading_autoplay_gifs: false,
+    }))
+}
+
+// ── GET /api/v1/profile ───────────────────────────────────────────────────
+
+pub async fn get_profile(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedUser>,
+    Extension(crate::middleware::ResolvedInstance(instance)): Extension<
+        crate::middleware::ResolvedInstance,
+    >,
+) -> AppResult<Json<crate::api::mastodon::types::Profile>> {
+    auth.require_scope("read:accounts")?;
+    Ok(Json(
+        build_profile(&state, &instance.domain, auth.account_id).await?,
+    ))
+}
+
+/// PUT /api/v1/profile — accepts a JSON body and returns the current profile.
+/// (Profile field edits go through update_credentials / the multipart PATCH.)
+pub async fn put_profile(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedUser>,
+    Extension(crate::middleware::ResolvedInstance(instance)): Extension<
+        crate::middleware::ResolvedInstance,
+    >,
+    _body: Option<Json<serde_json::Value>>,
+) -> AppResult<Json<crate::api::mastodon::types::Profile>> {
+    auth.require_scope("write:accounts")?;
+    Ok(Json(
+        build_profile(&state, &instance.domain, auth.account_id).await?,
+    ))
+}
+
+async fn build_profile(
+    state: &AppState,
+    domain: &str,
+    account_id: i64,
+) -> AppResult<crate::api::mastodon::types::Profile> {
+    let account = sqlx::query_as!(Account, "SELECT * FROM accounts WHERE id = $1", account_id,)
+        .fetch_one(&state.db)
+        .await?;
+
+    let domain = &domain.to_string();
+    let featured_tag_rows = sqlx::query!(
+        r#"SELECT ft.id, t.name, ft.statuses_count, ft.last_status_at
+           FROM featured_tags ft
+           JOIN tags t ON t.id = ft.tag_id
+           WHERE ft.account_id = $1
+           ORDER BY ft.id"#,
+        account.id,
+    )
+    .fetch_all(&state.db)
+    .await?;
+
+    let featured_tags = featured_tag_rows
+        .into_iter()
+        .map(|r| crate::api::mastodon::types::FeaturedTag {
+            id: r.id.to_string(),
+            name: r.name.clone(),
+            url: format!("https://{}/@{}/tagged/{}", domain, account.username, r.name),
+            statuses_count: r.statuses_count.to_string(),
+            last_status_at: r.last_status_at.map(|t| t.format("%Y-%m-%d").to_string()),
+        })
+        .collect();
+
+    let a = &account;
+    let fields =
+        crate::api::mastodon::convert::fields_from_db(a.fields.as_ref().unwrap_or(&serde_json::json!([])));
+    let formatted_fields = fields
+        .iter()
+        .map(|f| crate::api::mastodon::types::Field {
+            name: f.name.clone(),
+            value: crate::api::mastodon::formatting::format_field_value(&f.value),
+            verified_at: f.verified_at.clone(),
+        })
+        .collect();
+    let profile = crate::api::mastodon::types::Profile {
+        id: a.id.to_string(),
+        username: a.username.clone(),
+        display_name: a.display_name.clone(),
+        note: a.note.clone(),
+        fields,
+        formatted_note: crate::api::mastodon::formatting::render_content(
+            &a.note,
+            domain,
+            &std::collections::HashMap::new(),
+        ),
+        formatted_fields,
+        avatar: Some(crate::api::mastodon::convert::account_avatar_url_for(a)),
+        avatar_static: Some(crate::api::mastodon::convert::account_avatar_url_for(a)),
+        header: Some(crate::api::mastodon::convert::account_header_url_for(a)),
+        header_static: Some(crate::api::mastodon::convert::account_header_url_for(a)),
+        locked: a.locked,
+        bot: a.actor_type.as_deref() == Some("Service"),
+        hide_collections: a.hide_collections,
+        discoverable: a.discoverable,
+        indexable: a.indexable,
+        attribution_domains: a.attribution_domains.clone().unwrap_or_default(),
+        featured_tags,
+    };
+    Ok(profile)
+}
+
+// ── DELETE /api/v1/profile/avatar ────────────────────────────────────────
+
+pub async fn delete_profile_avatar(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedUser>,
+    Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
+) -> AppResult<Json<crate::api::mastodon::types::Account>> {
+    auth.require_scope("write:accounts")?;
+    sqlx::query!(
+        "UPDATE accounts SET avatar_file_name = NULL, avatar_content_type = NULL, avatar_file_size = NULL, avatar_updated_at = NULL, updated_at = now() WHERE id = $1",
+        auth.account_id,
+    )
+    .execute(&state.db)
+    .await?;
+    let account = sqlx::query_as!(
+        crate::db::models::Account,
+        "SELECT * FROM accounts WHERE id = $1",
+        auth.account_id,
+    )
+    .fetch_one(&state.db)
+    .await?;
+    distribute_account_update(&state, &instance.domain, &account).await;
+    let mut api = account_from_db(&account);
+    api.emojis = fetch_account_emojis(&state, &account).await;
+    api.roles = fetch_account_roles(&state, account.id).await;
+    Ok(Json(api))
+}
+
+// ── DELETE /api/v1/profile/header ────────────────────────────────────────
+
+pub async fn delete_profile_header(
+    State(state): State<AppState>,
+    Extension(auth): Extension<AuthenticatedUser>,
+    Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
+) -> AppResult<Json<crate::api::mastodon::types::Account>> {
+    auth.require_scope("write:accounts")?;
+    sqlx::query!(
+        "UPDATE accounts SET header_file_name = NULL, header_content_type = NULL, header_file_size = NULL, header_updated_at = NULL, updated_at = now() WHERE id = $1",
+        auth.account_id,
+    )
+    .execute(&state.db)
+    .await?;
+    let account = sqlx::query_as!(
+        crate::db::models::Account,
+        "SELECT * FROM accounts WHERE id = $1",
+        auth.account_id,
+    )
+    .fetch_one(&state.db)
+    .await?;
+    distribute_account_update(&state, &instance.domain, &account).await;
+    let mut api = account_from_db(&account);
+    api.emojis = fetch_account_emojis(&state, &account).await;
+    api.roles = fetch_account_roles(&state, account.id).await;
+    Ok(Json(api))
+}
