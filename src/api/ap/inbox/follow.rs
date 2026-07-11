@@ -1,0 +1,711 @@
+//! Inbound relationship-lifecycle activities: `Follow`, `Undo` (of
+//! Follow/Like/Announce), and `Accept`/`Reject` of an outbound follow (and of
+//! our quote/feature requests).
+
+use serde_json::Value;
+
+use crate::{error::AppResult, state::AppState};
+
+use super::{
+    delete_arrived_first, delete_later, refresh_collection_item_count,
+    resolve_or_fetch_remote_account,
+};
+
+pub(super) async fn handle_follow(
+    state: &AppState,
+    instance: &crate::config::InstanceConfig,
+    activity: &Value,
+) -> AppResult<()> {
+    let actor_uri = activity.get("actor").and_then(|a| a.as_str()).unwrap_or("");
+    let object_uri = activity
+        .get("object")
+        .and_then(|o| o.as_str())
+        .unwrap_or("");
+    let activity_uri = activity.get("id").and_then(|i| i.as_str()).unwrap_or("");
+
+    // Skip a Follow whose Undo already arrived out of order: the Undo(Follow)
+    // recorded a tombstone for this activity id (Mastodon's delete_arrived_first?).
+    if delete_arrived_first(state, actor_uri, activity_uri).await {
+        return Ok(());
+    }
+
+    // The instance actor cannot be followed (Mastodon rejects these): reply with
+    // a Reject signed by the instance actor.
+    if object_uri == crate::federation::instance_actor::actor_url(&instance.domain) {
+        if let Ok(follower_id) = resolve_or_fetch_remote_account(state, actor_uri).await {
+            let inbox = sqlx::query_scalar!(
+                "SELECT inbox_url FROM accounts WHERE id = $1",
+                follower_id,
+            )
+            .fetch_optional(&state.db)
+            .await?
+            .filter(|s| !s.is_empty());
+            if let Some(inbox) = inbox {
+                let reject_id = format!(
+                    "https://{}/activities/{}",
+                    instance.domain,
+                    crate::snowflake::next_id()
+                );
+                let key_id = crate::federation::instance_actor::key_id(&instance.domain);
+                if let Ok(reject) = crate::federation::activity::reject_follow(
+                    &reject_id,
+                    object_uri,
+                    activity_uri,
+                    actor_uri,
+                    object_uri,
+                ) {
+                    if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+                        state,
+                        reject,
+                        vec![inbox],
+                        key_id,
+                    )
+                    .await
+                    {
+                        tracing::warn!(error = %e, "failed to enqueue instance-actor Reject(Follow)");
+                    }
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    // Resolve the local target account. Local accounts derive their actor URL
+    // from id_scheme + username/id and leave the `uri` column empty, so the
+    // Follow's `object` must be matched against the derived URL (as
+    // resolve_or_fetch_remote_account does) rather than the `uri` column, which
+    // would miss them and silently drop the follow.
+    let target_id: Option<i64> = if let Ok(parsed) = url::Url::parse(object_uri) {
+        let on_our_host = parsed
+            .host_str()
+            .is_some_and(|h| h.eq_ignore_ascii_case(&instance.domain));
+        let segments: Vec<&str> = parsed.path_segments().map(|s| s.collect()).unwrap_or_default();
+        if on_our_host {
+            match segments.as_slice() {
+                // https://{domain}/users/{username}
+                ["users", username] => sqlx::query_scalar!(
+                    "SELECT id FROM accounts WHERE username = $1 AND domain IS NULL",
+                    username,
+                )
+                .fetch_optional(&state.db)
+                .await?,
+                // https://{domain}/ap/users/{id}
+                ["ap", "users", id] => match id.parse::<i64>() {
+                    Ok(numeric) => sqlx::query_scalar!(
+                        "SELECT id FROM accounts WHERE id = $1 AND domain IS NULL",
+                        numeric,
+                    )
+                    .fetch_optional(&state.db)
+                    .await?,
+                    Err(_) => None,
+                },
+                _ => None,
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let Some(target_id) = target_id else { return Ok(()) };
+    let target = sqlx::query_as!(
+        crate::db::models::Account,
+        "SELECT * FROM accounts WHERE id = $1",
+        target_id,
+    )
+    .fetch_one(&state.db)
+    .await?;
+
+    let follower_id = resolve_or_fetch_remote_account(state, actor_uri).await?;
+
+    // Fetch the follower's account for push notification details and to decide
+    // whether a silenced follower must go through a request.
+    let follower = sqlx::query!(
+        "SELECT display_name, username, domain, avatar_remote_url, silenced_at FROM accounts WHERE id = $1",
+        follower_id,
+    )
+    .fetch_optional(&state.db)
+    .await?;
+    let follower_silenced = follower.as_ref().is_some_and(|f| f.silenced_at.is_some());
+
+    // Details for any Accept/Reject we sign as the (local) target and deliver
+    // back to the follower. `object_uri` is the target's own actor URL.
+    let key_id = format!("{object_uri}#main-key");
+    let can_sign = target.private_key.as_deref().is_some_and(|s| !s.is_empty());
+    let follower_inbox = sqlx::query_scalar!(
+        "SELECT inbox_url FROM accounts WHERE id = $1",
+        follower_id,
+    )
+    .fetch_optional(&state.db)
+    .await?
+    .filter(|s| !s.is_empty());
+
+    // Reject the follow up front (Mastodon ActivityPub::Activity::Follow) when
+    // the target blocks the follower — directly or by domain — or has moved.
+    let follower_domain = follower.as_ref().and_then(|f| f.domain.clone());
+    let should_reject = target.moved_to_account_id.is_some()
+        || sqlx::query_scalar!(
+            r#"SELECT EXISTS(
+                 SELECT 1 FROM blocks WHERE account_id = $1 AND target_account_id = $2
+                 UNION ALL
+                 SELECT 1 FROM account_domain_blocks WHERE account_id = $1 AND domain = $3
+               ) AS "exists!""#,
+            target.id,
+            follower_id,
+            follower_domain,
+        )
+        .fetch_one(&state.db)
+        .await?;
+    if should_reject {
+        if can_sign {
+            if let Some(ref inbox) = follower_inbox {
+                let reject_id = format!(
+                    "https://{}/activities/{}",
+                    instance.domain,
+                    crate::snowflake::next_id()
+                );
+                if let Ok(reject) = crate::federation::activity::reject_follow(
+                    &reject_id,
+                    object_uri,
+                    activity_uri,
+                    actor_uri,
+                    object_uri,
+                ) {
+                    if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+                        state,
+                        reject,
+                        vec![inbox.clone()],
+                        key_id.clone(),
+                    )
+                    .await
+                    {
+                        tracing::warn!(error = %e, "failed to enqueue Reject(Follow)");
+                    }
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    // Fast-forward a repeat Follow: if the follower already follows the target,
+    // refresh the stored uri and re-send Accept rather than opening a new
+    // request (matches Mastodon's existing-follow fast path).
+    let already_follows = sqlx::query_scalar!(
+        r#"SELECT EXISTS(
+             SELECT 1 FROM follows WHERE account_id = $1 AND target_account_id = $2
+           ) AS "exists!""#,
+        follower_id,
+        target.id,
+    )
+    .fetch_one(&state.db)
+    .await?;
+    if already_follows {
+        sqlx::query!(
+            "UPDATE follows SET uri = $3, updated_at = now() WHERE account_id = $1 AND target_account_id = $2",
+            follower_id,
+            target.id,
+            activity_uri,
+        )
+        .execute(&state.db)
+        .await?;
+        if can_sign {
+            if let Some(ref inbox) = follower_inbox {
+                let accept_id = format!(
+                    "https://{}/activities/{}",
+                    instance.domain,
+                    crate::snowflake::next_id()
+                );
+                if let Ok(accept) = crate::federation::activity::accept_follow(
+                    &accept_id,
+                    object_uri,
+                    activity_uri,
+                    actor_uri,
+                    object_uri,
+                ) {
+                    if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+                        state,
+                        accept,
+                        vec![inbox.clone()],
+                        key_id.clone(),
+                    )
+                    .await
+                    {
+                        tracing::warn!(error = %e, "failed to enqueue Accept(Follow)");
+                    }
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    // Decide what to do via feder-core's portable inbound logic; eunha executes
+    // the returned Actions against Postgres + delivery.
+    let (Ok(follow_id), Ok(actor_iri), Ok(object_iri)) = (
+        activity_uri.parse::<feder_vocab::Iri>(),
+        actor_uri.parse::<feder_vocab::Iri>(),
+        object_uri.parse::<feder_vocab::Iri>(),
+    ) else {
+        return Ok(());
+    };
+    let follow = feder_vocab::Follow::new(
+        follow_id,
+        feder_vocab::Reference::id(actor_iri),
+        feder_vocab::Reference::id(object_iri.clone()),
+    );
+    let accept_id = format!(
+        "https://{}/activities/{}",
+        instance.domain,
+        crate::snowflake::next_id()
+    );
+    let Ok(accept_iri) = accept_id.parse::<feder_vocab::Iri>() else {
+        return Ok(());
+    };
+
+    // A locked target, or a silenced follower, holds the follow as a request
+    // (Mastodon: target.locked? || account.silenced?).
+    let actions = feder_core::inbound::on_follow(
+        follow,
+        &object_iri,
+        target.locked || follower_silenced,
+        accept_iri,
+    );
+
+    for action in actions {
+        match action {
+            feder_core::inbound::Action::RecordFollowRequest => {
+                sqlx::query!(
+                    r#"INSERT INTO follow_requests (account_id, target_account_id, uri, created_at, updated_at)
+                       VALUES ($1, $2, $3, now(), now())
+                       ON CONFLICT (account_id, target_account_id) DO UPDATE SET uri = EXCLUDED.uri"#,
+                    follower_id,
+                    target.id,
+                    activity_uri,
+                )
+                .execute(&state.db)
+                .await?;
+
+                if let Some(ref f) = follower {
+                    let acct = match &f.domain {
+                        Some(d) => format!("{}@{}", f.username, d),
+                        None => f.username.clone(),
+                    };
+                    crate::push::create_and_push(
+                        state,
+                        target.id,
+                        follower_id,
+                        "follow_request",
+                        None,
+                        format!("{} wants to follow you", f.display_name),
+                        acct,
+                        f.avatar_remote_url.clone().unwrap_or_default(),
+                    )
+                    .await;
+                }
+            }
+            feder_core::inbound::Action::RecordFollow => {
+                sqlx::query!(
+                    r#"INSERT INTO follows (account_id, target_account_id, uri, created_at, updated_at)
+                       VALUES ($1, $2, $3, now(), now())
+                       ON CONFLICT (account_id, target_account_id) DO UPDATE SET uri = EXCLUDED.uri"#,
+                    follower_id,
+                    target.id,
+                    activity_uri,
+                )
+                .execute(&state.db)
+                .await?;
+
+                if let Some(ref f) = follower {
+                    let acct = match &f.domain {
+                        Some(d) => format!("{}@{}", f.username, d),
+                        None => f.username.clone(),
+                    };
+                    crate::push::create_and_push(
+                        state,
+                        target.id,
+                        follower_id,
+                        "follow",
+                        None,
+                        format!("{} followed you", f.display_name),
+                        acct,
+                        f.avatar_remote_url.clone().unwrap_or_default(),
+                    )
+                    .await;
+                }
+            }
+            feder_core::inbound::Action::SendAccept(accept) => {
+                if target.private_key.as_deref().is_none_or(|s| s.is_empty()) {
+                    tracing::warn!(username = %target.username, "local account has no private key; cannot send Accept");
+                    continue;
+                }
+                let follower_inbox = sqlx::query_scalar!(
+                    "SELECT inbox_url FROM accounts WHERE id = $1",
+                    follower_id,
+                )
+                .fetch_optional(&state.db)
+                .await?
+                .filter(|s| !s.is_empty());
+                let Some(inbox) = follower_inbox else {
+                    tracing::warn!(
+                        actor_uri,
+                        "cannot send Accept: remote actor has no inbox URL"
+                    );
+                    continue;
+                };
+                let activity = serde_json::to_value(&accept)
+                    .map_err(|e| crate::error::AppError::Internal(e.into()))?;
+                let actor_url = crate::federation::tag::account_uri(
+                    &instance.domain,
+                    target.id,
+                    target.id_scheme,
+                    &target.username,
+                );
+                let key_id = format!("{actor_url}#main-key");
+                tracing::debug!(inbox, actor_uri, "enqueueing Accept");
+                if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
+                    state,
+                    activity,
+                    vec![inbox],
+                    key_id,
+                )
+                .await
+                {
+                    tracing::warn!(error = %e, "failed to enqueue Accept");
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+pub(super) async fn handle_undo(
+    state: &AppState,
+    _instance: &crate::config::InstanceConfig,
+    activity: &Value,
+) -> AppResult<()> {
+    let actor_uri = activity.get("actor").and_then(|a| a.as_str()).unwrap_or("");
+    let object = activity.get("object");
+    let object_type = object.and_then(|o| o.get("type")).and_then(|t| t.as_str());
+
+    match object_type {
+        Some("Follow") => {
+            let follow_uri = object
+                .and_then(|o| o.get("id"))
+                .and_then(|i| i.as_str())
+                .unwrap_or("");
+            let undone_follow = sqlx::query!("DELETE FROM follows WHERE uri = $1", follow_uri)
+                .execute(&state.db)
+                .await?;
+            let undone_request = sqlx::query!(
+                "DELETE FROM follow_requests WHERE uri = $1 RETURNING account_id, target_account_id",
+                follow_uri
+            )
+            .fetch_optional(&state.db)
+            .await?;
+            if let Some(req) = &undone_request {
+                // Mirror Mastodon's FollowRequest dependent: :destroy — clear the
+                // recipient's follow_request notification for the withdrawn request.
+                sqlx::query!(
+                    "DELETE FROM notifications WHERE account_id = $1 AND from_account_id = $2 AND type = 'follow_request'",
+                    req.target_account_id,
+                    req.account_id,
+                )
+                .execute(&state.db)
+                .await?;
+            }
+            // The Follow may not have been processed yet (out-of-order delivery);
+            // remember this Undo so a late Follow with the same id is skipped
+            // rather than resurrecting the follow.
+            if undone_follow.rows_affected() == 0 && undone_request.is_none() {
+                delete_later(state, actor_uri, follow_uri).await;
+            }
+        }
+        Some("Like") => {
+            let like_uri = object
+                .and_then(|o| o.get("id"))
+                .and_then(|i| i.as_str())
+                .unwrap_or("");
+            // object.object is the liked status URI
+            let status_uri = object
+                .and_then(|o| o.get("object"))
+                .and_then(|v| {
+                    if v.is_string() {
+                        v.as_str()
+                    } else {
+                        v.get("id").and_then(|i| i.as_str())
+                    }
+                })
+                .unwrap_or("");
+            let status_id =
+                sqlx::query_scalar!("SELECT id FROM statuses WHERE uri = $1", status_uri)
+                    .fetch_optional(&state.db)
+                    .await?;
+            let account_id =
+                sqlx::query_scalar!("SELECT id FROM accounts WHERE uri = $1", actor_uri)
+                    .fetch_optional(&state.db)
+                    .await?;
+            let mut removed = false;
+            if let (Some(sid), Some(aid)) = (status_id, account_id) {
+                let deleted = sqlx::query!(
+                    "DELETE FROM favourites WHERE account_id = $1 AND status_id = $2",
+                    aid,
+                    sid
+                )
+                .execute(&state.db)
+                .await?;
+                removed = deleted.rows_affected() > 0;
+                sqlx::query!(
+                    r#"UPDATE status_stats SET favourites_count = (SELECT COUNT(*) FROM favourites WHERE status_id = $1), updated_at = now() WHERE status_id = $1"#,
+                    sid
+                ).execute(&state.db).await?;
+            }
+            if !removed {
+                delete_later(state, actor_uri, like_uri).await;
+            }
+        }
+        Some("Announce") => {
+            // Delete the remote boost status by its announce URI
+            let announce_uri = object
+                .and_then(|o| o.get("id"))
+                .and_then(|i| i.as_str())
+                .unwrap_or("");
+            if !announce_uri.is_empty() {
+                let deleted = sqlx::query!(
+                    "DELETE FROM statuses WHERE uri = $1 RETURNING reblog_of_id",
+                    announce_uri,
+                )
+                .fetch_optional(&state.db)
+                .await?;
+                match deleted {
+                    Some(row) => {
+                        if let Some(original_id) = row.reblog_of_id {
+                            sqlx::query!(
+                                r#"UPDATE status_stats SET reblogs_count = (SELECT COUNT(*) FROM statuses WHERE reblog_of_id = $1 AND deleted_at IS NULL), updated_at = now() WHERE status_id = $1"#,
+                                original_id,
+                            ).execute(&state.db).await?;
+                        }
+                    }
+                    None => delete_later(state, actor_uri, announce_uri).await,
+                }
+            }
+        }
+        Some("Block") => {
+            let block_uri = object
+                .and_then(|o| o.get("id"))
+                .and_then(|i| i.as_str())
+                .unwrap_or("");
+            let block_object_uri = object
+                .and_then(|o| o.get("object"))
+                .and_then(|v| {
+                    if v.is_string() {
+                        v.as_str()
+                    } else {
+                        v.get("id").and_then(|i| i.as_str())
+                    }
+                })
+                .unwrap_or("");
+            let blocker_id =
+                sqlx::query_scalar!("SELECT id FROM accounts WHERE uri = $1", actor_uri)
+                    .fetch_optional(&state.db)
+                    .await?;
+            let blockee_id = sqlx::query_scalar!(
+                "SELECT id FROM accounts WHERE uri = $1 AND domain IS NULL",
+                block_object_uri
+            )
+            .fetch_optional(&state.db)
+            .await?;
+            let mut removed = false;
+            if let (Some(bid), Some(eid)) = (blocker_id, blockee_id) {
+                let deleted = sqlx::query!(
+                    "DELETE FROM blocks WHERE account_id = $1 AND target_account_id = $2",
+                    bid,
+                    eid
+                )
+                .execute(&state.db)
+                .await?;
+                removed = deleted.rows_affected() > 0;
+            }
+            if !removed {
+                delete_later(state, actor_uri, block_uri).await;
+            }
+        }
+        _ => {}
+    }
+
+    Ok(())
+}
+
+pub(super) async fn handle_accept_reject(
+    state: &AppState,
+    _instance: &crate::config::InstanceConfig,
+    activity: &Value,
+) -> AppResult<()> {
+    let activity_type = activity.get("type").and_then(|t| t.as_str()).unwrap_or("");
+    let object = activity.get("object");
+    let follow_uri = object.and_then(|o| {
+        if o.is_string() {
+            o.as_str()
+        } else {
+            o.get("id").and_then(|i| i.as_str())
+        }
+    });
+
+    if let Some(uri) = follow_uri {
+        if activity_type == "Accept" {
+            // Promote follow_request → follows when remote accepts our Follow
+            let promoted = sqlx::query!(
+                "DELETE FROM follow_requests WHERE uri = $1 RETURNING account_id, target_account_id",
+                uri
+            )
+            .fetch_optional(&state.db)
+            .await?;
+            if let Some(row) = promoted {
+                sqlx::query!(
+                    r#"INSERT INTO follows (account_id, target_account_id, uri, created_at, updated_at)
+                       VALUES ($1, $2, $3, now(), now()) ON CONFLICT DO NOTHING"#,
+                    row.account_id,
+                    row.target_account_id,
+                    uri
+                )
+                .execute(&state.db)
+                .await?;
+
+                // Update follower/following counts
+                let _ = crate::counters::on_follow_created(
+                    &state.db,
+                    row.account_id,
+                    row.target_account_id,
+                )
+                .await;
+            }
+        } else {
+            sqlx::query!("DELETE FROM follow_requests WHERE uri = $1", uri)
+                .execute(&state.db)
+                .await?;
+        }
+
+        // Feature-request consent: the object may be one of our outstanding
+        // FeatureRequests (matched by collection_items.activity_uri).
+        let actor_uri = activity.get("actor").and_then(|a| a.as_str()).unwrap_or("");
+        let item = sqlx::query!(
+            r#"SELECT ci.id, ci.collection_id, a.uri AS "account_uri?"
+               FROM collection_items ci
+               JOIN accounts a ON a.id = ci.account_id
+               WHERE ci.activity_uri = $1 AND ci.state = 0"#,
+            uri,
+        )
+        .fetch_optional(&state.db)
+        .await?;
+        if let Some(item) = item {
+            // Only the featured account itself may answer the request.
+            if item.account_uri.as_deref() == Some(actor_uri) {
+                if activity_type == "Accept" {
+                    let approval_uri = activity
+                        .get("result")
+                        .and_then(|r| {
+                            if r.is_string() {
+                                r.as_str()
+                            } else {
+                                r.get("id").and_then(|i| i.as_str())
+                            }
+                        })
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.to_string());
+                    sqlx::query!(
+                        r#"UPDATE collection_items
+                           SET state = 1, approval_uri = $2,
+                               approval_last_verified_at = now(), updated_at = now()
+                           WHERE id = $1"#,
+                        item.id,
+                        approval_uri.as_deref(),
+                    )
+                    .execute(&state.db)
+                    .await?;
+                } else {
+                    sqlx::query!(
+                        "UPDATE collection_items SET state = 2, updated_at = now() WHERE id = $1",
+                        item.id,
+                    )
+                    .execute(&state.db)
+                    .await?;
+                }
+                refresh_collection_item_count(state, item.collection_id).await?;
+            }
+        }
+
+        // Quote-request consent: the object may be one of our outstanding
+        // QuoteRequests (matched by quotes.activity_uri).
+        let quote = sqlx::query!(
+            r#"SELECT q.id, q.status_id, a.uri AS quoted_account_uri
+               FROM quotes q JOIN accounts a ON a.id = q.quoted_account_id
+               WHERE q.activity_uri = $1 AND q.state = 0"#,
+            uri,
+        )
+        .fetch_optional(&state.db)
+        .await?;
+        if let Some(q) = quote {
+            // Only the quoted account itself may answer.
+            if q.quoted_account_uri == actor_uri {
+                if activity_type == "Accept" {
+                    let approval_uri = activity
+                        .get("result")
+                        .and_then(|r| {
+                            if r.is_string() {
+                                r.as_str()
+                            } else {
+                                r.get("id").and_then(|i| i.as_str())
+                            }
+                        })
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.to_string());
+                    sqlx::query!(
+                        "UPDATE quotes SET state = 1, approval_uri = $2, updated_at = now() WHERE id = $1",
+                        q.id,
+                        approval_uri.as_deref(),
+                    )
+                    .execute(&state.db)
+                    .await?;
+                    // Re-federate the now-approved quote so recipients receive
+                    // the `quoteAuthorization` stamp (Mastodon sends an Update
+                    // on acceptance). Best-effort; a failure here must not fail
+                    // ingesting the Accept.
+                    if let Ok(Some(quoting)) = sqlx::query_as!(
+                        crate::db::models::Status,
+                        "SELECT * FROM statuses WHERE id = $1 AND deleted_at IS NULL",
+                        q.status_id,
+                    )
+                    .fetch_optional(&state.db)
+                    .await
+                    {
+                        if let Ok(Some(author)) = sqlx::query_as!(
+                            crate::db::models::Account,
+                            "SELECT * FROM accounts WHERE id = $1",
+                            quoting.account_id,
+                        )
+                        .fetch_optional(&state.db)
+                        .await
+                        {
+                            if let Err(e) =
+                                crate::api::mastodon::statuses::federate_status_update(
+                                    state, quoting.id, &author, &quoting,
+                                )
+                                .await
+                            {
+                                tracing::warn!(error = %e, "failed to federate quote acceptance Update");
+                            }
+                        }
+                    }
+                } else {
+                    sqlx::query!(
+                        "UPDATE quotes SET state = 2, updated_at = now() WHERE id = $1",
+                        q.id,
+                    )
+                    .execute(&state.db)
+                    .await?;
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
