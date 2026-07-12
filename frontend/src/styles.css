@@ -125,6 +125,18 @@
     @apply mx-auto min-h-screen max-w-2xl border-x px-3 py-3;
   }
 
+  /* At `md` and up the fixed `.sidebar-frame` (14rem) floats in the left
+     margin. Reserve room for it so the reading column never slides under the
+     rail: stay centered on wide screens, but never let the left margin drop
+     below the rail's footprint (1rem pin + 14rem width + 0.75rem gap). The
+     crossover mirrors `.sidebar-frame`'s `left`, keeping the gap constant. */
+  @media (min-width: 768px) {
+    .page-frame {
+      margin-left: max(50% - 21rem, 15.75rem);
+      margin-right: auto;
+    }
+  }
+
   .sidebar-frame {
     @apply text-sidebar-foreground fixed top-0 hidden h-screen w-56 flex-col px-3 py-4 md:flex;
     left: max(1rem, calc(50% - 35.75rem));
