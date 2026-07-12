@@ -54,6 +54,9 @@ pub async fn invite_tree(
 
     // The inviter is reached via users.invite_id -> invites.user_id -> users ->
     // accounts (Mastodon's `invite.user.account` path).
+    // Only genuine members: confirmed, admin-approved, and not suspended. This
+    // keeps pending/unapproved signups and deleted (suspended) accounts out of
+    // the tree.
     let rows = sqlx::query!(
         r#"SELECT a.id, a.username, a.display_name,
                   a.avatar_file_name, a.avatar_remote_url, u.created_at,
@@ -64,6 +67,9 @@ pub async fn invite_tree(
            LEFT JOIN users inv_u ON inv_u.id = i.user_id
            LEFT JOIN accounts inv_a ON inv_a.id = inv_u.account_id
            WHERE a.domain IS NULL
+             AND u.approved
+             AND u.confirmed_at IS NOT NULL
+             AND a.suspended_at IS NULL
            ORDER BY u.created_at ASC"#,
     )
     .fetch_all(&state.db)
@@ -71,27 +77,36 @@ pub async fn invite_tree(
 
     let total = rows.len();
 
-    // Preserve creation order (rows are already sorted) while grouping children
-    // under their inviter; `None` groups the registration roots.
+    // First pass: materialize every member, remembering its raw inviter id.
     let mut accounts: HashMap<i64, TreeAccount> = HashMap::with_capacity(total);
-    let mut children: HashMap<Option<i64>, Vec<i64>> = HashMap::new();
+    let mut order: Vec<(i64, Option<i64>)> = Vec::with_capacity(total);
     for r in rows {
+        let id = r.id;
+        order.push((id, r.invited_by_id));
         accounts.insert(
-            r.id,
+            id,
             TreeAccount {
-                id: r.id.to_string(),
+                id: id.to_string(),
                 acct: r.username.clone(),
                 username: r.username,
                 display_name: r.display_name,
                 avatar: convert::account_avatar_url_parts(
-                    r.id,
+                    id,
                     r.avatar_file_name.as_deref(),
                     r.avatar_remote_url.as_deref(),
                 ),
                 invited_at: convert::mastodon_date(r.created_at),
             },
         );
-        children.entry(r.invited_by_id).or_default().push(r.id);
+    }
+
+    // Second pass: group children under their inviter, preserving creation
+    // order. An inviter that was filtered out (unapproved/suspended) isn't in
+    // the member set, so its invitees are promoted to roots rather than lost.
+    let mut children: HashMap<Option<i64>, Vec<i64>> = HashMap::new();
+    for (id, invited_by) in order {
+        let parent = invited_by.filter(|pid| accounts.contains_key(pid));
+        children.entry(parent).or_default().push(id);
     }
 
     let root_ids = children.get(&None).cloned().unwrap_or_default();

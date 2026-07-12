@@ -1,16 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, NavLink, useLocation } from 'react-router-dom'
-import {
-  Bell,
-  Home,
-  Info,
-  LogIn,
-  LogOut,
-  Network,
-  Pencil,
-  Search,
-  User,
-} from 'lucide-react'
+import { Bell, Home, Info, LogIn, LogOut, Pencil, Search, User } from 'lucide-react'
 
 import { getInstance } from '../api.ts'
 import { beginLogin, getToken, logout } from '../auth.ts'
@@ -50,7 +40,6 @@ function useNavItems(token: string | null, account: MeAccount | null): NavItem[]
   if (account) {
     items.push({ to: `/@${account.acct}`, icon: User, label: 'Profile' })
   }
-  items.push({ to: '/invite-tree', icon: Network, label: 'Invite tree' })
   items.push({ to: '/about', icon: Info, label: 'About' })
   return items
 }

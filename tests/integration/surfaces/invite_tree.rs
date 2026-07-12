@@ -70,3 +70,38 @@ async fn test_invite_tree_nests_invitees() {
         "bob should be nested under alice",
     );
 }
+
+/// Unapproved (and unconfirmed / suspended) accounts are excluded from the tree.
+#[tokio::test]
+async fn test_invite_tree_excludes_unapproved() {
+    let ctx = TestContext::new("invite-tree-unapproved").await;
+    let bob_account_id: i64 = ctx.bob_id.parse().unwrap();
+
+    // Mark bob as pending approval.
+    sqlx::query("UPDATE users SET approved = false WHERE account_id = $1")
+        .bind(bob_account_id)
+        .execute(&ctx.db)
+        .await
+        .unwrap();
+
+    let resp = ctx
+        .api
+        .get("/api/eunha/v1/invite_tree", Some(&ctx.alice_token))
+        .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value = resp.json().await.unwrap();
+
+    fn contains(nodes: &[Value], id: &str) -> bool {
+        nodes.iter().any(|n| {
+            n["id"].as_str() == Some(id)
+                || n["children"]
+                    .as_array()
+                    .is_some_and(|c| contains(c, id))
+        })
+    }
+    let roots = body["roots"].as_array().unwrap();
+    assert!(
+        !contains(roots, &ctx.bob_id),
+        "unapproved bob should not appear anywhere in the tree",
+    );
+}

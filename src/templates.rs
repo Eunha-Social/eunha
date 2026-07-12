@@ -33,11 +33,6 @@ static ENV: Lazy<Environment<'static>> = Lazy::new(|| {
         include_str!("templates/account_password.html").to_string(),
     )
     .expect("account_password.html template is invalid");
-    env.add_template_owned(
-        "account_invites.html",
-        include_str!("templates/account_invites.html").to_string(),
-    )
-    .expect("account_invites.html template is invalid");
     env
 });
 

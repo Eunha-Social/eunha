@@ -1,12 +1,11 @@
 use axum::{
     extract::{Query, State},
-    http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode},
+    http::{header, HeaderMap, HeaderName, HeaderValue},
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
     Form, Router,
 };
-use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use serde::Deserialize;
 
 use crate::{
     crypto::{generate_token, hash_password, verify_password},
@@ -26,7 +25,6 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/account/logout", post(logout_post))
         .route("/account/sso", post(sso_post))
         .route("/account/password", get(password_page).post(password_post))
-        .route("/account/invites", get(invites_page))
         .with_state(state)
 }
 
@@ -114,7 +112,6 @@ pub async fn account_home(
             domain,
             username => session.username,
             t_account => locale.t("account"),
-            t_invite_tree => locale.t("invite_tree"),
             t_change_password => locale.t("change_password"),
             t_sign_out => locale.t("sign_out"),
             t_go_to_timeline => locale.t("go_to_timeline"),
@@ -463,98 +460,6 @@ pub async fn password_post(
     }
 }
 
-// ── GET /account/invites ───────────────────────────────────────────────────────
-
-#[derive(Debug, Serialize)]
-struct MemberView {
-    username: String,
-    invited_by: Option<String>,
-    depth: usize,
-}
-
-pub async fn invites_page(
-    State(state): State<AppState>,
-    axum::extract::Extension(ResolvedInstance(instance)): axum::extract::Extension<
-        ResolvedInstance,
-    >,
-    headers: HeaderMap,
-) -> Response {
-    let locale = Locale::detect(None, accept_language(&headers));
-
-    let Some(_session) = get_session(&headers, &state).await else {
-        return Redirect::to("/account/login").into_response();
-    };
-
-    let domain = instance.domain.clone();
-
-    let rows = match sqlx::query!(
-        r#"SELECT a.username, inv_a.username AS "invited_by?: String"
-           FROM users u
-           JOIN accounts a ON a.id = u.account_id
-           LEFT JOIN invites i ON i.id = u.invite_id
-           LEFT JOIN users inv_u ON inv_u.id = i.user_id
-           LEFT JOIN accounts inv_a ON inv_a.id = inv_u.account_id
-           WHERE a.domain IS NULL
-           ORDER BY u.created_at ASC"#,
-    )
-    .fetch_all(&state.db)
-    .await
-    {
-        Ok(r) => r,
-        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-    };
-
-    // Build children map: parent (None = root) → sorted list of children.
-    let mut children: HashMap<Option<String>, Vec<String>> = HashMap::new();
-    let mut invited_by_map: HashMap<String, Option<String>> = HashMap::new();
-    for row in &rows {
-        children
-            .entry(row.invited_by.clone())
-            .or_default()
-            .push(row.username.clone());
-        invited_by_map.insert(row.username.clone(), row.invited_by.clone());
-    }
-    for kids in children.values_mut() {
-        kids.sort();
-    }
-
-    // Pre-order DFS to produce a depth-annotated list.
-    let mut members: Vec<MemberView> = Vec::with_capacity(rows.len());
-    let mut stack: Vec<(String, usize)> = children
-        .get(&None)
-        .cloned()
-        .unwrap_or_default()
-        .into_iter()
-        .rev()
-        .map(|u| (u, 0))
-        .collect();
-
-    while let Some((username, depth)) = stack.pop() {
-        let invited_by = invited_by_map.get(&username).cloned().flatten();
-        members.push(MemberView {
-            username: username.clone(),
-            invited_by,
-            depth,
-        });
-        if let Some(kids) = children.get(&Some(username)) {
-            for kid in kids.iter().rev() {
-                stack.push((kid.clone(), depth + 1));
-            }
-        }
-    }
-
-    let html = templates::render(
-        "account_invites.html",
-        minijinja::context! {
-            lang => locale.as_str(),
-            domain,
-            members,
-            t_account => locale.t("account"),
-            t_invite_tree => locale.t("invite_tree"),
-            t_sign_out => locale.t("sign_out"),
-            t_back_to_account => locale.t("back_to_account"),
-            t_no_members => locale.t("no_members"),
-        },
-    );
-    Html(html).into_response()
-}
+// The instance invite tree now lives in the SPA (`/invite-tree`, backed by
+// `GET /api/eunha/v1/invite_tree`); the old server-rendered `/account/invites`
+// page was removed to avoid maintaining a second implementation.
