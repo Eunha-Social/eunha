@@ -4,22 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{{ t_account }} · {{ domain }}</title>
+<script>(function(){var t=localStorage.getItem('eunha-theme')||'system';var d=t==='dark'||(t!=='light'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.classList.add(d?'dark':'light')})();</script>
+<link rel="stylesheet" href="/auth.css">
 <script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:system-ui,sans-serif;background:#0f0f0f;color:#e8e8e8;min-height:100vh;display:flex;align-items:center;justify-content:center}
-.card{background:#1a1a1a;border:1px solid #2a2a2a;padding:2rem;width:100%;max-width:360px;border-radius:8px}
-h1{font-size:1.1rem;font-weight:600;margin-bottom:.25rem}
-.sub{font-size:.8rem;color:#888;margin-bottom:1.5rem}
-label{display:block;font-size:.8rem;color:#aaa;margin-bottom:.25rem;margin-top:1rem}
-input[type=email],input[type=password]{width:100%;padding:.6rem .75rem;background:#111;border:1px solid #333;border-radius:4px;color:#e8e8e8;font-size:.9rem}
-input:focus{outline:none;border-color:#555}
-button{margin-top:1.5rem;width:100%;padding:.7rem;background:#e8e8e8;color:#111;border:none;border-radius:4px;font-size:.9rem;font-weight:600;cursor:pointer}
-button:hover{background:#fff}
-.error{background:#3a1a1a;border:1px solid #6a2a2a;color:#f88;padding:.6rem .75rem;border-radius:4px;font-size:.8rem;margin-bottom:1rem}
-</style>
 </head>
-<body>
+<body class="centered">
 <div class="card">
   <h1>{{ t_account }}</h1>
   <p class="sub">{{ domain }}</p>

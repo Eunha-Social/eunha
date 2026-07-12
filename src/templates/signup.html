@@ -4,31 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{{ t_create_account }} — {{ instance_domain }}</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:system-ui,sans-serif;background:#0f0f0f;color:#e8e8e8;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:1.5rem}
-.card{background:#1a1a1a;border:1px solid #2a2a2a;padding:2rem;width:100%;max-width:360px;border-radius:8px}
-h1{font-size:1.1rem;font-weight:600;margin-bottom:.25rem}
-.sub{font-size:.8rem;color:#888;margin-bottom:1.5rem}
-label{display:block;font-size:.8rem;color:#aaa;margin-bottom:.25rem;margin-top:1rem}
-input[type=text],input[type=email],input[type=password],textarea{width:100%;padding:.6rem .75rem;background:#111;border:1px solid #333;border-radius:4px;color:#e8e8e8;font-size:.9rem}
-textarea{resize:vertical;min-height:80px}
-.pending-msg,.check-email-msg{background:#1a2a1a;border:1px solid #2a5a2a;color:#8f8;padding:.75rem;border-radius:4px;font-size:.85rem;line-height:1.5}
-input:focus{outline:none;border-color:#555}
-button{margin-top:1.5rem;width:100%;padding:.7rem;background:#e8e8e8;color:#111;border:none;border-radius:4px;font-size:.9rem;font-weight:600;cursor:pointer}
-button:hover{background:#fff}
-button:disabled{opacity:.5;cursor:not-allowed}
-.error{background:#3a1a1a;border:1px solid #6a2a2a;color:#f88;padding:.6rem .75rem;border-radius:4px;font-size:.8rem;margin-bottom:1rem}
-.footer{margin-top:1.25rem;font-size:.8rem;color:#666;text-align:center}
-.footer a{color:#aaa}
-.closed-msg{font-size:.85rem;color:#888;margin-bottom:1.25rem;line-height:1.5}
-.lang{text-align:right;font-size:.75rem;margin-bottom:1rem}
-.lang a{color:#555;text-decoration:none}
-.lang a:hover{color:#aaa}
-.lang-active{color:#aaa!important}
-</style>
+<script>(function(){var t=localStorage.getItem('eunha-theme')||'system';var d=t==='dark'||(t!=='light'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.classList.add(d?'dark':'light')})();</script>
+<link rel="stylesheet" href="/auth.css">
 </head>
-<body>
+<body class="centered">
 <div class="card">
   <div class="lang">
     {% if lang == "ko" %}<span class="lang-active">EN</span>{% else %}<a href="{{ toggle_en_url }}">EN</a>{% endif %}

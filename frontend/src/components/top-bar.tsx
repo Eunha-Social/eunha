@@ -1,6 +1,16 @@
 import { useEffect, useState } from 'react'
-import { Link, NavLink, useLocation } from 'react-router-dom'
-import { Bell, Home, Info, LogIn, LogOut, Pencil, Search, User } from 'lucide-react'
+import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
+import {
+  Bell,
+  Home,
+  Info,
+  LogIn,
+  LogOut,
+  Pencil,
+  Search,
+  User,
+  UserPlus,
+} from 'lucide-react'
 
 import { getInstance } from '../api.ts'
 import { beginLogin, getToken, logout } from '../auth.ts'
@@ -73,16 +83,27 @@ function AuthButton({
   )
 }
 
+function SignUpButton({ className }: { className?: string }) {
+  const navigate = useNavigate()
+  return (
+    <Button className={className} onClick={() => navigate('/signup')}>
+      <UserPlus /> Create account
+    </Button>
+  )
+}
+
 // The wide-screen rail: a fixed sidebar floating in the left margin of the
 // centered column. Shown at `xl` and up (see `.sidebar-frame`).
 function DesktopRail({
   token,
   title,
   account,
+  registrationsOpen,
 }: {
   token: string | null
   title: string
   account: MeAccount | null
+  registrationsOpen: boolean
 }) {
   const { openCompose } = useComposeModal()
   const navItems = useNavItems(token, account)
@@ -109,6 +130,7 @@ function DesktopRail({
           <Pencil /> Post
         </Button>
       )}
+      {!token && registrationsOpen && <SignUpButton className="mt-4 w-full" />}
       <div className="mt-auto flex items-center justify-between gap-2">
         <ModeToggle />
         <AuthButton token={token} />
@@ -123,10 +145,12 @@ function MobileDrawer({
   token,
   title,
   account,
+  registrationsOpen,
 }: {
   token: string | null
   title: string
   account: MeAccount | null
+  registrationsOpen: boolean
 }) {
   const { openCompose } = useComposeModal()
   const { setOpenMobile } = useSidebar()
@@ -179,6 +203,7 @@ function MobileDrawer({
             <Pencil /> Post
           </Button>
         )}
+        {!token && registrationsOpen && <SignUpButton className="w-full" />}
         <div className="flex items-center justify-between gap-2">
           <ModeToggle />
           <AuthButton token={token} />
@@ -188,8 +213,17 @@ function MobileDrawer({
   )
 }
 
-function MobileHeader({ token, title }: { token: string | null; title: string }) {
+function MobileHeader({
+  token,
+  title,
+  registrationsOpen,
+}: {
+  token: string | null
+  title: string
+  registrationsOpen: boolean
+}) {
   const { openCompose } = useComposeModal()
+  const navigate = useNavigate()
 
   return (
     <header className="mb-3 flex items-center gap-2 border-b pb-2 xl:hidden">
@@ -203,9 +237,20 @@ function MobileHeader({ token, title }: { token: string | null; title: string })
             <Pencil /> Post
           </Button>
         ) : (
-          <Button size="sm" onClick={() => beginLogin()}>
-            <LogIn /> Sign in
-          </Button>
+          <>
+            {registrationsOpen && (
+              <Button size="sm" onClick={() => navigate('/signup')}>
+                <UserPlus /> Create account
+              </Button>
+            )}
+            <Button
+              variant={registrationsOpen ? 'ghost' : 'default'}
+              size="sm"
+              onClick={() => beginLogin()}
+            >
+              <LogIn /> Sign in
+            </Button>
+          </>
         )}
       </div>
     </header>
@@ -216,21 +261,37 @@ function TopBarInner({
   token,
   title,
   account,
+  registrationsOpen,
 }: {
   token: string | null
   title: string
   account: MeAccount | null
+  registrationsOpen: boolean
 }) {
   const { isMobile } = useSidebar()
 
   return (
     <>
-      <DesktopRail token={token} title={title} account={account} />
-      <MobileHeader token={token} title={title} />
+      <DesktopRail
+        token={token}
+        title={title}
+        account={account}
+        registrationsOpen={registrationsOpen}
+      />
+      <MobileHeader
+        token={token}
+        title={title}
+        registrationsOpen={registrationsOpen}
+      />
       {/* Below `xl` the Sidebar renders as a Sheet drawer; above it the
           DesktopRail handles navigation, so skip the component's own rail. */}
       {isMobile && (
-        <MobileDrawer token={token} title={title} account={account} />
+        <MobileDrawer
+          token={token}
+          title={title}
+          account={account}
+          registrationsOpen={registrationsOpen}
+        />
       )}
     </>
   )
@@ -242,6 +303,7 @@ export function TopBar({ title }: { title?: string }) {
     document.title === 'eunha' ? null : document.title,
   )
   const [account, setAccount] = useState<MeAccount | null>(() => getMeAccount())
+  const [registrationsOpen, setRegistrationsOpen] = useState(false)
   const displayTitle = title ?? instanceTitle ?? ''
 
   useEffect(() => {
@@ -250,6 +312,21 @@ export function TopBar({ title }: { title?: string }) {
       .then((instance) => setInstanceTitle(instance.title))
       .catch(() => {})
   }, [title])
+
+  // Only logged-out users see the sign-up affordance, so only they need the
+  // instance's registration status.
+  useEffect(() => {
+    if (token) return
+    let cancelled = false
+    getInstance()
+      .then((instance) => {
+        if (!cancelled) setRegistrationsOpen(instance.registrations.enabled)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [token])
 
   useEffect(() => {
     if (!token) {
@@ -278,7 +355,12 @@ export function TopBar({ title }: { title?: string }) {
 
   return (
     <SidebarProvider className="block min-h-0 w-full">
-      <TopBarInner token={token} title={displayTitle} account={account} />
+      <TopBarInner
+        token={token}
+        title={displayTitle}
+        account={account}
+        registrationsOpen={registrationsOpen}
+      />
     </SidebarProvider>
   )
 }

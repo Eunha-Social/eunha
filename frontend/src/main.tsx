@@ -14,6 +14,7 @@ import AccountList from './pages/AccountList.tsx'
 import About from './pages/About.tsx'
 import InviteTree from './pages/InviteTree.tsx'
 import Invites from './pages/Invites.tsx'
+import Signup from './pages/Signup.tsx'
 import { ThemeProvider } from './components/theme-provider.tsx'
 import { ComposeModalProvider } from './components/compose-modal.tsx'
 import { Toaster } from './components/ui/sonner.tsx'
@@ -41,6 +42,7 @@ const router = createBrowserRouter([
   { path: '/about', element: <About /> },
   { path: '/invite-tree', element: <InviteTree /> },
   { path: '/invites', element: <Invites /> },
+  { path: '/signup', element: <Signup /> },
   { path: '/tags/:name', element: <TagTimeline /> },
   { path: '/:acct', element: <Profile /> },
   // Static second segments outrank the dynamic `:id` thread route, so these

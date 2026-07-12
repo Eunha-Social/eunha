@@ -1,0 +1,316 @@
+/* Shared styling for eunha's server-rendered auth/account pages (signup,
+ * authorize, account portal). Mirrors the SPA's design tokens so these pages
+ * match the app. The tiny inline script in each template adds `light`/`dark` to
+ * <html> from the same `eunha-theme` localStorage key the SPA uses. */
+
+:root {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --radius: 0.625rem;
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  background: var(--background);
+  color: var(--foreground);
+  min-height: 100svh;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Centered card layout (signup, authorize, account login) ──────────── */
+
+body.centered {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 2rem;
+  width: 100%;
+  max-width: 380px;
+}
+
+h1 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.sub {
+  font-size: 0.85rem;
+  color: var(--muted-foreground);
+  margin: 0.25rem 0 1.5rem;
+}
+
+label {
+  display: block;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--foreground);
+  margin: 1rem 0 0.35rem;
+}
+
+input[type='text'],
+input[type='email'],
+input[type='password'],
+textarea {
+  width: 100%;
+  padding: 0.55rem 0.75rem;
+  background: var(--background);
+  border: 1px solid var(--input);
+  border-radius: calc(var(--radius) - 2px);
+  color: var(--foreground);
+  font: inherit;
+  font-size: 0.9rem;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+input:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--ring);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--ring) 30%, transparent);
+}
+
+button,
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1.5rem;
+  width: 100%;
+  padding: 0.6rem 0.9rem;
+  background: var(--primary);
+  color: var(--primary-foreground);
+  border: none;
+  border-radius: calc(var(--radius) - 2px);
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: none;
+  transition: opacity 0.15s;
+}
+
+button:hover,
+.btn:hover {
+  opacity: 0.9;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Message boxes */
+.error {
+  background: color-mix(in oklch, var(--destructive) 12%, var(--card));
+  border: 1px solid color-mix(in oklch, var(--destructive) 35%, transparent);
+  color: var(--destructive);
+  padding: 0.6rem 0.75rem;
+  border-radius: calc(var(--radius) - 2px);
+  font-size: 0.82rem;
+  margin-bottom: 1rem;
+}
+
+.success,
+.pending-msg,
+.check-email-msg,
+.notice {
+  background: var(--muted);
+  border: 1px solid var(--border);
+  color: var(--foreground);
+  padding: 0.75rem;
+  border-radius: calc(var(--radius) - 2px);
+  font-size: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.closed-msg {
+  font-size: 0.85rem;
+  color: var(--muted-foreground);
+  margin: 0.5rem 0 1.25rem;
+}
+
+.footer {
+  margin-top: 1.25rem;
+  font-size: 0.82rem;
+  color: var(--muted-foreground);
+  text-align: center;
+}
+
+.footer a,
+a {
+  color: var(--foreground);
+}
+
+/* Language toggle */
+.lang {
+  text-align: right;
+  font-size: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.lang a {
+  color: var(--muted-foreground);
+  text-decoration: none;
+}
+
+.lang a:hover {
+  color: var(--foreground);
+}
+
+.lang-active {
+  color: var(--foreground) !important;
+}
+
+/* Secondary "sign up" affordance on the authorize page */
+.signup {
+  margin-top: 1.25rem;
+  text-align: center;
+  font-size: 0.82rem;
+  color: var(--muted-foreground);
+}
+
+.signup a {
+  display: block;
+  margin-top: 0.5rem;
+  padding: 0.55rem;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  color: var(--foreground);
+  text-decoration: none;
+  transition: background 0.15s;
+}
+
+.signup a:hover {
+  background: var(--muted);
+}
+
+/* ── Account portal layout (account home, change password) ────────────── */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8rem;
+  color: var(--muted-foreground);
+}
+
+.topbar-domain {
+  font-weight: 500;
+  color: var(--foreground);
+}
+
+.topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.back-link {
+  color: var(--muted-foreground);
+  text-decoration: none;
+  font-size: 0.8rem;
+}
+
+.back-link:hover {
+  color: var(--foreground);
+}
+
+.signout-btn {
+  width: auto;
+  margin: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted-foreground);
+  padding: 0.3rem 0.7rem;
+  border-radius: calc(var(--radius) - 2px);
+  cursor: pointer;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.signout-btn:hover {
+  border-color: var(--ring);
+  color: var(--foreground);
+  opacity: 1;
+}
+
+.content {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem;
+}
+
+.content h1 {
+  margin-bottom: 1.5rem;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.nav-link {
+  display: block;
+  padding: 1rem 1.25rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) - 2px);
+  color: var(--foreground);
+  text-decoration: none;
+  font-size: 0.95rem;
+  font-weight: 500;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.nav-link:hover {
+  background: var(--muted);
+  border-color: var(--ring);
+}

@@ -1,0 +1,218 @@
+import { useEffect, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
+
+import { getInstance } from '../api.ts'
+import { signUp } from '../eunha-api.ts'
+import { beginLogin } from '../auth.ts'
+import { TopBar } from '@/components/top-bar.tsx'
+import { Button } from '@/components/ui/button.tsx'
+import { Input } from '@/components/ui/input.tsx'
+import { Label } from '@/components/ui/label.tsx'
+import { Textarea } from '@/components/ui/textarea.tsx'
+
+export default function Signup() {
+  const [params] = useSearchParams()
+  const inviteFromUrl = params.get('invite')?.trim() ?? ''
+
+  const [registrationsOpen, setRegistrationsOpen] = useState<boolean | null>(null)
+  const [approvalRequired, setApprovalRequired] = useState(false)
+
+  const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [invite, setInvite] = useState(inviteFromUrl)
+  const [reason, setReason] = useState('')
+
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [done, setDone] = useState(false)
+
+  useEffect(() => {
+    getInstance()
+      .then((instance) => {
+        setRegistrationsOpen(instance.registrations.enabled)
+        setApprovalRequired(instance.registrations.approvalRequired)
+      })
+      .catch(() => setRegistrationsOpen(false))
+  }, [])
+
+  const hasInvite = invite.trim().length > 0
+  // Closed instances require an invite; approval-required instances ask for a
+  // reason unless the invite bypasses approval.
+  const inviteRequired = registrationsOpen === false && !hasInvite
+  const needsReason = approvalRequired && !hasInvite
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError(null)
+    if (password !== confirm) {
+      setError('Passwords do not match.')
+      return
+    }
+    setSubmitting(true)
+    try {
+      await signUp({
+        username: username.trim(),
+        email: email.trim(),
+        password,
+        locale: navigator.language.split('-')[0] || 'en',
+        invite_code: invite.trim() || undefined,
+        reason: reason.trim() || undefined,
+      })
+      setDone(true)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="page-frame">
+      <TopBar />
+      <div className="mx-auto max-w-sm">
+        <h1 className="mb-1 text-lg font-bold">Create account</h1>
+
+        {done ? (
+          <div className="space-y-3">
+            <div className="bg-muted rounded-lg border p-4 text-sm">
+              Almost there — we sent a confirmation link to{' '}
+              <span className="font-medium">{email}</span>. Click it to activate
+              your account.
+              {approvalRequired && !hasInvite && (
+                <>
+                  {' '}
+                  After confirming, an admin will review your application.
+                </>
+              )}
+            </div>
+            <p className="text-muted-foreground text-sm">
+              Already confirmed?{' '}
+              <button
+                className="text-primary font-medium"
+                onClick={() => beginLogin()}
+              >
+                Sign in
+              </button>
+            </p>
+          </div>
+        ) : registrationsOpen === null ? (
+          <p className="text-muted-foreground text-sm">Loading…</p>
+        ) : (
+          <form onSubmit={submit} className="space-y-3">
+            <p className="text-muted-foreground text-sm">
+              {inviteRequired
+                ? 'This instance is invite-only. Enter your invite code to continue.'
+                : approvalRequired && !hasInvite
+                  ? 'Registrations are open by approval — tell us a bit about yourself.'
+                  : 'Join this instance.'}
+            </p>
+
+            {error && <p className="text-destructive text-sm">{error}</p>}
+
+            {registrationsOpen === false && (
+              <div className="space-y-1">
+                <Label htmlFor="invite">Invite code</Label>
+                <Input
+                  id="invite"
+                  value={invite}
+                  required
+                  autoComplete="off"
+                  onChange={(e) => setInvite(e.target.value)}
+                />
+              </div>
+            )}
+
+            <div className="space-y-1">
+              <Label htmlFor="username">Username</Label>
+              <Input
+                id="username"
+                value={username}
+                required
+                autoComplete="username"
+                pattern="[a-zA-Z0-9_]+"
+                title="Letters, numbers, and underscores only"
+                onChange={(e) => setUsername(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                value={email}
+                required
+                autoComplete="email"
+                onChange={(e) => setEmail(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="password">Password</Label>
+              <Input
+                id="password"
+                type="password"
+                value={password}
+                required
+                minLength={8}
+                autoComplete="new-password"
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <Label htmlFor="confirm">Confirm password</Label>
+              <Input
+                id="confirm"
+                type="password"
+                value={confirm}
+                required
+                minLength={8}
+                autoComplete="new-password"
+                onChange={(e) => setConfirm(e.target.value)}
+              />
+            </div>
+
+            {needsReason && (
+              <div className="space-y-1">
+                <Label htmlFor="reason">Why do you want to join?</Label>
+                <Textarea
+                  id="reason"
+                  value={reason}
+                  required
+                  onChange={(e) => setReason(e.target.value)}
+                />
+              </div>
+            )}
+
+            <Button type="submit" className="w-full" disabled={submitting}>
+              {submitting
+                ? 'Creating…'
+                : needsReason
+                  ? 'Apply for an account'
+                  : 'Create account'}
+            </Button>
+
+            <p className="text-muted-foreground text-sm">
+              Already have an account?{' '}
+              <button
+                type="button"
+                className="text-primary font-medium"
+                onClick={() => beginLogin()}
+              >
+                Sign in
+              </button>
+            </p>
+            <p className="text-muted-foreground text-xs">
+              <Link to="/about" className="underline">
+                About this instance
+              </Link>
+            </p>
+          </form>
+        )}
+      </div>
+    </div>
+  )
+}

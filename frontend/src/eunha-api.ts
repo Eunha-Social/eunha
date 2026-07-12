@@ -88,3 +88,34 @@ export async function createInvite(
 export async function deleteInvite(token: string, id: string): Promise<void> {
   await eunhaFetch(`/api/v1/invites/${id}`, token, { method: 'DELETE' })
 }
+
+// ── Sign up ─────────────────────────────────────────────────────────────────
+// POST /api/v1/accounts is unauthenticated and always requires email
+// confirmation, so it returns a placeholder token; we just need success/failure.
+
+export interface SignUpParams {
+  username: string
+  email: string
+  password: string
+  locale?: string
+  invite_code?: string
+  reason?: string
+}
+
+export async function signUp(params: SignUpParams): Promise<void> {
+  const res = await fetch(`${window.location.origin}/api/v1/accounts`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  })
+  if (!res.ok) {
+    let message = `Sign up failed (${res.status})`
+    try {
+      const body = (await res.json()) as { error?: string }
+      if (body.error) message = body.error
+    } catch {
+      // keep the status-based fallback
+    }
+    throw new Error(message)
+  }
+}
