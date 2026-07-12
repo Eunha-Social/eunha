@@ -56,17 +56,27 @@ pub fn account_header_url_for(a: &models::Account) -> String {
 }
 
 fn account_avatar_url(a: &models::Account) -> String {
-    if let Some(url) = &a.avatar_remote_url {
+    account_avatar_url_parts(a.id, a.avatar_file_name.as_deref(), a.avatar_remote_url.as_deref())
+}
+
+/// Avatar URL from the minimal columns, for bulk queries that don't hydrate a
+/// full [`models::Account`] (e.g. the invite tree).
+pub fn account_avatar_url_parts(
+    id: i64,
+    avatar_file_name: Option<&str>,
+    avatar_remote_url: Option<&str>,
+) -> String {
+    if let Some(url) = avatar_remote_url {
         if !url.is_empty() {
-            return url.clone();
+            return url.to_string();
         }
     }
-    if let Some(filename) = &a.avatar_file_name {
+    if let Some(filename) = avatar_file_name {
         if !filename.is_empty() {
             return format!(
                 "{}/accounts/avatars/{}/original/{}",
                 media_base_url(),
-                crate::media::int_to_path(a.id),
+                crate::media::int_to_path(id),
                 filename
             );
         }

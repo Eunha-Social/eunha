@@ -30,6 +30,7 @@ pub fn build_app(state: state::AppState) -> Router {
         .merge(well_known::router())
         .merge(api::mastodon::router(state.clone()))
         .merge(api::account::router(state.clone()))
+        .merge(api::eunha::router(state.clone()))
         .merge(api::ap::router())
         .fallback(axum::routing::any(move |req: Request| async move {
             let uri = req.uri().clone();
