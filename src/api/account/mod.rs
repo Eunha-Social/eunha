@@ -58,6 +58,7 @@ async fn get_session(headers: &HeaderMap, state: &AppState) -> Option<AccountSes
            WHERE t.token = $1
              AND t.revoked_at IS NULL
              AND (t.expires_in IS NULL OR t.created_at + t.expires_in * interval '1 second' > now())
+             AND u.disabled = false
              AND a.domain IS NULL"#,
         token,
     )
@@ -193,6 +194,7 @@ pub async fn login_post(
            JOIN accounts a ON a.id = u.account_id
            WHERE lower(u.email) = lower($1)
              AND u.confirmed_at IS NOT NULL
+             AND u.disabled = false
              AND a.domain IS NULL"#,
         form.email.trim(),
     )
@@ -490,7 +492,8 @@ pub async fn invites_page(
            FROM users u
            JOIN accounts a ON a.id = u.account_id
            LEFT JOIN invites i ON i.id = u.invite_id
-           LEFT JOIN accounts inv_a ON inv_a.id = i.user_id
+           LEFT JOIN users inv_u ON inv_u.id = i.user_id
+           LEFT JOIN accounts inv_a ON inv_a.id = inv_u.account_id
            WHERE a.domain IS NULL
            ORDER BY u.created_at ASC"#,
     )

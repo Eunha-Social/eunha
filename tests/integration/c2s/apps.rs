@@ -386,6 +386,48 @@ async fn test_password_grant_wrong_password_returns_401() {
     );
 }
 
+/// A disabled user (e.g. after account deletion) cannot obtain a fresh token via
+/// the password grant, even with correct credentials.
+#[tokio::test]
+async fn test_password_grant_rejected_for_disabled_user() {
+    let ctx = TestContext::new("oauth-pw-disabled").await;
+    let (client_id, client_secret) = register_test_app(&ctx).await;
+
+    // Deleting the account disables the user (keep_user_record? branch).
+    let del = ctx
+        .api
+        .http
+        .delete(ctx.api.url("/api/v1/accounts"))
+        .header("host", &ctx.api.host)
+        .bearer_auth(&ctx.alice_token)
+        .json(&json!({"password": "testpassword123"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(del.status(), StatusCode::OK);
+
+    // Correct credentials must still be rejected because the user is disabled.
+    let resp = ctx
+        .api
+        .post_json(
+            "/oauth/token",
+            None,
+            &json!({
+                "grant_type": "password",
+                "client_id": client_id,
+                "client_secret": client_secret,
+                "username": "alice@test.invalid",
+                "password": "testpassword123",
+            }),
+        )
+        .await;
+    assert_eq!(
+        resp.status(),
+        StatusCode::UNAUTHORIZED,
+        "disabled user must not receive a token"
+    );
+}
+
 /// password grant with wrong client_secret returns 401.
 #[tokio::test]
 async fn test_password_grant_wrong_client_secret_returns_401() {

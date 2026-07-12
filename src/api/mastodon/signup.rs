@@ -52,8 +52,19 @@ pub async fn signup_get(
 // ── helpers ────────────────────────────────────────────────────────────────
 
 async fn validate_invite(state: &AppState, code: &str) -> Result<i64, &'static str> {
+    // Mirror Mastodon Invite#valid_for_use?:
+    //   (max_uses.nil? || uses < max_uses) && !expired? && user&.functional?
+    // where functional? requires the inviter's user to be confirmed, approved and
+    // not disabled, and their account to be available (not suspended), not a
+    // memorial, and not moved.
     let row = sqlx::query!(
-        "SELECT id, uses, max_uses, expires_at FROM invites WHERE code = $1",
+        r#"SELECT i.id, i.uses, i.max_uses, i.expires_at,
+                  u.confirmed_at, u.approved, u.disabled,
+                  a.suspended_at, a.memorial, a.moved_to_account_id
+           FROM invites i
+           JOIN users u ON u.id = i.user_id
+           JOIN accounts a ON a.id = u.account_id
+           WHERE i.code = $1"#,
         code,
     )
     .fetch_optional(&state.db)
@@ -73,7 +84,104 @@ async fn validate_invite(state: &AppState, code: &str) -> Result<i64, &'static s
     {
         return Err("err_invite_expired");
     }
+    let inviter_functional = inv.confirmed_at.is_some()
+        && inv.approved
+        && !inv.disabled
+        && inv.suspended_at.is_none()
+        && !inv.memorial
+        && inv.moved_to_account_id.is_none();
+    if !inviter_functional {
+        return Err("err_invalid_invite");
+    }
     Ok(inv.id)
+}
+
+/// Mastodon BootstrapTimelineService#autofollow_inviter!: a new account that
+/// signed up through an invite flagged `autofollow` follows the inviter's
+/// account. A locked inviter receives a follow request instead, matching
+/// FollowService's handling of locked targets.
+async fn autofollow_inviter(state: &AppState, follower_account_id: i64, invite_id: i64) {
+    let inviter = sqlx::query!(
+        r#"SELECT i.autofollow, a.id AS "target_id!", a.locked
+           FROM invites i
+           JOIN users u ON u.id = i.user_id
+           JOIN accounts a ON a.id = u.account_id
+           WHERE i.id = $1"#,
+        invite_id,
+    )
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+
+    let Some(inviter) = inviter else { return };
+    if !inviter.autofollow || inviter.target_id == follower_account_id {
+        return;
+    }
+    let target_id = inviter.target_id;
+
+    let Ok(follower) =
+        crate::api::mastodon::accounts::fetch_account(state, follower_account_id).await
+    else {
+        return;
+    };
+    let acct = follower.acct();
+    let avatar = crate::api::mastodon::convert::account_avatar_url_for(&follower);
+
+    if inviter.locked {
+        let inserted = sqlx::query!(
+            r#"INSERT INTO follow_requests (account_id, target_account_id, created_at, updated_at)
+               VALUES ($1, $2, now(), now())
+               ON CONFLICT (account_id, target_account_id) DO NOTHING"#,
+            follower_account_id,
+            target_id,
+        )
+        .execute(&state.db)
+        .await;
+        if !matches!(inserted, Ok(r) if r.rows_affected() > 0) {
+            return;
+        }
+        crate::push::create_and_push(
+            state,
+            target_id,
+            follower_account_id,
+            "follow_request",
+            None,
+            format!("{} wants to follow you", follower.display_name),
+            acct,
+            avatar,
+        )
+        .await;
+        return;
+    }
+
+    let inserted = sqlx::query!(
+        r#"INSERT INTO follows (account_id, target_account_id, created_at, updated_at)
+           VALUES ($1, $2, now(), now())
+           ON CONFLICT (account_id, target_account_id) DO NOTHING"#,
+        follower_account_id,
+        target_id,
+    )
+    .execute(&state.db)
+    .await;
+    if !matches!(inserted, Ok(r) if r.rows_affected() > 0) {
+        return;
+    }
+
+    let _ = crate::counters::on_follow_created(&state.db, follower_account_id, target_id).await;
+    crate::push::create_and_push(
+        state,
+        target_id,
+        follower_account_id,
+        "follow",
+        None,
+        format!("{} followed you", follower.display_name),
+        acct,
+        avatar,
+    )
+    .await;
+    let mut redis = state.redis.clone();
+    crate::feed::backfill_follow(&mut redis, &state.db, follower_account_id, target_id).await;
 }
 
 // ── POST /api/v1/accounts ──────────────────────────────────────────────────
@@ -338,6 +446,13 @@ pub async fn confirm_email(
         let _ = sqlx::query!("UPDATE invites SET uses = uses + 1 WHERE id = $1", id)
             .execute(&state.db)
             .await;
+        // Mastodon runs BootstrapTimelineService after registration; autofollow the
+        // inviter when the invite is flagged for it. Spawned so signup latency and
+        // success don't depend on the follow side effects.
+        let state2 = state.clone();
+        tokio::spawn(async move {
+            autofollow_inviter(&state2, account_id, id).await;
+        });
     }
 
     if let Some(app_id) = pending.app_id {

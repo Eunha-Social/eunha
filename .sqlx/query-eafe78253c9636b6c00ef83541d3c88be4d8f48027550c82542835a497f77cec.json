@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM invites\n         WHERE uses = 0 AND user_id = (SELECT id FROM users WHERE account_id = $1)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "eafe78253c9636b6c00ef83541d3c88be4d8f48027550c82542835a497f77cec"
+}

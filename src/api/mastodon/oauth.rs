@@ -199,6 +199,7 @@ pub async fn issue_token(
                      current_sign_in_at = now(),
                      sign_in_count      = sign_in_count + 1
                    WHERE id = $1
+                     AND disabled = false
                    RETURNING account_id"#,
                 code.resource_owner_id,
             )
@@ -225,7 +226,8 @@ pub async fn issue_token(
                    FROM users u
                    JOIN accounts a ON a.id = u.account_id
                    WHERE lower(u.email) = lower($1)
-                     AND u.confirmed_at IS NOT NULL"#,
+                     AND u.confirmed_at IS NOT NULL
+                     AND u.disabled = false"#,
                 username,
             )
             .fetch_optional(&state.db)
@@ -775,7 +777,8 @@ async fn do_authorize(state: &AppState, form: &AuthorizeForm) -> Result<String, 
            FROM users u
            JOIN accounts a ON a.id = u.account_id
            WHERE lower(u.email) = lower($1)
-             AND u.confirmed_at IS NOT NULL"#,
+             AND u.confirmed_at IS NOT NULL
+             AND u.disabled = false"#,
         form.email,
     )
     .fetch_optional(&state.db)

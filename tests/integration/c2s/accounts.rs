@@ -2999,7 +2999,7 @@ async fn test_delete_account_with_valid_password() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 
-    // After deletion, verify_credentials should fail (account is suspended / user row deleted).
+    // After deletion, verify_credentials should fail (tokens revoked, user disabled).
     let after = ctx
         .api
         .get(
@@ -3012,6 +3012,78 @@ async fn test_delete_account_with_valid_password() {
         "expected 401/403 after account deletion, got {}",
         after.status(),
     );
+}
+
+/// DELETE /api/v1/accounts disables the user (retaining the row) and destroys
+/// only unused invites, matching Mastodon's keep_user_record? branch. Used
+/// invites survive so the invite tree stays intact.
+#[tokio::test]
+async fn test_delete_account_disables_and_retains_used_invites() {
+    let ctx = TestContext::new("del-acct-retain").await;
+    let alice_account_id: i64 = ctx.alice_id.parse().unwrap();
+    let user_id: i64 = sqlx::query_scalar("SELECT id FROM users WHERE account_id = $1")
+        .bind(alice_account_id)
+        .fetch_one(&ctx.db)
+        .await
+        .unwrap();
+
+    let used: Value = ctx
+        .api
+        .post_json("/api/v1/invites", Some(&ctx.alice_token), &json!({}))
+        .await
+        .json()
+        .await
+        .unwrap();
+    let used_id: i64 = used["id"].as_str().unwrap().parse().unwrap();
+    let unused: Value = ctx
+        .api
+        .post_json("/api/v1/invites", Some(&ctx.alice_token), &json!({}))
+        .await
+        .json()
+        .await
+        .unwrap();
+    let unused_id: i64 = unused["id"].as_str().unwrap().parse().unwrap();
+
+    // Simulate the first invite having been consumed by a signup.
+    sqlx::query("UPDATE invites SET uses = 1 WHERE id = $1")
+        .bind(used_id)
+        .execute(&ctx.db)
+        .await
+        .unwrap();
+
+    let resp = ctx
+        .api
+        .http
+        .delete(ctx.api.url("/api/v1/accounts"))
+        .header("host", &ctx.api.host)
+        .bearer_auth(&ctx.alice_token)
+        .json(&json!({"password": "testpassword123"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // The user row is retained and disabled (not deleted).
+    let disabled: bool = sqlx::query_scalar("SELECT disabled FROM users WHERE id = $1")
+        .bind(user_id)
+        .fetch_one(&ctx.db)
+        .await
+        .expect("user row should still exist");
+    assert!(disabled, "user should be disabled after deletion");
+
+    // Used invite survives; unused invite is destroyed.
+    let used_exists: Option<i64> = sqlx::query_scalar("SELECT id FROM invites WHERE id = $1")
+        .bind(used_id)
+        .fetch_optional(&ctx.db)
+        .await
+        .unwrap();
+    assert!(used_exists.is_some(), "used invite should survive deletion");
+    let unused_exists: Option<i64> = sqlx::query_scalar("SELECT id FROM invites WHERE id = $1")
+        .bind(unused_id)
+        .fetch_optional(&ctx.db)
+        .await
+        .unwrap();
+    assert!(unused_exists.is_none(), "unused invite should be destroyed");
 }
 
 /// DELETE /api/v1/accounts with wrong password returns 401.

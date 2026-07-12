@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT i.autofollow, a.id AS \"target_id!\", a.locked\n           FROM invites i\n           JOIN users u ON u.id = i.user_id\n           JOIN accounts a ON a.id = u.account_id\n           WHERE i.id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "autofollow",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 1,
+        "name": "target_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "locked",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "34cb26d487ffd3c7bbd35e9fc57dedf5e34ac69ea9c801e3c2244f89deb9e4e0"
+}

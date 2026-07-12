@@ -20,6 +20,7 @@ pub struct InviteResponse {
     pub uses: i32,
     pub url: String,
     pub autofollow: bool,
+    pub comment: Option<String>,
     pub created_at: NaiveDateTime,
 }
 
@@ -30,7 +31,7 @@ pub async fn list_invites(
 ) -> AppResult<Json<Vec<InviteResponse>>> {
     auth.require_scope("read:accounts")?;
     let rows = sqlx::query!(
-        r#"SELECT id, code, expires_at, max_uses, uses, created_at
+        r#"SELECT id, code, expires_at, max_uses, uses, autofollow, comment, created_at
            FROM invites
            WHERE user_id = (SELECT id FROM users WHERE account_id = $1)
            ORDER BY created_at DESC"#,
@@ -48,7 +49,8 @@ pub async fn list_invites(
             expires_at: r.expires_at,
             max_uses: r.max_uses,
             uses: r.uses,
-            autofollow: false,
+            autofollow: r.autofollow,
+            comment: r.comment,
             created_at: r.created_at,
         })
         .collect();
@@ -56,11 +58,18 @@ pub async fn list_invites(
     Ok(Json(invites))
 }
 
-#[derive(Debug, Deserialize)]
+/// Mastodon Invite::COMMENT_SIZE_LIMIT.
+const COMMENT_SIZE_LIMIT: usize = 420;
+
+#[derive(Debug, Deserialize, Default)]
 pub struct CreateInviteRequest {
     pub max_uses: Option<i32>,
     /// Seconds from now until expiry; None = never expires.
     pub expires_in: Option<i64>,
+    /// Auto-follow the inviter when the new account is created.
+    #[serde(default)]
+    pub autofollow: bool,
+    pub comment: Option<String>,
 }
 
 pub async fn create_invite(
@@ -70,10 +79,14 @@ pub async fn create_invite(
     body: Option<Json<CreateInviteRequest>>,
 ) -> AppResult<Json<InviteResponse>> {
     auth.require_scope("write:accounts")?;
-    let req = body.map(|Json(b)| b).unwrap_or(CreateInviteRequest {
-        max_uses: None,
-        expires_in: None,
-    });
+    let req = body.map(|Json(b)| b).unwrap_or_default();
+
+    let comment = req.comment.filter(|c| !c.is_empty());
+    if comment.as_ref().is_some_and(|c| c.chars().count() > COMMENT_SIZE_LIMIT) {
+        return Err(AppError::Unprocessable(format!(
+            "Validation failed: Comment is too long (maximum is {COMMENT_SIZE_LIMIT} characters)"
+        )));
+    }
 
     let code = generate_code();
     let expires_at = req
@@ -81,13 +94,15 @@ pub async fn create_invite(
         .map(|s| chrono::Utc::now().naive_utc() + chrono::Duration::seconds(s));
 
     let row = sqlx::query!(
-        r#"INSERT INTO invites (code, user_id, max_uses, expires_at, created_at, updated_at)
-           VALUES ($1, (SELECT id FROM users WHERE account_id = $2), $3, $4, now(), now())
-           RETURNING id, code, expires_at, max_uses, uses, created_at"#,
+        r#"INSERT INTO invites (code, user_id, max_uses, expires_at, autofollow, comment, created_at, updated_at)
+           VALUES ($1, (SELECT id FROM users WHERE account_id = $2), $3, $4, $5, $6, now(), now())
+           RETURNING id, code, expires_at, max_uses, uses, autofollow, comment, created_at"#,
         code,
         auth.account_id,
         req.max_uses,
         expires_at,
+        req.autofollow,
+        comment,
     )
     .fetch_one(&state.db)
     .await?;
@@ -99,7 +114,8 @@ pub async fn create_invite(
         expires_at: row.expires_at,
         max_uses: row.max_uses,
         uses: row.uses,
-        autofollow: false,
+        autofollow: row.autofollow,
+        comment: row.comment,
         created_at: row.created_at,
     }))
 }
@@ -110,15 +126,19 @@ pub async fn delete_invite(
     Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
     auth.require_scope("write:accounts")?;
-    let deleted = sqlx::query!(
-        "DELETE FROM invites WHERE id = $1 AND user_id = (SELECT id FROM users WHERE account_id = $2)",
+    // Match Mastodon's InvitesController#destroy, which calls Expireable#expire!
+    // (`touch(:expires_at)`) rather than deleting the row — this keeps the invite
+    // around so `users.invite_id` edges (and the invite tree) survive.
+    let expired = sqlx::query!(
+        "UPDATE invites SET expires_at = now(), updated_at = now()
+         WHERE id = $1 AND user_id = (SELECT id FROM users WHERE account_id = $2)",
         id,
         auth.account_id,
     )
     .execute(&state.db)
     .await?;
 
-    if deleted.rows_affected() == 0 {
+    if expired.rows_affected() == 0 {
         return Err(AppError::NotFound);
     }
 
@@ -129,9 +149,11 @@ pub async fn delete_invite(
 
 pub fn generate_code() -> String {
     use rand::Rng;
-    const CHARS: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789";
+    // Mastodon VALID_CODE_CHARACTERS: a-z A-Z 0-9 minus the homoglyphs 0 1 I l O,
+    // sampled into an 8-character code.
+    const CHARS: &[u8] = b"abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     let mut rng = rand::rng();
-    (0..12)
+    (0..8)
         .map(|_| CHARS[rng.random_range(0..CHARS.len())] as char)
         .collect()
 }

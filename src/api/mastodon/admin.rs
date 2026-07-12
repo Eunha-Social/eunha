@@ -153,16 +153,20 @@ async fn build_admin_account(
 ) -> AppResult<AdminAccount> {
     let user = sqlx::query!(
         r#"SELECT u.id, u.email, u.confirmed_at, u.approved,
-                  COALESCE(ur.position, 0) AS "role_position!: i32"
+                  COALESCE(ur.position, 0) AS "role_position!: i32",
+                  inv_u.account_id AS "invited_by_account_id?: i64"
            FROM users u
            LEFT JOIN user_roles ur ON ur.id = u.role_id
+           LEFT JOIN invites i ON i.id = u.invite_id
+           LEFT JOIN users inv_u ON inv_u.id = i.user_id
            WHERE u.account_id = $1"#,
         account.id,
     )
     .fetch_optional(&state.db)
     .await?;
 
-    let (user_id, email, confirmed, approved, reason, role_str) = match user {
+    let (user_id, email, confirmed, approved, reason, role_str, invited_by_account_id) = match user
+    {
         Some(u) => {
             let role = if u.role_position >= 1000 {
                 "admin"
@@ -178,9 +182,18 @@ async fn build_admin_account(
                 u.approved,
                 None::<String>,
                 role.to_string(),
+                u.invited_by_account_id.map(|id| id.to_string()),
             )
         }
-        None => (None, String::new(), true, true, None, "user".to_string()),
+        None => (
+            None,
+            String::new(),
+            true,
+            true,
+            None,
+            "user".to_string(),
+            None,
+        ),
     };
 
     // Fetch IP addresses from user_ips view for local accounts
@@ -223,7 +236,7 @@ async fn build_admin_account(
         locale: None,
         invite_request: reason,
         created_by_application_id: None,
-        invited_by_account_id: None,
+        invited_by_account_id,
         account: {
             let mut api = account_from_db(account);
             api.emojis = fetch_account_emojis(state, account).await;

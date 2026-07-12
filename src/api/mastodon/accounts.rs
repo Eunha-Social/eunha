@@ -1877,7 +1877,7 @@ pub async fn delete_account(
 
     crate::crypto::verify_password(password, &user.encrypted_password)?;
 
-    // Soft-delete: mark account as suspended, revoke tokens, remove user row.
+    // Soft-delete: mark account as suspended, revoke tokens, disable the user.
     // Hard delete of statuses/follows is deferred (could be a background job).
     let mut tx = state.db.begin().await?;
     sqlx::query!(
@@ -1903,9 +1903,23 @@ pub async fn delete_account(
     )
     .execute(&mut *tx)
     .await?;
-    sqlx::query!("DELETE FROM users WHERE account_id = $1", auth.account_id,)
-        .execute(&mut *tx)
-        .await?;
+    // Match Mastodon DeleteAccountService's keep_user_record? branch: disable the
+    // user (rather than deleting the row) and destroy only unused invites. Keeping
+    // the user and its used invites preserves the invite tree; the auth paths all
+    // reject disabled users, so account access is still fully revoked.
+    sqlx::query!(
+        "UPDATE users SET disabled = true, updated_at = now() WHERE account_id = $1",
+        auth.account_id,
+    )
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query!(
+        "DELETE FROM invites
+         WHERE uses = 0 AND user_id = (SELECT id FROM users WHERE account_id = $1)",
+        auth.account_id,
+    )
+    .execute(&mut *tx)
+    .await?;
     tx.commit().await?;
 
     Ok(axum::http::StatusCode::OK)

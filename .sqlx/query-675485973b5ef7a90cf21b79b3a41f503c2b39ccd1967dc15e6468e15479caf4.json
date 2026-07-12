@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT t.id, u.account_id, t.application_id, t.scopes,\n                      t.expires_in, t.created_at, t.revoked_at, u.id as \"user_id?\"\n               FROM oauth_access_tokens t\n               LEFT JOIN users u ON u.id = t.resource_owner_id\n               WHERE t.token = $1",
+  "query": "SELECT t.id, u.account_id, t.application_id, t.scopes,\n                      t.expires_in, t.created_at, t.revoked_at, u.id as \"user_id?\",\n                      u.disabled as \"disabled?\"\n               FROM oauth_access_tokens t\n               LEFT JOIN users u ON u.id = t.resource_owner_id\n               WHERE t.token = $1",
   "describe": {
     "columns": [
       {
@@ -42,6 +42,11 @@
         "ordinal": 7,
         "name": "user_id?",
         "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "disabled?",
+        "type_info": "Bool"
       }
     ],
     "parameters": {
@@ -57,8 +62,9 @@
       true,
       false,
       true,
+      false,
       false
     ]
   },
-  "hash": "947e9f04024135e3227c88bf1ba5773c44642044e938e50369e2dd4f06aa17b5"
+  "hash": "675485973b5ef7a90cf21b79b3a41f503c2b39ccd1967dc15e6468e15479caf4"
 }

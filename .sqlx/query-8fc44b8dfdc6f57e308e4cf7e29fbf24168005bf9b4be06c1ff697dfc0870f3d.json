@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, code, expires_at, max_uses, uses, created_at\n           FROM invites\n           WHERE user_id = (SELECT id FROM users WHERE account_id = $1)\n           ORDER BY created_at DESC",
+  "query": "SELECT id, code, expires_at, max_uses, uses, autofollow, comment, created_at\n           FROM invites\n           WHERE user_id = (SELECT id FROM users WHERE account_id = $1)\n           ORDER BY created_at DESC",
   "describe": {
     "columns": [
       {
@@ -30,6 +30,16 @@
       },
       {
         "ordinal": 5,
+        "name": "autofollow",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 6,
+        "name": "comment",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
         "name": "created_at",
         "type_info": "Timestamp"
       }
@@ -45,8 +55,10 @@
       true,
       true,
       false,
+      false,
+      true,
       false
     ]
   },
-  "hash": "617ebcfb1c485936bef852f5736f8454c56269c3e78eb3f222da1ad20f16ee03"
+  "hash": "8fc44b8dfdc6f57e308e4cf7e29fbf24168005bf9b4be06c1ff697dfc0870f3d"
 }
