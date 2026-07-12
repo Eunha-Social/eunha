@@ -6,7 +6,7 @@ import { getToken } from '../auth.ts'
 import { TopBar } from '@/components/top-bar.tsx'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar.tsx'
 
-function TreeNode({ node, depth }: { node: InviteNode; depth: number }) {
+function TreeNode({ node }: { node: InviteNode }) {
   const name = node.display_name || node.username
   return (
     <li>
@@ -28,7 +28,7 @@ function TreeNode({ node, depth }: { node: InviteNode; depth: number }) {
         // reads top-down.
         <ul className="border-muted ml-5 border-l pl-2">
           {node.children.map((child) => (
-            <TreeNode key={child.id} node={child} depth={depth + 1} />
+            <TreeNode key={child.id} node={child} />
           ))}
         </ul>
       )}
@@ -70,7 +70,7 @@ export default function InviteTree() {
       {tree && tree.roots.length > 0 && (
         <ul className="space-y-1">
           {tree.roots.map((node) => (
-            <TreeNode key={node.id} node={node} depth={0} />
+            <TreeNode key={node.id} node={node} />
           ))}
         </ul>
       )}

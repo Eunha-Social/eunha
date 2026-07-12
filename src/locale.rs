@@ -108,8 +108,6 @@ impl Locale {
             // ── account pages ────────────────────────────────────────────────
             (Self::En, "account") => "Account",
             (Self::Ko, "account") => "계정",
-            (Self::En, "invite_tree") => "Invite tree",
-            (Self::Ko, "invite_tree") => "초대 트리",
             (Self::En, "change_password") => "Change password",
             (Self::Ko, "change_password") => "비밀번호 변경",
             (Self::En, "current_password") => "Current password",
@@ -130,12 +128,6 @@ impl Locale {
             (Self::Ko, "password_changed") => "비밀번호가 변경되었습니다.",
             (Self::En, "password_error") => "Failed. Check your current password.",
             (Self::Ko, "password_error") => "실패했습니다. 현재 비밀번호를 확인해 주세요.",
-            (Self::En, "no_members") => "No members yet.",
-            (Self::Ko, "no_members") => "아직 멤버가 없습니다.",
-            (Self::En, "uninvited_members") => "Members without invite",
-            (Self::Ko, "uninvited_members") => "초대 없이 가입한 멤버",
-            (Self::En, "expired") => "expired",
-            (Self::Ko, "expired") => "만료됨",
             // ── signup approval ──────────────────────────────────────────────
             (Self::En, "reason") => "Why do you want to join?",
             (Self::Ko, "reason") => "가입 이유를 알려주세요",
