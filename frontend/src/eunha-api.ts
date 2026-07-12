@@ -1,6 +1,26 @@
 // eunha-specific APIs with no Mastodon C2S equivalent. Mastodon has no
-// invite-tree endpoint, so these are served by eunha's own `/api/eunha/*`
-// routes and called with a plain fetch (masto.js only models the C2S surface).
+// invite-tree endpoint nor a REST API for invite CRUD, so these are served by
+// eunha's own routes and called with a plain fetch (masto.js only models the
+// C2S surface).
+
+async function eunhaFetch(
+  path: string,
+  token: string,
+  init?: RequestInit,
+): Promise<Response> {
+  const res = await fetch(`${window.location.origin}${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+      ...init?.headers,
+    },
+  })
+  if (!res.ok) {
+    throw new Error(`${path} failed: ${res.status}`)
+  }
+  return res
+}
 
 export interface InviteTreeAccount {
   id: string
@@ -21,11 +41,50 @@ export interface InviteTree {
 }
 
 export async function getInviteTree(token: string): Promise<InviteTree> {
-  const res = await fetch(`${window.location.origin}/api/eunha/v1/invite_tree`, {
-    headers: { Authorization: `Bearer ${token}` },
-  })
-  if (!res.ok) {
-    throw new Error(`invite tree request failed: ${res.status}`)
-  }
+  const res = await eunhaFetch('/api/eunha/v1/invite_tree', token)
   return res.json() as Promise<InviteTree>
+}
+
+// ── Invites ────────────────────────────────────────────────────────────────
+// Served by eunha's /api/v1/invites (a non-standard extension: Mastodon exposes
+// invite CRUD only through its web UI, never the REST API).
+
+export interface Invite {
+  id: string
+  code: string
+  url: string
+  max_uses: number | null
+  uses: number
+  expires_at: string | null
+  autofollow: boolean
+  comment: string | null
+  created_at: string
+}
+
+export interface CreateInviteParams {
+  max_uses?: number
+  /** Seconds until expiry; omit for never. */
+  expires_in?: number
+  autofollow?: boolean
+  comment?: string
+}
+
+export async function getInvites(token: string): Promise<Invite[]> {
+  const res = await eunhaFetch('/api/v1/invites', token)
+  return res.json() as Promise<Invite[]>
+}
+
+export async function createInvite(
+  token: string,
+  params: CreateInviteParams,
+): Promise<Invite> {
+  const res = await eunhaFetch('/api/v1/invites', token, {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
+  return res.json() as Promise<Invite>
+}
+
+export async function deleteInvite(token: string, id: string): Promise<void> {
+  await eunhaFetch(`/api/v1/invites/${id}`, token, { method: 'DELETE' })
 }

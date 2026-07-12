@@ -13,8 +13,10 @@ import TagTimeline from './pages/TagTimeline.tsx'
 import AccountList from './pages/AccountList.tsx'
 import About from './pages/About.tsx'
 import InviteTree from './pages/InviteTree.tsx'
+import Invites from './pages/Invites.tsx'
 import { ThemeProvider } from './components/theme-provider.tsx'
 import { ComposeModalProvider } from './components/compose-modal.tsx'
+import { Toaster } from './components/ui/sonner.tsx'
 import { getToken } from './auth.ts'
 import { loadMe } from './me.ts'
 import './styles.css'
@@ -38,6 +40,7 @@ const router = createBrowserRouter([
   { path: '/search', element: <SearchPage /> },
   { path: '/about', element: <About /> },
   { path: '/invite-tree', element: <InviteTree /> },
+  { path: '/invites', element: <Invites /> },
   { path: '/tags/:name', element: <TagTimeline /> },
   { path: '/:acct', element: <Profile /> },
   // Static second segments outrank the dynamic `:id` thread route, so these
@@ -53,6 +56,7 @@ createRoot(document.getElementById('root')!).render(
     <ThemeProvider defaultTheme="system" storageKey="eunha-theme">
       <ComposeModalProvider>
         <RouterProvider router={router} />
+        <Toaster />
       </ComposeModalProvider>
     </ThemeProvider>
   </StrictMode>,

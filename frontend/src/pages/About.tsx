@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { Network } from 'lucide-react'
+import { Network, Ticket } from 'lucide-react'
 
 import { getInstance } from '../api.ts'
 import { getToken } from '../auth.ts'
@@ -28,14 +28,20 @@ export default function About() {
             {instance.domain} · running eunha {__COMMIT_HASH__}
           </p>
           {token && (
-            <p>
+            <div className="flex flex-col gap-1 pt-1">
+              <Link
+                to="/invites"
+                className="text-primary inline-flex items-center gap-2 font-medium"
+              >
+                <Ticket className="size-4" /> Invite people
+              </Link>
               <Link
                 to="/invite-tree"
                 className="text-primary inline-flex items-center gap-2 font-medium"
               >
                 <Network className="size-4" /> View the invite tree
               </Link>
-            </p>
+            </div>
           )}
         </section>
       ) : (
