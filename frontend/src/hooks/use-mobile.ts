@@ -1,8 +1,8 @@
 import * as React from "react"
 
-// Matches the `xl` breakpoint where the desktop rail (`.sidebar-frame`,
-// `xl:flex`) takes over. Below it, the Sidebar renders as a drawer.
-const MOBILE_BREAKPOINT = 1280
+// Matches the `md` breakpoint where the desktop rail (`.sidebar-frame`,
+// `md:flex`) takes over. Below it, the Sidebar renders as a drawer.
+const MOBILE_BREAKPOINT = 768
 
 export function useIsMobile() {
   const [isMobile, setIsMobile] = React.useState<boolean | undefined>(undefined)

@@ -126,7 +126,7 @@
   }
 
   .sidebar-frame {
-    @apply text-sidebar-foreground fixed top-0 hidden h-screen w-56 flex-col px-3 py-4 xl:flex;
+    @apply text-sidebar-foreground fixed top-0 hidden h-screen w-56 flex-col px-3 py-4 md:flex;
     left: max(1rem, calc(50% - 35.75rem));
   }
 }

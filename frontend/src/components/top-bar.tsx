@@ -93,7 +93,7 @@ function SignUpButton({ className }: { className?: string }) {
 }
 
 // The wide-screen rail: a fixed sidebar floating in the left margin of the
-// centered column. Shown at `xl` and up (see `.sidebar-frame`).
+// centered column. Shown at `md` and up (see `.sidebar-frame`).
 function DesktopRail({
   token,
   title,
@@ -226,7 +226,7 @@ function MobileHeader({
   const navigate = useNavigate()
 
   return (
-    <header className="mb-3 flex items-center gap-2 border-b pb-2 xl:hidden">
+    <header className="mb-3 flex items-center gap-2 border-b pb-2 md:hidden">
       <SidebarTrigger className="-ml-1" aria-label="Open menu" />
       <Link to="/" className="text-lg font-semibold no-underline">
         {title}
