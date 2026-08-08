@@ -233,6 +233,18 @@ async fn do_update_credentials(
         }
     }
 
+    // Mastodon's `Account#prepare_contents` (a `before_validation` hook that runs
+    // `if: :local?`) strips surrounding whitespace from the display name and note,
+    // so a stray trailing newline from a client never reaches the database — or
+    // the `name`/`summary` we federate out. Strip before validating, matching the
+    // callback order: the length limits below apply to the stripped value.
+    if let Some(dn) = display_name.as_mut() {
+        *dn = dn.trim().to_string();
+    }
+    if let Some(n) = note.as_mut() {
+        *n = n.trim().to_string();
+    }
+
     // Enforce Mastodon's local-account length validations before writing:
     // display_name ≤ 40 chars (Account::DISPLAY_NAME_LENGTH_LIMIT) and note ≤ 500
     // (Account::NOTE_LENGTH_LIMIT, counted via the same URL/mention-aware rule as

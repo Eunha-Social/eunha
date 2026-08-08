@@ -1515,6 +1515,43 @@ async fn test_update_credentials_display_name() {
     assert_eq!(body["display_name"].as_str(), Some("Alice Updated"));
 }
 
+/// update_credentials strips surrounding whitespace from display_name and note,
+/// mirroring Mastodon's `Account#prepare_contents` — a trailing newline from a
+/// client must not survive into the stored profile. The strip happens before the
+/// length validation, so a value that only exceeds the limit via padding passes.
+#[tokio::test]
+async fn test_update_credentials_strips_surrounding_whitespace() {
+    let ctx = TestContext::new("update-creds-strip").await;
+
+    let patch = |form: reqwest::multipart::Form| {
+        ctx.api
+            .http
+            .patch(ctx.api.url("/api/v1/accounts/update_credentials"))
+            .header("host", &ctx.api.host)
+            .bearer_auth(&ctx.alice_token)
+            .multipart(form)
+    };
+
+    let form = reqwest::multipart::Form::new()
+        .text("display_name", "  Alice Updated\n")
+        .text("note", "\n  About Alice  \n");
+    let resp = patch(form).send().await.unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value = resp.json().await.unwrap();
+    assert_eq!(body["display_name"].as_str(), Some("Alice Updated"));
+    assert_eq!(body["source"]["note"].as_str(), Some("About Alice"));
+
+    // 40 chars plus padding is 40 chars after stripping → still allowed.
+    let padded = format!(" {}\n", "x".repeat(40));
+    let resp = patch(reqwest::multipart::Form::new().text("display_name", padded))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value = resp.json().await.unwrap();
+    assert_eq!(body["display_name"].as_str(), Some("x".repeat(40).as_str()));
+}
+
 /// update_credentials enforces Mastodon's length limits for display_name (40)
 /// and note (500), mirroring the Account model validations.
 #[tokio::test]
