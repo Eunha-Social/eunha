@@ -210,7 +210,9 @@ pub async fn get_account(
 ) -> AppResult<Json<ApiAccount>> {
     let account = fetch_account(&state, id).await?;
     // Local accounts that are unconfirmed or pending approval are invisible (404).
-    if account.domain.is_none() {
+    // A suspended one is not: Mastodon serves the blanked tombstone with
+    // `suspended: true`, and after deletion there is no user row left to check.
+    if account.domain.is_none() && account.suspended_at.is_none() {
         let approval_required = state.instance.approval_required;
         let ok = sqlx::query_scalar!(
             r#"SELECT u.confirmed_at IS NOT NULL

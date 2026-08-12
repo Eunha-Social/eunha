@@ -3212,6 +3212,48 @@ async fn test_delete_account_keeps_reported_statuses() {
     );
 }
 
+/// A deleted account is still served as a blanked tombstone with
+/// `suspended: true` (Mastodon's `REST::AccountSerializer`), by id as well as
+/// by lookup — the profile page needs it to say the account is gone.
+#[tokio::test]
+async fn test_deleted_account_is_served_as_suspended_tombstone() {
+    let ctx = TestContext::new("del-acct-tombstone").await;
+
+    ctx.api
+        .patch_json(
+            "/api/v1/accounts/update_credentials",
+            Some(&ctx.alice_token),
+            &json!({"display_name": "Alice", "note": "hello"}),
+        )
+        .await;
+
+    ctx.api
+        .http
+        .delete(ctx.api.url("/api/v1/accounts"))
+        .header("host", &ctx.api.host)
+        .bearer_auth(&ctx.alice_token)
+        .json(&json!({"password": "testpassword123"}))
+        .send()
+        .await
+        .unwrap();
+
+    for path in [
+        format!("/api/v1/accounts/{}", ctx.alice_id),
+        "/api/v1/accounts/lookup?acct=alice".to_string(),
+    ] {
+        let resp = ctx.api.get(&path, Some(&ctx.bob_token)).await;
+        assert_eq!(resp.status(), StatusCode::OK, "{path} should still resolve");
+        let account: Value = resp.json().await.unwrap();
+        assert_eq!(
+            account["suspended"].as_bool(),
+            Some(true),
+            "{path} must mark the account suspended: {account}",
+        );
+        assert_eq!(account["display_name"].as_str(), Some(""), "{path}");
+        assert_eq!(account["note"].as_str(), Some(""), "{path}");
+    }
+}
+
 /// Lineage survives a *chain* of deletions: when an inviter is deleted after
 /// its own inviter already was, the earlier snapshot is not overwritten with
 /// the now-missing link.

@@ -732,7 +732,18 @@ export default function Profile() {
         />
       )}
       {error && <p className="text-destructive text-sm">{error}</p>}
-      {account && (
+      {/* A suspended (or deleted) account is still served, with every profile
+          field blanked and `suspended: true` — show that rather than the empty
+          shell of a profile it would otherwise render. */}
+      {account?.suspended && (
+        <div className="rounded-lg border p-6 text-center">
+          <h1 className="font-semibold">Account suspended</h1>
+          <p className="text-muted-foreground mt-1 text-sm">
+            The profile of @{account.acct} is no longer available.
+          </p>
+        </div>
+      )}
+      {account && !account.suspended && (
         <>
           {isSelf && (
             <>
