@@ -527,6 +527,30 @@ async fn process_delivery_job(
     let result = deliver(&state.http, activity, inbox_url, key_id, &private_key).await;
     if let Err(e) = record_job_outcome(state, id, inbox_url, attempts, max_attempts, result).await {
         tracing::error!(id, error = %e, "failed to record delivery job outcome");
+        force_terminal(state, id).await;
+    }
+}
+
+/// Last resort when a job's outcome could not be written. Without this the job
+/// keeps its lock and its attempt count, so the stale-lock reclaim picks it up
+/// again every ten minutes — forever, since it can never reach `max_attempts`.
+/// Writing a fixed, known-safe error guarantees the job stops.
+async fn force_terminal(state: &AppState, id: i64) {
+    let forced = sqlx::query!(
+        r#"UPDATE eunha.activity_delivery_jobs
+           SET failed_at = now(),
+               locked_at = NULL,
+               locked_by = NULL,
+               last_error = 'delivery outcome could not be recorded',
+               updated_at = now()
+           WHERE id = $1"#,
+        id,
+    )
+    .execute(&state.db)
+    .await;
+    match forced {
+        Ok(_) => tracing::warn!(id, "delivery job forced terminal after unrecordable outcome"),
+        Err(e) => tracing::error!(id, error = %e, "could not force delivery job terminal"),
     }
 }
 
@@ -571,7 +595,7 @@ async fn record_job_outcome(
     }
     let next_attempts = attempts + 1;
     let terminal = !is_retriable(&e) || next_attempts >= max_attempts;
-    let error = e.to_string();
+    let error = crate::error::sanitize_error_text(&e.to_string());
     if terminal {
         sqlx::query!(
             r#"UPDATE eunha.activity_delivery_jobs

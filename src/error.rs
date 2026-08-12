@@ -64,3 +64,55 @@ impl IntoResponse for AppError {
 }
 
 pub type AppResult<T> = Result<T, AppError>;
+
+/// Longest error text any queue keeps. Enough to diagnose a failure without
+/// letting a remote server write unbounded data into our tables.
+const MAX_ERROR_TEXT: usize = 2000;
+
+/// Make an error message safe to store in a Postgres `text` column.
+///
+/// Error strings on the queue tables are derived from remote input — a peer's
+/// response body can end up inside a transport error — and Postgres `text`
+/// rejects NUL bytes outright. An unsanitised NUL makes the UPDATE that records
+/// a job's outcome fail, which leaves `attempts` unincremented and the lock
+/// held: the job is then reclaimed when its lock goes stale and retried
+/// forever, never reaching `max_attempts`. Stripping NULs is what keeps a
+/// failing job able to fail *permanently*.
+pub fn sanitize_error_text(error: &str) -> String {
+    let cleaned: String = error.replace('\0', "");
+    match cleaned.char_indices().nth(MAX_ERROR_TEXT) {
+        // Truncate on a char boundary so multi-byte text can't be split.
+        Some((idx, _)) => format!("{}…", &cleaned[..idx]),
+        None => cleaned,
+    }
+}
+
+#[cfg(test)]
+mod error_text_tests {
+    use super::{sanitize_error_text, MAX_ERROR_TEXT};
+
+    #[test]
+    fn strips_nul_bytes() {
+        // Exactly the shape that wedged a delivery job: a NUL inside the text
+        // of a transport error carrying part of a peer's response.
+        let raw = "error sending request\0 for url (https://example.invalid/inbox)";
+        let safe = sanitize_error_text(raw);
+        assert!(!safe.contains('\0'), "NUL bytes must not survive");
+        assert!(safe.starts_with("error sending request for url"));
+    }
+
+    #[test]
+    fn caps_length_on_a_char_boundary() {
+        let raw = "가".repeat(MAX_ERROR_TEXT * 2);
+        let safe = sanitize_error_text(&raw);
+        // Truncating mid-character would have panicked on the slice above.
+        assert!(safe.chars().count() <= MAX_ERROR_TEXT + 1);
+        assert!(safe.ends_with('…'));
+    }
+
+    #[test]
+    fn leaves_ordinary_messages_alone() {
+        let raw = "HTTP 502 from https://example.invalid/inbox";
+        assert_eq!(sanitize_error_text(raw), raw);
+    }
+}

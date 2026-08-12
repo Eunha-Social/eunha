@@ -138,7 +138,7 @@ async fn record_publish_failure(
     scheduled_id: i64,
     error: &anyhow::Error,
 ) -> anyhow::Result<()> {
-    let err = error.to_string();
+    let err = crate::error::sanitize_error_text(&error.to_string());
     // Exponential backoff: 1m, 2m, 4m, … capped at an hour.
     let attempts = sqlx::query_scalar!(
         r#"INSERT INTO eunha.scheduled_status_attempts

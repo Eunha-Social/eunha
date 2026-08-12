@@ -476,7 +476,7 @@ async fn process_inbox_job(
         }
         Err(e) => {
             let next = attempts + 1;
-            let err = e.to_string();
+            let err = crate::error::sanitize_error_text(&e.to_string());
             if next >= max_attempts {
                 tracing::warn!(
                     id,
