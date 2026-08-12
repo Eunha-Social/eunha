@@ -8,6 +8,7 @@ import {
   LogOut,
   Pencil,
   Search,
+  Settings,
   User,
   UserPlus,
 } from 'lucide-react'
@@ -50,6 +51,7 @@ function useNavItems(token: string | null, account: MeAccount | null): NavItem[]
   if (account) {
     items.push({ to: `/@${account.acct}`, icon: User, label: 'Profile' })
   }
+  items.push({ to: '/settings', icon: Settings, label: 'Settings' })
   items.push({ to: '/about', icon: Info, label: 'About' })
   return items
 }

@@ -3,6 +3,18 @@
 // eunha's own routes and called with a plain fetch (masto.js only models the
 // C2S surface).
 
+// Carries the HTTP status so callers can tell "you typed the wrong password"
+// (401) from "something broke", which the message alone doesn't say.
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+  ) {
+    super(message)
+    this.name = 'ApiError'
+  }
+}
+
 async function eunhaFetch(
   path: string,
   token: string,
@@ -17,7 +29,7 @@ async function eunhaFetch(
     },
   })
   if (!res.ok) {
-    throw new Error(`${path} failed: ${res.status}`)
+    throw new ApiError(res.status, `${path} failed: ${res.status}`)
   }
   return res
 }
@@ -118,4 +130,27 @@ export async function signUp(params: SignUpParams): Promise<void> {
     }
     throw new Error(message)
   }
+}
+
+// ── Account deletion ───────────────────────────────────────────────────────
+// Mastodon deletes accounts through a web form (`/settings/delete`) and has no
+// REST equivalent, so `DELETE /api/v1/accounts` is eunha's own. It runs the
+// same challenge as that form: the current password, or — for accounts with no
+// password — the username.
+
+export interface DeleteAccountChallenge {
+  password?: string
+  username?: string
+}
+
+// Suspends the account immediately and purges it in the background. The
+// caller's token stops working as soon as this returns.
+export async function deleteAccount(
+  token: string,
+  challenge: DeleteAccountChallenge,
+): Promise<void> {
+  await eunhaFetch('/api/v1/accounts', token, {
+    method: 'DELETE',
+    body: JSON.stringify(challenge),
+  })
 }
