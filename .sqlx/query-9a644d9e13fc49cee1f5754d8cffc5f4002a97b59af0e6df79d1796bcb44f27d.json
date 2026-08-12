@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT s.id, s.account_id, s.params\n           FROM scheduled_statuses s\n           LEFT JOIN eunha.scheduled_status_attempts a\n             ON a.scheduled_status_id = s.id\n           WHERE s.scheduled_at <= now()\n             AND a.failed_at IS NULL\n             AND (a.run_at IS NULL OR a.run_at <= now())\n           ORDER BY s.scheduled_at ASC\n           LIMIT 50",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "account_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "params",
+        "type_info": "Jsonb"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "9a644d9e13fc49cee1f5754d8cffc5f4002a97b59af0e6df79d1796bcb44f27d"
+}

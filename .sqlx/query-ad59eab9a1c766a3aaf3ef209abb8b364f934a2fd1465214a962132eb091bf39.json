@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE eunha.scheduled_status_attempts\n               SET failed_at = now(), updated_at = now()\n               WHERE scheduled_status_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ad59eab9a1c766a3aaf3ef209abb8b364f934a2fd1465214a962132eb091bf39"
+}

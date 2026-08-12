@@ -6,10 +6,6 @@ use std::time::Duration;
 
 use crate::state::AppState;
 
-const DELIVERY_QUEUE_BATCH: i64 = 50;
-/// How many inboxes to deliver to concurrently within a batch. A few slow or
-/// dead inboxes must not stall delivery to healthy servers.
-const DELIVERY_QUEUE_CONCURRENCY: usize = 16;
 const DELIVERY_QUEUE_IDLE: Duration = Duration::from_secs(2);
 const DELIVERY_QUEUE_ERROR_IDLE: Duration = Duration::from_secs(10);
 /// How often to prune finished delivery jobs.
@@ -392,34 +388,46 @@ async fn enqueue_to_inboxes(
     inboxes.sort();
     inboxes.dedup();
 
-    let mut enqueued = 0;
-    for inbox in inboxes {
-        sqlx::query!(
-            r#"INSERT INTO eunha.activity_delivery_jobs
-                 (activity, inbox_url, key_id, actor_account_id, created_at, updated_at)
-               VALUES ($1, $2, $3, $4, now(), now())"#,
-            &activity,
-            &inbox,
-            &key_id,
-            actor_account_id,
-        )
-        .execute(&state.db)
-        .await?;
-        enqueued += 1;
+    if inboxes.is_empty() {
+        return Ok(0);
     }
-    Ok(enqueued)
+
+    // One statement for the whole fan-out. A per-inbox INSERT loop costs a
+    // round-trip per follower, which for a large account is the dominant cost
+    // of posting — and it runs on the request path.
+    let result = sqlx::query!(
+        r#"INSERT INTO eunha.activity_delivery_jobs
+             (activity, inbox_url, key_id, actor_account_id, created_at, updated_at)
+           SELECT $1::jsonb, inbox, $3::text, $4::bigint, now(), now()
+           FROM unnest($2::text[]) AS inbox"#,
+        &activity,
+        &inboxes,
+        &key_id,
+        actor_account_id,
+    )
+    .execute(&state.db)
+    .await?;
+
+    Ok(result.rows_affected())
 }
 
-/// Run the durable ActivityPub delivery queue.
-pub async fn run_delivery_queue(state: AppState) {
+/// Run one loop of the durable ActivityPub delivery queue. `index` distinguishes
+/// sibling loops in the same process so each claims jobs under its own
+/// `locked_by`; claims are serialized by `FOR UPDATE SKIP LOCKED`, so any number
+/// of loops (or processes) can drain the queue safely.
+pub async fn run_delivery_queue(state: AppState, index: usize) {
     let worker_id = format!(
-        "{}:{}",
+        "{}:{}:{}",
         std::env::var("HOSTNAME").unwrap_or_else(|_| "eunha".into()),
-        std::process::id()
+        std::process::id(),
+        index,
     );
+    let workers = state.config.workers.sanitized();
+    let batch = workers.delivery_batch;
+    let concurrency = workers.delivery_concurrency;
 
     loop {
-        match run_delivery_queue_batch(&state, &worker_id).await {
+        match run_delivery_queue_batch(&state, &worker_id, batch, concurrency).await {
             Ok(0) => tokio::time::sleep(DELIVERY_QUEUE_IDLE).await,
             Ok(n) => tracing::debug!(count = n, "processed ActivityPub delivery jobs"),
             Err(e) => {
@@ -430,7 +438,12 @@ pub async fn run_delivery_queue(state: AppState) {
     }
 }
 
-async fn run_delivery_queue_batch(state: &AppState, worker_id: &str) -> anyhow::Result<usize> {
+async fn run_delivery_queue_batch(
+    state: &AppState,
+    worker_id: &str,
+    batch: i64,
+    concurrency: usize,
+) -> anyhow::Result<usize> {
     let jobs = sqlx::query!(
         r#"WITH picked AS (
              SELECT id
@@ -449,7 +462,7 @@ async fn run_delivery_queue_batch(state: &AppState, worker_id: &str) -> anyhow::
            WHERE j.id = picked.id
            RETURNING j.id, j.activity, j.inbox_url, j.key_id, j.actor_account_id,
                      j.attempts, j.max_attempts"#,
-        DELIVERY_QUEUE_BATCH,
+        batch,
         worker_id,
     )
     .fetch_all(&state.db)
@@ -462,7 +475,7 @@ async fn run_delivery_queue_batch(state: &AppState, worker_id: &str) -> anyhow::
     // batch, and a failed DB update on one job is logged rather than aborting
     // the others.
     futures::stream::iter(jobs)
-        .for_each_concurrent(DELIVERY_QUEUE_CONCURRENCY, |job| async move {
+        .for_each_concurrent(concurrency, |job| async move {
             process_delivery_job(
                 state,
                 job.id,

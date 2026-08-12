@@ -392,6 +392,10 @@ impl TestContext {
     pub async fn new(label: &str) -> Self {
         // Make fanout/populate/backfill run inline so tests don't race with background tasks.
         eunha::feed::enable_sync_fanout();
+        // Likewise for inbound activities: handle them in the request rather
+        // than on the ingress queue, so a POST to /inbox has taken effect by
+        // the time it returns.
+        eunha::api::ap::inbox::enable_sync_ingress();
 
         // Use a unique subdomain per test so instances are isolated.
         let uid = &Uuid::new_v4().to_string()[..8];
@@ -479,6 +483,7 @@ impl TestContext {
                 privacy_policy: String::new(),
                 terms_of_service: String::new(),
             },
+            workers: Default::default(),
         };
         let state = eunha::state::AppState::new(db, config)
             .await

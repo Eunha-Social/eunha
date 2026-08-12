@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM eunha.scheduled_status_attempts WHERE scheduled_status_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f627db0fb35711094066cb2029eee5a208caaaddb14f48dee299d22daa0886c9"
+}

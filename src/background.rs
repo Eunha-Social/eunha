@@ -10,8 +10,29 @@ pub fn spawn(state: AppState) {
     tokio::spawn(crate::federation::delivery::run_delivery_cleanup(
         state.clone(),
     ));
+    tokio::spawn(crate::api::ap::inbox::run_inbox_cleanup(state.clone()));
     tokio::spawn(crate::api::mastodon::media::run_media_queue(state.clone()));
-    tokio::spawn(crate::federation::delivery::run_delivery_queue(state));
+
+    // Queue loops are sized from `[workers]` in config. Each loop claims work
+    // with `FOR UPDATE SKIP LOCKED`, so adding loops within this process scales
+    // the same way adding processes would.
+    let workers = state.config.workers.sanitized();
+    for index in 0..workers.delivery_workers {
+        tokio::spawn(crate::federation::delivery::run_delivery_queue(
+            state.clone(),
+            index,
+        ));
+    }
+    for index in 0..workers.inbox_workers {
+        tokio::spawn(crate::api::ap::inbox::run_inbox_queue(state.clone(), index));
+    }
+    tracing::info!(
+        delivery_workers = workers.delivery_workers,
+        delivery_concurrency = workers.delivery_concurrency,
+        inbox_workers = workers.inbox_workers,
+        inbox_concurrency = workers.inbox_concurrency,
+        "background queues started"
+    );
 }
 
 // ── Scheduled status publisher ────────────────────────────────────────────
@@ -26,12 +47,53 @@ async fn run_scheduled_statuses(state: AppState) {
     }
 }
 
+/// How many times a scheduled status that wrote nothing is retried before it is
+/// parked. Combined with the backoff below this spans a couple of hours, so a
+/// database blip or a restart doesn't cost anyone a post.
+const SCHEDULED_STATUS_MAX_ATTEMPTS: i32 = 8;
+
+/// Why a scheduled status could not be published, which decides whether it is
+/// worth trying again.
+enum PublishError {
+    /// These params can never produce a status (the account is gone, the row
+    /// carries no params). Retrying would fail identically every minute, so the
+    /// schedule is dropped.
+    Permanent(anyhow::Error),
+    /// Nothing was written and the cause may not recur — a database error, a
+    /// lock, a restart mid-publish. Safe to run again.
+    Transient(anyhow::Error),
+}
+
+impl PublishError {
+    fn error(&self) -> &anyhow::Error {
+        match self {
+            Self::Permanent(e) | Self::Transient(e) => e,
+        }
+    }
+}
+
+/// A failed `fetch_one` means the account no longer exists; anything else is
+/// the database being unhappy, which may well pass.
+fn classify_db(e: sqlx::Error, context: &str) -> PublishError {
+    let msg = format!("{context}: {e}");
+    match e {
+        sqlx::Error::RowNotFound => PublishError::Permanent(anyhow::anyhow!(msg)),
+        _ => PublishError::Transient(anyhow::anyhow!(msg)),
+    }
+}
+
 pub async fn publish_due_statuses(state: &AppState) -> anyhow::Result<()> {
+    // Skip schedules that are backing off from an earlier failure, and those
+    // that have exhausted their attempts (kept, but no longer retried).
     let rows = sqlx::query!(
-        r#"SELECT id, account_id, params
-           FROM scheduled_statuses
-           WHERE scheduled_at <= now()
-           ORDER BY scheduled_at ASC
+        r#"SELECT s.id, s.account_id, s.params
+           FROM scheduled_statuses s
+           LEFT JOIN eunha.scheduled_status_attempts a
+             ON a.scheduled_status_id = s.id
+           WHERE s.scheduled_at <= now()
+             AND a.failed_at IS NULL
+             AND (a.run_at IS NULL OR a.run_at <= now())
+           ORDER BY s.scheduled_at ASC
            LIMIT 50"#,
     )
     .fetch_all(&state.db)
@@ -39,32 +101,107 @@ pub async fn publish_due_statuses(state: &AppState) -> anyhow::Result<()> {
 
     for row in rows {
         match publish_one(state, row.id, row.account_id, &row.params).await {
-            Ok(()) => {
-                sqlx::query!("DELETE FROM scheduled_statuses WHERE id = $1", row.id)
-                    .execute(&state.db)
-                    .await?;
+            // The status exists now, so the schedule has been consumed even if
+            // some follow-up step (fan-out, notifications) logged a failure.
+            Ok(()) => forget_schedule(state, row.id).await?,
+            Err(PublishError::Permanent(e)) => {
+                tracing::warn!(id = row.id, error = %e, "scheduled status cannot be published; dropping");
+                forget_schedule(state, row.id).await?;
             }
-            Err(e) => {
-                tracing::warn!(id = row.id, error = %e, "failed to publish scheduled status");
-                // Delete anyway to avoid retrying indefinitely on bad params
-                sqlx::query!("DELETE FROM scheduled_statuses WHERE id = $1", row.id)
-                    .execute(&state.db)
-                    .await?;
+            Err(e @ PublishError::Transient(_)) => {
+                record_publish_failure(state, row.id, e.error()).await?;
             }
         }
     }
     Ok(())
 }
 
+/// Drop a schedule and its retry bookkeeping.
+async fn forget_schedule(state: &AppState, scheduled_id: i64) -> anyhow::Result<()> {
+    sqlx::query!(
+        "DELETE FROM eunha.scheduled_status_attempts WHERE scheduled_status_id = $1",
+        scheduled_id,
+    )
+    .execute(&state.db)
+    .await?;
+    sqlx::query!("DELETE FROM scheduled_statuses WHERE id = $1", scheduled_id)
+        .execute(&state.db)
+        .await?;
+    Ok(())
+}
+
+/// Count an attempt that wrote nothing and schedule the next one. Once the
+/// attempts run out the schedule is parked rather than deleted, so the author
+/// still sees the post they scheduled.
+async fn record_publish_failure(
+    state: &AppState,
+    scheduled_id: i64,
+    error: &anyhow::Error,
+) -> anyhow::Result<()> {
+    let err = error.to_string();
+    // Exponential backoff: 1m, 2m, 4m, … capped at an hour.
+    let attempts = sqlx::query_scalar!(
+        r#"INSERT INTO eunha.scheduled_status_attempts
+             (scheduled_status_id, attempts, run_at, last_error, created_at, updated_at)
+           VALUES ($1, 1, now() + interval '1 minute', $2, now(), now())
+           ON CONFLICT (scheduled_status_id) DO UPDATE
+             SET attempts = eunha.scheduled_status_attempts.attempts + 1,
+                 run_at = now() + LEAST(
+                     interval '1 hour',
+                     interval '1 minute' * pow(2, eunha.scheduled_status_attempts.attempts)
+                 ),
+                 last_error = $2,
+                 updated_at = now()
+           RETURNING attempts"#,
+        scheduled_id,
+        err,
+    )
+    .fetch_one(&state.db)
+    .await?;
+
+    if attempts >= SCHEDULED_STATUS_MAX_ATTEMPTS {
+        sqlx::query!(
+            r#"UPDATE eunha.scheduled_status_attempts
+               SET failed_at = now(), updated_at = now()
+               WHERE scheduled_status_id = $1"#,
+            scheduled_id,
+        )
+        .execute(&state.db)
+        .await?;
+        tracing::error!(
+            id = scheduled_id,
+            attempts,
+            error = %err,
+            "scheduled status still unpublished after every attempt; parked (schedule kept)"
+        );
+    } else {
+        tracing::warn!(
+            id = scheduled_id,
+            attempts,
+            error = %err,
+            "scheduled status publish failed; will retry"
+        );
+    }
+    Ok(())
+}
+
+/// Publish one scheduled status.
+///
+/// The split at the `statuses` INSERT is what makes retrying safe: everything
+/// before it either succeeds or leaves the database untouched, so a failure
+/// there can be tried again. Once the row is inserted the post exists and the
+/// schedule is spent — every later step is therefore best-effort and logged,
+/// never propagated, because returning an error would re-run this function and
+/// post the status a second time.
 async fn publish_one(
     state: &AppState,
-    _scheduled_id: i64,
+    scheduled_id: i64,
     account_id: i64,
     params: &Option<serde_json::Value>,
-) -> anyhow::Result<()> {
+) -> Result<(), PublishError> {
     let params = params
         .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("no params"))?;
+        .ok_or_else(|| PublishError::Permanent(anyhow::anyhow!("no params")))?;
 
     let account = sqlx::query_as!(
         crate::db::models::Account,
@@ -72,7 +209,8 @@ async fn publish_one(
         account_id,
     )
     .fetch_one(&state.db)
-    .await?;
+    .await
+    .map_err(|e| classify_db(e, "load scheduled status author"))?;
 
     let text = params["text"].as_str().unwrap_or("").to_string();
     let visibility = params["visibility"]
@@ -133,13 +271,20 @@ async fn publish_one(
         language, sensitive, in_reply_to_id, in_reply_to_account_id, is_reply, uri,
     )
     .fetch_one(&state.db)
-    .await?;
+    .await
+    .map_err(|e| classify_db(e, "insert scheduled status"))?;
 
-    store_statuses_tags(state, status.id, account.id, &hashtags).await?;
-    store_status_mentions(state, status.id, &resolved).await?;
+    // ── Past this point the status exists; failures are logged, not returned ──
+
+    if let Err(e) = store_statuses_tags(state, status.id, account.id, &hashtags).await {
+        tracing::error!(scheduled_id, status_id = status.id, error = %e, "scheduled status published without its hashtags");
+    }
+    if let Err(e) = store_status_mentions(state, status.id, &resolved).await {
+        tracing::error!(scheduled_id, status_id = status.id, error = %e, "scheduled status published without its mentions");
+    }
 
     // Update last_status_at and statuses_count in account_stats
-    sqlx::query!(
+    let stats = sqlx::query!(
         r#"INSERT INTO account_stats (account_id, statuses_count, last_status_at, created_at, updated_at)
            VALUES ($1, 1, $2, now(), now())
            ON CONFLICT (account_id) DO UPDATE
@@ -150,7 +295,10 @@ async fn publish_one(
         status.created_at,
     )
     .execute(&state.db)
-    .await?;
+    .await;
+    if let Err(e) = stats {
+        tracing::error!(scheduled_id, status_id = status.id, error = %e, "failed to update account stats for scheduled status");
+    }
 
     // Increment parent's replies_count
     if let Some(parent_id) = in_reply_to_id {
@@ -171,12 +319,15 @@ async fn publish_one(
         for id_val in ids {
             if let Some(id_str) = id_val.as_str() {
                 if let Ok(media_id) = id_str.parse::<i64>() {
-                    sqlx::query!(
+                    let attached = sqlx::query!(
                         "UPDATE media_attachments SET status_id = $1 WHERE id = $2 AND account_id = $3 AND status_id IS NULL",
                         status.id, media_id, account.id,
                     )
                     .execute(&state.db)
-                    .await?;
+                    .await;
+                    if let Err(e) = attached {
+                        tracing::error!(scheduled_id, status_id = status.id, media_id, error = %e, "failed to attach media to scheduled status");
+                    }
                 }
             }
         }
@@ -202,14 +353,17 @@ async fn publish_one(
                     .filter_map(|o| o.as_str())
                     .map(|o| o.to_string())
                     .collect();
-                sqlx::query!(
+                let poll_created = sqlx::query!(
                     r#"INSERT INTO polls
                          (status_id, account_id, options, multiple, hide_totals, expires_at, created_at, updated_at)
                        VALUES ($1,$2,$3,$4,$5,$6,now(),now())"#,
                     status.id, account.id, &opts as &[String], multiple, hide_totals, expires_at,
                 )
                 .execute(&state.db)
-                .await?;
+                .await;
+                if let Err(e) = poll_created {
+                    tracing::error!(scheduled_id, status_id = status.id, error = %e, "scheduled status published without its poll");
+                }
             }
         }
     }

@@ -235,72 +235,315 @@ pub async fn shared_inbox(
         );
     }
 
+    // The signature checked out, so the activity is authentic and ours to
+    // process — but the work itself (DB writes, remote fetches, fan-out) need
+    // not happen on the sender's connection. Enqueue and return 202, matching
+    // Mastodon's ActivityPub::ProcessingWorker. Tests opt into inline
+    // processing so they can assert on the result without racing the worker.
+    if !sync_ingress() {
+        enqueue_activity(&state, activity_type, &actor_uri, &activity).await?;
+        return Ok(StatusCode::ACCEPTED);
+    }
+
+    process_activity(&state, &instance, activity_type, &activity).await?;
+    Ok(StatusCode::ACCEPTED)
+}
+
+/// Dispatch a verified activity to its handler. Runs on the ingress queue in
+/// production, inline under [`enable_sync_ingress`].
+pub(super) async fn process_activity(
+    state: &AppState,
+    instance: &crate::config::InstanceConfig,
+    activity_type: &str,
+    activity: &Value,
+) -> AppResult<()> {
     let outcome = match activity_type {
         "Follow" => {
-            handle_follow(&state, &instance, &activity).await?;
+            handle_follow(state, instance, activity).await?;
             "handled"
         }
         "Undo" => {
-            handle_undo(&state, &instance, &activity).await?;
+            handle_undo(state, instance, activity).await?;
             "handled"
         }
         "Create" => {
-            handle_create(&state, &instance, &activity).await?;
+            handle_create(state, instance, activity).await?;
             "handled"
         }
         "Delete" => {
-            handle_delete(&state, &instance, &activity).await?;
+            handle_delete(state, instance, activity).await?;
             "handled"
         }
         "Announce" => {
-            handle_announce(&state, &instance, &activity).await?;
+            handle_announce(state, instance, activity).await?;
             "handled"
         }
         "Like" => {
-            handle_like(&state, &instance, &activity).await?;
+            handle_like(state, instance, activity).await?;
             "handled"
         }
         "Accept" | "Reject" => {
-            handle_accept_reject(&state, &instance, &activity).await?;
+            handle_accept_reject(state, instance, activity).await?;
             "handled"
         }
         "Update" => {
-            handle_update(&state, &instance, &activity).await?;
+            handle_update(state, instance, activity).await?;
             "handled"
         }
         "Block" => {
-            handle_block(&state, &activity).await?;
+            handle_block(state, activity).await?;
             "handled"
         }
         "Flag" => {
-            handle_flag(&state, &activity).await?;
+            handle_flag(state, activity).await?;
             "handled"
         }
         "Move" => {
-            handle_move(&state, &activity).await?;
+            handle_move(state, activity).await?;
             "handled"
         }
         "Add" => {
-            handle_add(&state, &activity).await?;
+            handle_add(state, activity).await?;
             "handled"
         }
         "Remove" => {
-            handle_remove(&state, &activity).await?;
+            handle_remove(state, activity).await?;
             "handled"
         }
         "QuoteRequest" => {
-            handle_quote_request(&state, &instance, &activity).await?;
+            handle_quote_request(state, instance, activity).await?;
             "handled"
         }
         "FeatureRequest" => {
-            handle_feature_request(&state, &instance, &activity).await?;
+            handle_feature_request(state, instance, activity).await?;
             "handled"
         }
         _ => "ignored",
     };
     tracing::debug!(activity_type, outcome, "ActivityPub activity processed");
 
-    Ok(StatusCode::ACCEPTED)
+    Ok(())
+}
+
+// ── Ingress queue ─────────────────────────────────────────────────────────
+
+const INBOX_QUEUE_IDLE: std::time::Duration = std::time::Duration::from_millis(500);
+const INBOX_QUEUE_ERROR_IDLE: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// When true, inbound activities are handled inline in the request instead of
+/// going through the durable queue. Set by integration tests so they can assert
+/// on an activity's effect immediately after the POST returns, mirroring
+/// [`crate::feed::enable_sync_fanout`].
+static SYNC_INGRESS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn enable_sync_ingress() {
+    SYNC_INGRESS.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+pub fn sync_ingress() -> bool {
+    SYNC_INGRESS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Record a verified activity for the ingress worker to process.
+async fn enqueue_activity(
+    state: &AppState,
+    activity_type: &str,
+    actor_uri: &str,
+    activity: &Value,
+) -> AppResult<()> {
+    sqlx::query!(
+        r#"INSERT INTO eunha.inbox_jobs
+             (activity, activity_type, actor_uri, created_at, updated_at)
+           VALUES ($1, $2, $3, now(), now())"#,
+        activity,
+        activity_type,
+        actor_uri,
+    )
+    .execute(&state.db)
+    .await?;
+    Ok(())
+}
+
+/// Run one loop of the durable ingress queue. As with the delivery queue,
+/// `index` only distinguishes sibling loops in `locked_by`; `FOR UPDATE SKIP
+/// LOCKED` is what keeps concurrent claims disjoint.
+pub async fn run_inbox_queue(state: AppState, index: usize) {
+    let worker_id = format!(
+        "{}:{}:ingress:{}",
+        std::env::var("HOSTNAME").unwrap_or_else(|_| "eunha".into()),
+        std::process::id(),
+        index,
+    );
+    let workers = state.config.workers.sanitized();
+    let batch = workers.inbox_batch;
+    let concurrency = workers.inbox_concurrency;
+
+    loop {
+        match run_inbox_queue_batch(&state, &worker_id, batch, concurrency).await {
+            Ok(0) => tokio::time::sleep(INBOX_QUEUE_IDLE).await,
+            Ok(n) => tracing::debug!(count = n, "processed inbound ActivityPub activities"),
+            Err(e) => {
+                tracing::error!(error = %e, "ingress queue batch failed");
+                tokio::time::sleep(INBOX_QUEUE_ERROR_IDLE).await;
+            }
+        }
+    }
+}
+
+/// Claim and process one batch of queued activities, returning how many were
+/// handled. Tests use this to drain the queue deterministically instead of
+/// racing the always-running worker loop.
+pub async fn drain_inbox_queue(state: &AppState) -> anyhow::Result<usize> {
+    run_inbox_queue_batch(state, "drain", 100, 1).await
+}
+
+async fn run_inbox_queue_batch(
+    state: &AppState,
+    worker_id: &str,
+    batch: i64,
+    concurrency: usize,
+) -> anyhow::Result<usize> {
+    let jobs = sqlx::query!(
+        r#"WITH picked AS (
+             SELECT id
+             FROM eunha.inbox_jobs
+             WHERE failed_at IS NULL
+               AND run_at <= now()
+               AND (locked_at IS NULL OR locked_at < now() - interval '10 minutes')
+             ORDER BY run_at ASC, id ASC
+             LIMIT $1
+             FOR UPDATE SKIP LOCKED
+           )
+           UPDATE eunha.inbox_jobs j
+           SET locked_at = now(), locked_by = $2, updated_at = now()
+           FROM picked
+           WHERE j.id = picked.id
+           RETURNING j.id, j.activity, j.activity_type, j.actor_uri,
+                     j.attempts, j.max_attempts"#,
+        batch,
+        worker_id,
+    )
+    .fetch_all(&state.db)
+    .await?;
+
+    let count = jobs.len();
+    let instance = (*state.instance).clone();
+
+    // Activities for the same object can interleave here exactly as they can
+    // across Sidekiq threads; the `create:{uri}` Redis lock and the
+    // `delete_upon_arrival` tombstone already serialize the cases that matter.
+    futures::stream::StreamExt::for_each_concurrent(
+        futures::stream::iter(jobs),
+        concurrency,
+        |job| {
+            let instance = instance.clone();
+            async move {
+                process_inbox_job(
+                    state,
+                    &instance,
+                    job.id,
+                    &job.activity_type,
+                    &job.actor_uri,
+                    &job.activity,
+                    job.attempts,
+                    job.max_attempts,
+                )
+                .await;
+            }
+        },
+    )
+    .await;
+
+    Ok(count)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn process_inbox_job(
+    state: &AppState,
+    instance: &crate::config::InstanceConfig,
+    id: i64,
+    activity_type: &str,
+    actor_uri: &str,
+    activity: &Value,
+    attempts: i32,
+    max_attempts: i32,
+) {
+    match process_activity(state, instance, activity_type, activity).await {
+        Ok(()) => {
+            let _ = sqlx::query!("DELETE FROM eunha.inbox_jobs WHERE id = $1", id)
+                .execute(&state.db)
+                .await;
+        }
+        Err(e) => {
+            let next = attempts + 1;
+            let err = e.to_string();
+            if next >= max_attempts {
+                tracing::warn!(
+                    id,
+                    activity_type,
+                    actor = actor_uri,
+                    attempts = next,
+                    error = %err,
+                    "inbound activity failed permanently"
+                );
+                let _ = sqlx::query!(
+                    r#"UPDATE eunha.inbox_jobs
+                       SET attempts = $2, failed_at = now(), locked_at = NULL, locked_by = NULL,
+                           last_error = $3, updated_at = now()
+                       WHERE id = $1"#,
+                    id,
+                    next,
+                    err,
+                )
+                .execute(&state.db)
+                .await;
+            } else {
+                // Exponential backoff: 15s, 30s, 60s, … capped at 30 minutes.
+                let backoff = (15_i64 << (next.clamp(1, 8) - 1)).min(1800);
+                let run_at = chrono::Utc::now() + chrono::Duration::seconds(backoff);
+                let _ = sqlx::query!(
+                    r#"UPDATE eunha.inbox_jobs
+                       SET attempts = $2, run_at = $3, locked_at = NULL, locked_by = NULL,
+                           last_error = $4, updated_at = now()
+                       WHERE id = $1"#,
+                    id,
+                    next,
+                    run_at,
+                    err,
+                )
+                .execute(&state.db)
+                .await;
+                tracing::warn!(
+                    id,
+                    activity_type,
+                    attempts = next,
+                    error = %err,
+                    "inbound activity failed; will retry"
+                );
+            }
+        }
+    }
+}
+
+/// Periodically delete inbound activities that failed permanently. Their
+/// `last_error` is kept for a week so a federation bug is still diagnosable
+/// after the fact.
+pub async fn run_inbox_cleanup(state: AppState) {
+    loop {
+        let deleted = sqlx::query!(
+            r#"DELETE FROM eunha.inbox_jobs
+               WHERE failed_at IS NOT NULL AND failed_at < now() - interval '7 days'"#,
+        )
+        .execute(&state.db)
+        .await
+        .map(|r| r.rows_affected());
+        match deleted {
+            Ok(0) => {}
+            Ok(n) => tracing::info!(deleted = n, "pruned failed inbound activities"),
+            Err(e) => tracing::error!(error = %e, "inbox job cleanup failed"),
+        }
+        tokio::time::sleep(std::time::Duration::from_secs(3600)).await;
+    }
 }
 
 /// Recompute a collection's `item_count` (pending + accepted items).

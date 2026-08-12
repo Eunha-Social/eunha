@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO eunha.scheduled_status_attempts\n             (scheduled_status_id, attempts, run_at, last_error, created_at, updated_at)\n           VALUES ($1, 1, now() + interval '1 minute', $2, now(), now())\n           ON CONFLICT (scheduled_status_id) DO UPDATE\n             SET attempts = eunha.scheduled_status_attempts.attempts + 1,\n                 run_at = now() + LEAST(\n                     interval '1 hour',\n                     interval '1 minute' * pow(2, eunha.scheduled_status_attempts.attempts)\n                 ),\n                 last_error = $2,\n                 updated_at = now()\n           RETURNING attempts",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "attempts",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "5c285f376a2d4a5b60f875fdba7325b50dec061edb1fef389ed84889d969226c"
+}

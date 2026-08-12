@@ -3997,6 +3997,114 @@ async fn test_scheduled_status_publish_end_to_end() {
     );
 }
 
+/// A publish that writes nothing must not destroy the schedule: the post is
+/// kept and retried later, rather than vanishing on one bad minute.
+#[tokio::test]
+async fn test_failed_scheduled_publish_keeps_the_schedule() {
+    let ctx = TestContext::new("sched-retry").await;
+    let alice_id: i64 = ctx.alice_id.parse().unwrap();
+
+    // `in_reply_to_id` pointing at a status that does not exist makes the
+    // INSERT fail on its foreign key — the publish gets as far as writing and
+    // then writes nothing at all.
+    let sched_id: i64 = sqlx::query_scalar!(
+        r#"INSERT INTO scheduled_statuses (account_id, scheduled_at, params)
+           VALUES ($1, now() - interval '1 minute', $2)
+           RETURNING id"#,
+        alice_id,
+        serde_json::json!({
+            "text": "this must survive a failed publish",
+            "visibility": "public",
+            "in_reply_to_id": "999999999999999999",
+        }),
+    )
+    .fetch_one(&ctx.db)
+    .await
+    .unwrap();
+
+    eunha::background::publish_due_statuses(&ctx.state)
+        .await
+        .expect("a failing publish must not abort the whole run");
+
+    let still_there: i64 =
+        sqlx::query_scalar!(r#"SELECT count(*) AS "c!" FROM scheduled_statuses WHERE id = $1"#, sched_id)
+            .fetch_one(&ctx.db)
+            .await
+            .unwrap();
+    assert_eq!(still_there, 1, "a failed publish must not delete the schedule");
+
+    let attempt = sqlx::query!(
+        "SELECT attempts, failed_at, run_at > now() AS backed_off, last_error
+         FROM eunha.scheduled_status_attempts WHERE scheduled_status_id = $1",
+        sched_id,
+    )
+    .fetch_one(&ctx.db)
+    .await
+    .expect("the failure must be recorded");
+    assert_eq!(attempt.attempts, 1, "the attempt must be counted");
+    assert!(attempt.failed_at.is_none(), "one failure must not park the schedule");
+    assert_eq!(attempt.backed_off, Some(true), "the retry must be scheduled for later");
+    assert!(attempt.last_error.is_some(), "the failure reason must be kept");
+
+    // Running again immediately must respect the backoff rather than hammering
+    // the same doomed row every tick.
+    eunha::background::publish_due_statuses(&ctx.state).await.unwrap();
+    let attempts: i32 = sqlx::query_scalar!(
+        "SELECT attempts FROM eunha.scheduled_status_attempts WHERE scheduled_status_id = $1",
+        sched_id,
+    )
+    .fetch_one(&ctx.db)
+    .await
+    .unwrap();
+    assert_eq!(attempts, 1, "a backed-off schedule must be skipped");
+
+    // Once the backoff elapses it is picked up again.
+    sqlx::query!(
+        "UPDATE eunha.scheduled_status_attempts SET run_at = now() - interval '1 second'
+         WHERE scheduled_status_id = $1",
+        sched_id,
+    )
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+    eunha::background::publish_due_statuses(&ctx.state).await.unwrap();
+    let attempts: i32 = sqlx::query_scalar!(
+        "SELECT attempts FROM eunha.scheduled_status_attempts WHERE scheduled_status_id = $1",
+        sched_id,
+    )
+    .fetch_one(&ctx.db)
+    .await
+    .unwrap();
+    assert_eq!(attempts, 2, "the schedule must be retried once its backoff expires");
+}
+
+/// A schedule that can never produce a status is dropped rather than retried
+/// every minute forever.
+#[tokio::test]
+async fn test_unpublishable_scheduled_status_is_dropped() {
+    let ctx = TestContext::new("sched-permanent").await;
+    let alice_id: i64 = ctx.alice_id.parse().unwrap();
+
+    let sched_id: i64 = sqlx::query_scalar!(
+        r#"INSERT INTO scheduled_statuses (account_id, scheduled_at, params)
+           VALUES ($1, now() - interval '1 minute', NULL)
+           RETURNING id"#,
+        alice_id,
+    )
+    .fetch_one(&ctx.db)
+    .await
+    .unwrap();
+
+    eunha::background::publish_due_statuses(&ctx.state).await.unwrap();
+
+    let remaining: i64 =
+        sqlx::query_scalar!(r#"SELECT count(*) AS "c!" FROM scheduled_statuses WHERE id = $1"#, sched_id)
+            .fetch_one(&ctx.db)
+            .await
+            .unwrap();
+    assert_eq!(remaining, 0, "a schedule with no params must be dropped");
+}
+
 // ── mentions and tags in status response ──────────────────────────────────────
 
 /// A status with @username mention includes the mentioned account in the mentions array.

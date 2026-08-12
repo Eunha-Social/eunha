@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO scheduled_statuses (account_id, scheduled_at, params)\n           VALUES ($1, now() - interval '1 minute', NULL)\n           RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "082559f4a158d2cf688903fde71713df32eb199dde28ba471af07a67652ea1f7"
+}
