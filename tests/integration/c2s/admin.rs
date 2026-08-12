@@ -1027,6 +1027,133 @@ async fn test_admin_reject_account() {
     assert!(user_exists.is_none(), "rejected user should be gone");
 }
 
+/// Suspension hides content instead of deleting it: the statuses stay in the
+/// database, become invisible (`StatusPolicy#show?`), and come back on
+/// unsuspend. Data only goes when the deletion request comes due.
+#[tokio::test]
+async fn test_suspension_hides_statuses_and_unsuspend_restores() {
+    let ctx = TestContext::new("admin-suspend-hide").await;
+    make_admin(&ctx).await;
+    let bob_account_id: i64 = ctx.bob_id.parse().unwrap();
+
+    let status = ctx
+        .api
+        .post_status(&ctx.bob_token, "visible for now", "public")
+        .await;
+    let status_id = status["id"].as_str().unwrap().to_string();
+
+    ctx.api
+        .post_json(
+            &format!("/api/v1/admin/accounts/{}/suspend", ctx.bob_id),
+            Some(&ctx.alice_token),
+            &serde_json::json!({}),
+        )
+        .await;
+
+    // Hidden from readers …
+    assert_eq!(
+        ctx.api
+            .get(&format!("/api/v1/statuses/{status_id}"), Some(&ctx.alice_token))
+            .await
+            .status(),
+        StatusCode::NOT_FOUND,
+        "a suspended author's status should be invisible",
+    );
+    let public: Vec<Value> = ctx
+        .api
+        .get("/api/v1/timelines/public", None)
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        public.iter().all(|s| s["id"].as_str() != Some(&status_id)),
+        "suspended author's status should be out of the public timeline",
+    );
+
+    // … but not deleted.
+    let live: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM statuses WHERE account_id = $1 AND deleted_at IS NULL",
+    )
+    .bind(bob_account_id)
+    .fetch_one(&ctx.db)
+    .await
+    .unwrap();
+    assert_eq!(live, 1, "suspension must not delete the account's statuses");
+
+    ctx.api
+        .post_json(
+            &format!("/api/v1/admin/accounts/{}/unsuspend", ctx.bob_id),
+            Some(&ctx.alice_token),
+            &serde_json::json!({}),
+        )
+        .await;
+
+    assert_eq!(
+        ctx.api
+            .get(&format!("/api/v1/statuses/{status_id}"), Some(&ctx.alice_token))
+            .await
+            .status(),
+        StatusCode::OK,
+        "unsuspending should bring the status back",
+    );
+}
+
+/// A suspended account can't act, but its tokens survive so unsuspending
+/// restores access without a new sign-in (`require_not_suspended!`).
+#[tokio::test]
+async fn test_suspension_blocks_tokens_reversibly() {
+    let ctx = TestContext::new("admin-suspend-token").await;
+    make_admin(&ctx).await;
+
+    ctx.api
+        .post_json(
+            &format!("/api/v1/admin/accounts/{}/suspend", ctx.bob_id),
+            Some(&ctx.alice_token),
+            &serde_json::json!({}),
+        )
+        .await;
+
+    let blocked = ctx
+        .api
+        .get("/api/v1/accounts/verify_credentials", Some(&ctx.bob_token))
+        .await;
+    assert!(
+        blocked.status() == StatusCode::UNAUTHORIZED || blocked.status() == StatusCode::FORBIDDEN,
+        "a suspended account should not be able to act, got {}",
+        blocked.status(),
+    );
+    let revoked: Option<bool> = sqlx::query_scalar(
+        "SELECT revoked_at IS NOT NULL FROM oauth_access_tokens WHERE token = $1",
+    )
+    .bind(&ctx.bob_token)
+    .fetch_optional(&ctx.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        revoked,
+        Some(false),
+        "the token should be blocked, not revoked",
+    );
+
+    ctx.api
+        .post_json(
+            &format!("/api/v1/admin/accounts/{}/unsuspend", ctx.bob_id),
+            Some(&ctx.alice_token),
+            &serde_json::json!({}),
+        )
+        .await;
+
+    assert_eq!(
+        ctx.api
+            .get("/api/v1/accounts/verify_credentials", Some(&ctx.bob_token))
+            .await
+            .status(),
+        StatusCode::OK,
+        "the same token should work again after unsuspending",
+    );
+}
+
 /// `Scheduler::SuspendedUserCleanupScheduler`: a suspension older than
 /// `DELAY_TO_DELETION` is purged; a fresh one is left alone.
 #[tokio::test]

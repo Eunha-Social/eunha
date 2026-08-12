@@ -551,12 +551,9 @@ pub async fn suspend_account(
         };
         crate::delete_account::suspend(&state, id, origin, true).await?;
     }
-    sqlx::query!(
-        "UPDATE statuses SET deleted_at = now() WHERE account_id = $1 AND deleted_at IS NULL",
-        id,
-    )
-    .execute(&state.db)
-    .await?;
+    // Suspension hides the account's content rather than deleting it, so that
+    // unsuspending brings everything back (Mastodon `SuspendAccountService`).
+    // Data is only removed once the 30-day deletion request comes due.
     let account = sqlx::query_as!(models::Account, "SELECT * FROM accounts WHERE id = $1", id)
         .fetch_optional(&state.db)
         .await?
@@ -2357,12 +2354,6 @@ pub async fn account_action(
                 };
                 crate::delete_account::suspend(&state, id, origin, true).await?;
             }
-            sqlx::query!(
-                "UPDATE statuses SET deleted_at = now() WHERE account_id = $1 AND deleted_at IS NULL",
-                id,
-            )
-            .execute(&state.db)
-            .await?;
         }
         _ => {}
     }

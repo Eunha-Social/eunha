@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT f.account_id FROM follows f\n           JOIN accounts a ON a.id = f.account_id\n           WHERE f.target_account_id = $1 AND a.domain IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "account_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a6c8dd02b4def59d94691d2d9c309ddd347fb0bf1ce073dc85b4fb89cf535a9d"
+}

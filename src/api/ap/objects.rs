@@ -160,6 +160,11 @@ async fn status_bundle(
     id: i64,
 ) -> AppResult<super::note::NoteBundle> {
     let account = load_local_account(state, who).await?;
+    // A suspended account's objects are not dereferenceable, matching
+    // `StatusPolicy#show?` on the REST side.
+    if account.suspended_at.is_some() {
+        return Err(AppError::NotFound);
+    }
     let owner_ok = sqlx::query_scalar!(
         r#"SELECT EXISTS(
              SELECT 1 FROM statuses s

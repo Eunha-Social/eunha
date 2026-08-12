@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT t.id, u.account_id, t.application_id, t.scopes,\n                      t.expires_in, t.created_at, t.revoked_at, u.id as \"user_id?\",\n                      u.disabled as \"disabled?\"\n               FROM oauth_access_tokens t\n               LEFT JOIN users u ON u.id = t.resource_owner_id\n               WHERE t.token = $1",
+  "query": "SELECT t.id, u.account_id, t.application_id, t.scopes,\n                      t.expires_in, t.created_at, t.revoked_at, u.id as \"user_id?\",\n                      u.disabled as \"disabled?\", a.suspended_at AS \"suspended_at?\"\n               FROM oauth_access_tokens t\n               LEFT JOIN users u ON u.id = t.resource_owner_id\n               LEFT JOIN accounts a ON a.id = u.account_id\n               WHERE t.token = $1",
   "describe": {
     "columns": [
       {
@@ -47,6 +47,11 @@
         "ordinal": 8,
         "name": "disabled?",
         "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "suspended_at?",
+        "type_info": "Timestamp"
       }
     ],
     "parameters": {
@@ -63,8 +68,9 @@
       false,
       true,
       false,
-      false
+      false,
+      true
     ]
   },
-  "hash": "675485973b5ef7a90cf21b79b3a41f503c2b39ccd1967dc15e6468e15479caf4"
+  "hash": "ab497fc1b960fd8faa8b66bec270f04dce7ef95cd1a15ac1e49bacb67d5b1570"
 }

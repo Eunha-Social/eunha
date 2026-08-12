@@ -58,6 +58,7 @@ async fn get_session(headers: &HeaderMap, state: &AppState) -> Option<AccountSes
              AND t.revoked_at IS NULL
              AND (t.expires_in IS NULL OR t.created_at + t.expires_in * interval '1 second' > now())
              AND u.disabled = false
+             AND a.suspended_at IS NULL
              AND a.domain IS NULL"#,
         token,
     )
@@ -203,6 +204,7 @@ pub async fn login_post(
            WHERE lower(u.email) = lower($1)
              AND u.confirmed_at IS NOT NULL
              AND u.disabled = false
+             AND a.suspended_at IS NULL
              AND a.domain IS NULL"#,
         form.email.trim(),
     )

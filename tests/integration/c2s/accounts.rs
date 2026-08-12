@@ -3212,6 +3212,75 @@ async fn test_delete_account_keeps_reported_statuses() {
     );
 }
 
+/// Lineage survives a *chain* of deletions: when an inviter is deleted after
+/// its own inviter already was, the earlier snapshot is not overwritten with
+/// the now-missing link.
+#[tokio::test]
+async fn test_delete_account_preserves_chained_invite_lineage() {
+    let ctx = TestContext::new("del-acct-chain").await;
+    let alice_account_id: i64 = ctx.alice_id.parse().unwrap();
+    let bob_account_id: i64 = ctx.bob_id.parse().unwrap();
+
+    // Alice invited Bob, Bob invited Carol.
+    let (carol_id, _carol_token) =
+        crate::helpers::seed_user(&ctx.db, &ctx.domain, "carol", "carol@test.invalid").await;
+    for (inviter, invitee) in [
+        (alice_account_id, bob_account_id),
+        (bob_account_id, carol_id),
+    ] {
+        let invite_id: i64 = sqlx::query_scalar(
+            r#"INSERT INTO invites (user_id, code, uses, created_at, updated_at)
+               SELECT id, md5(random()::text), 1, now(), now() FROM users WHERE account_id = $1
+               RETURNING id"#,
+        )
+        .bind(inviter)
+        .fetch_one(&ctx.db)
+        .await
+        .unwrap();
+        sqlx::query("UPDATE users SET invite_id = $1 WHERE account_id = $2")
+            .bind(invite_id)
+            .bind(invitee)
+            .execute(&ctx.db)
+            .await
+            .unwrap();
+    }
+
+    // Alice deletes first, then Bob.
+    ctx.api
+        .http
+        .delete(ctx.api.url("/api/v1/accounts"))
+        .header("host", &ctx.api.host)
+        .bearer_auth(&ctx.alice_token)
+        .json(&json!({"password": "testpassword123"}))
+        .send()
+        .await
+        .unwrap();
+    ctx.api
+        .http
+        .delete(ctx.api.url("/api/v1/accounts"))
+        .header("host", &ctx.api.host)
+        .bearer_auth(&ctx.bob_token)
+        .json(&json!({"password": "testpassword123"}))
+        .send()
+        .await
+        .unwrap();
+
+    let lineage: Vec<(i64, Option<i64>)> = sqlx::query_as(
+        "SELECT account_id, inviter_account_id FROM eunha.invite_lineage ORDER BY account_id",
+    )
+    .fetch_all(&ctx.db)
+    .await
+    .unwrap();
+    assert!(
+        lineage.contains(&(bob_account_id, Some(alice_account_id))),
+        "Bob → Alice should survive Bob's own deletion: {lineage:?}",
+    );
+    assert!(
+        lineage.contains(&(carol_id, Some(bob_account_id))),
+        "Carol → Bob should be recorded: {lineage:?}",
+    );
+}
+
 /// Destroying the user record takes its `invites` with it, which would orphan
 /// everyone it invited. eunha snapshots the lineage into `eunha.invite_lineage`
 /// first, so the invite tree survives a deletion that removes the PII.

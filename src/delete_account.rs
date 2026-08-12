@@ -88,10 +88,17 @@ impl Options {
 
 // ── Account#suspend! / #unsuspend! ────────────────────────────────────────
 
-/// Port of `Account#suspend!`. Records a deletion request (which is what makes
-/// the suspension reversible, and what the 30-day scheduler later acts on),
-/// marks the account suspended, and optionally blocks the user's email from
-/// being reused.
+/// Port of `Account#suspend!` plus the `SuspendAccountService` that Mastodon
+/// runs straight after it. Records a deletion request (which is what makes the
+/// suspension reversible, and what the 30-day scheduler later acts on), marks
+/// the account suspended, optionally blocks the user's email from being reused,
+/// and clears its content out of the caches.
+///
+/// Nothing is deleted here: a suspended account's statuses stay in the database
+/// and are hidden by the read paths (`StatusPolicy#show?`, and the
+/// `suspended_at IS NULL` filters on the timelines), so [`unsuspend`] brings
+/// everything back. Data is only removed when a deletion request comes due or
+/// [`call`] is invoked directly.
 pub async fn suspend(
     state: &AppState,
     account_id: i64,
@@ -116,18 +123,6 @@ pub async fn suspend(
     )
     .execute(&mut *tx)
     .await?;
-    // Mastodon blocks a suspended account at the controller layer
-    // (`current_account.unavailable?`); eunha's bearer-token middleware only
-    // looks at the user, so revoke the tokens instead. This also ends the
-    // `/account` web session, which is backed by one of them.
-    sqlx::query!(
-        r#"UPDATE oauth_access_tokens t SET revoked_at = now()
-           FROM users u
-           WHERE u.id = t.resource_owner_id AND u.account_id = $1 AND t.revoked_at IS NULL"#,
-        account_id,
-    )
-    .execute(&mut *tx)
-    .await?;
     if block_email {
         // `Account#create_canonical_email_block!` — local accounts only, and a
         // duplicate is not an error.
@@ -149,6 +144,51 @@ pub async fn suspend(
     state
         .streaming
         .publish(crate::streaming::Event::Kill { account_id });
+
+    suspend_side_effects(state, account_id).await?;
+    Ok(())
+}
+
+/// Port of `SuspendAccountService`, which Mastodon runs on a worker right after
+/// `suspend!`. The account's content is *not* deleted — it is hidden for as long
+/// as the suspension lasts (see `StatusPolicy#show?`) — so the work here is
+/// clearing it out of the caches that would otherwise keep serving it.
+pub async fn suspend_side_effects(state: &AppState, account_id: i64) -> Result<()> {
+    // `unmerge_from_home_timelines!`
+    let followers: Vec<i64> = sqlx::query_scalar!(
+        r#"SELECT f.account_id FROM follows f
+           JOIN accounts a ON a.id = f.account_id
+           WHERE f.target_account_id = $1 AND a.domain IS NULL"#,
+        account_id,
+    )
+    .fetch_all(&state.db)
+    .await?;
+    let mut redis = state.redis.clone();
+    for follower in followers {
+        crate::feed::unmerge_from_home(&mut redis, &state.db, account_id, follower).await;
+    }
+
+    // `unmerge_from_list_timelines!`. Dropping the cached feed is enough: it is
+    // repopulated from the database on the next read, which skips suspended
+    // authors.
+    let lists: Vec<i64> = sqlx::query_scalar!(
+        "SELECT list_id FROM list_accounts WHERE account_id = $1",
+        account_id,
+    )
+    .fetch_all(&state.db)
+    .await?;
+    for list_id in lists {
+        crate::feed::delete_list_feed(&mut redis, list_id).await;
+    }
+
+    // `remove_from_trends!`
+    sqlx::query!(
+        "DELETE FROM status_trends WHERE account_id = $1",
+        account_id,
+    )
+    .execute(&state.db)
+    .await?;
+
     Ok(())
 }
 

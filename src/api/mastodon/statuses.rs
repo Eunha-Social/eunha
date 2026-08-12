@@ -1770,13 +1770,17 @@ async fn fetch_status_with_account(state: &AppState, id: i64) -> AppResult<(DbSt
     .await?
     .ok_or(AppError::NotFound)?;
 
+    // `StatusPolicy#show?` starts with `return false if author.unavailable?`:
+    // a suspended author's statuses are invisible (404) for as long as the
+    // suspension lasts, rather than being deleted when it is applied.
     let account = sqlx::query_as!(
         Account,
-        "SELECT * FROM accounts WHERE id = $1",
+        "SELECT * FROM accounts WHERE id = $1 AND suspended_at IS NULL",
         status.account_id
     )
-    .fetch_one(&state.db)
-    .await?;
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::NotFound)?;
 
     Ok((status, account))
 }
