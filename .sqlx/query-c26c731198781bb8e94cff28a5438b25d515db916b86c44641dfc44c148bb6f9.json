@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT unnest(status_ids) AS \"id!\"\n           FROM reports\n           WHERE target_account_id = $1 AND action_taken_at IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "c26c731198781bb8e94cff28a5438b25d515db916b86c44641dfc44c148bb6f9"
+}

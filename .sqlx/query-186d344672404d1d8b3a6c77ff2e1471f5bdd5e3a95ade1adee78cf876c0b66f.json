@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE accounts SET suspended_at = NULL, suspension_origin = NULL, updated_at = now() WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "186d344672404d1d8b3a6c77ff2e1471f5bdd5e3a95ade1adee78cf876c0b66f"
+}

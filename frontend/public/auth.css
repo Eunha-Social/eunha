@@ -142,6 +142,29 @@ button:disabled {
   cursor: not-allowed;
 }
 
+/* Destructive action (account deletion) */
+button.danger,
+.btn.danger {
+  background: var(--destructive);
+  color: var(--primary-foreground);
+}
+
+/* Explanatory copy above a form, e.g. the account deletion warnings */
+.hint {
+  font-size: 0.85rem;
+  color: var(--muted-foreground);
+  margin: 0 0 0.75rem;
+}
+
+ul.hint {
+  padding-left: 1.1rem;
+  margin-bottom: 1.25rem;
+}
+
+ul.hint li {
+  margin: 0.3rem 0;
+}
+
 /* Message boxes */
 .error {
   background: color-mix(in oklch, var(--destructive) 12%, var(--card));

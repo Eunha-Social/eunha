@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE account_stats s\n                   SET statuses_count = GREATEST(0, s.statuses_count - c.n), updated_at = now()\n                   FROM (SELECT account_id, count(*) AS n\n                         FROM unnest($1::bigint[]) AS account_id GROUP BY account_id) c\n                   WHERE s.account_id = c.account_id",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a07226ec91d642e5453fb5bb182b2380604db08d40a1af7e5a608cf2860e9a94"
+}

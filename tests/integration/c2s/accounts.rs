@@ -3036,7 +3036,7 @@ async fn test_delete_account_with_valid_password() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 
-    // After deletion, verify_credentials should fail (tokens revoked, user disabled).
+    // After deletion, verify_credentials should fail (tokens revoked, user gone).
     let after = ctx
         .api
         .get(
@@ -3051,39 +3051,193 @@ async fn test_delete_account_with_valid_password() {
     );
 }
 
-/// DELETE /api/v1/accounts disables the user (retaining the row) and destroys
-/// only unused invites, matching Mastodon's keep_user_record? branch. Used
-/// invites survive so the invite tree stays intact.
+/// Self-service deletion follows `DeleteAccountService(reserve_username: true,
+/// reserve_email: false)`: the account row stays (suspended and scrubbed, so
+/// the username can't be re-registered), the user row and its posts do not.
 #[tokio::test]
-async fn test_delete_account_disables_and_retains_used_invites() {
-    let ctx = TestContext::new("del-acct-retain").await;
+async fn test_delete_account_reserves_username_and_destroys_user() {
+    let ctx = TestContext::new("del-acct-purge").await;
     let alice_account_id: i64 = ctx.alice_id.parse().unwrap();
-    let user_id: i64 = sqlx::query_scalar("SELECT id FROM users WHERE account_id = $1")
+
+    ctx.api
+        .post_json(
+            "/api/v1/statuses",
+            Some(&ctx.alice_token),
+            &json!({"status": "goodbye"}),
+        )
+        .await;
+
+    // An upload never attached to a status still has to go.
+    sqlx::query(
+        r#"INSERT INTO media_attachments (id, account_id, file_file_name, remote_url, type, created_at, updated_at)
+           VALUES ($1, $2, 'orphan.png', '', 0, now(), now())"#,
+    )
+    .bind(eunha::snowflake::next_id())
+    .bind(alice_account_id)
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+
+    let resp = ctx
+        .api
+        .http
+        .delete(ctx.api.url("/api/v1/accounts"))
+        .header("host", &ctx.api.host)
+        .bearer_auth(&ctx.alice_token)
+        .json(&json!({"password": "testpassword123"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let user_exists: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE account_id = $1")
+        .bind(alice_account_id)
+        .fetch_optional(&ctx.db)
+        .await
+        .unwrap();
+    assert!(user_exists.is_none(), "user record should be destroyed");
+
+    let account: (bool, String, String) = sqlx::query_as(
+        "SELECT suspended_at IS NOT NULL, display_name, note FROM accounts WHERE id = $1",
+    )
+    .bind(alice_account_id)
+    .fetch_one(&ctx.db)
+    .await
+    .expect("account record should be reserved");
+    assert!(account.0, "account should stay suspended");
+    assert_eq!(account.1, "", "display name should be scrubbed");
+    assert_eq!(account.2, "", "note should be scrubbed");
+
+    let statuses: i64 = sqlx::query_scalar("SELECT count(*) FROM statuses WHERE account_id = $1")
         .bind(alice_account_id)
         .fetch_one(&ctx.db)
         .await
         .unwrap();
+    assert_eq!(statuses, 0, "statuses should be removed");
 
-    let used: Value = ctx
+    let media: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM media_attachments WHERE account_id = $1")
+            .bind(alice_account_id)
+            .fetch_one(&ctx.db)
+            .await
+            .unwrap();
+    assert_eq!(media, 0, "media attachments should be removed");
+
+    // The deletion request created by `suspend!` is fulfilled, so the
+    // suspension is now permanent.
+    let requests: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM account_deletion_requests WHERE account_id = $1")
+            .bind(alice_account_id)
+            .fetch_one(&ctx.db)
+            .await
+            .unwrap();
+    assert_eq!(requests, 0, "deletion request should be fulfilled");
+}
+
+/// Statuses attached to an unresolved report survive the purge so moderators
+/// can still act on them (`reported_status_ids`), while everything else —
+/// including uploads never attached to a status — still goes.
+#[tokio::test]
+async fn test_delete_account_keeps_reported_statuses() {
+    let ctx = TestContext::new("del-acct-reported").await;
+    let alice_account_id: i64 = ctx.alice_id.parse().unwrap();
+
+    let reported = ctx
+        .api
+        .post_status(&ctx.alice_token, "reported content", "public")
+        .await;
+    let reported_id: i64 = reported["id"].as_str().unwrap().parse().unwrap();
+    let plain = ctx
+        .api
+        .post_status(&ctx.alice_token, "ordinary content", "public")
+        .await;
+    let plain_id: i64 = plain["id"].as_str().unwrap().parse().unwrap();
+
+    ctx.api
+        .post_json(
+            "/api/v1/reports",
+            Some(&ctx.bob_token),
+            &json!({
+                "account_id": ctx.alice_id,
+                "status_ids": [reported_id.to_string()],
+                "comment": "spam",
+                "category": "spam",
+            }),
+        )
+        .await;
+
+    sqlx::query(
+        r#"INSERT INTO media_attachments (id, account_id, file_file_name, remote_url, type, created_at, updated_at)
+           VALUES ($1, $2, 'orphan.png', '', 0, now(), now())"#,
+    )
+    .bind(eunha::snowflake::next_id())
+    .bind(alice_account_id)
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+
+    let resp = ctx
+        .api
+        .http
+        .delete(ctx.api.url("/api/v1/accounts"))
+        .header("host", &ctx.api.host)
+        .bearer_auth(&ctx.alice_token)
+        .json(&json!({"password": "testpassword123"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let remaining: Vec<i64> =
+        sqlx::query_scalar("SELECT id FROM statuses WHERE account_id = $1 ORDER BY id")
+            .bind(alice_account_id)
+            .fetch_all(&ctx.db)
+            .await
+            .unwrap();
+    assert_eq!(
+        remaining,
+        vec![reported_id],
+        "only the reported status should survive (plain status {plain_id} should be gone)",
+    );
+
+    let media: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM media_attachments WHERE account_id = $1")
+            .bind(alice_account_id)
+            .fetch_one(&ctx.db)
+            .await
+            .unwrap();
+    assert_eq!(
+        media, 0,
+        "unattached media should be purged even when some statuses are kept",
+    );
+}
+
+/// Destroying the user record takes its `invites` with it, which would orphan
+/// everyone it invited. eunha snapshots the lineage into `eunha.invite_lineage`
+/// first, so the invite tree survives a deletion that removes the PII.
+#[tokio::test]
+async fn test_delete_account_preserves_invite_lineage() {
+    let ctx = TestContext::new("del-acct-lineage").await;
+    let alice_account_id: i64 = ctx.alice_id.parse().unwrap();
+    let bob_account_id: i64 = ctx.bob_id.parse().unwrap();
+
+    // Alice invites Bob.
+    let invite: Value = ctx
         .api
         .post_json("/api/v1/invites", Some(&ctx.alice_token), &json!({}))
         .await
         .json()
         .await
         .unwrap();
-    let used_id: i64 = used["id"].as_str().unwrap().parse().unwrap();
-    let unused: Value = ctx
-        .api
-        .post_json("/api/v1/invites", Some(&ctx.alice_token), &json!({}))
-        .await
-        .json()
-        .await
-        .unwrap();
-    let unused_id: i64 = unused["id"].as_str().unwrap().parse().unwrap();
-
-    // Simulate the first invite having been consumed by a signup.
+    let invite_id: i64 = invite["id"].as_str().unwrap().parse().unwrap();
     sqlx::query("UPDATE invites SET uses = 1 WHERE id = $1")
-        .bind(used_id)
+        .bind(invite_id)
+        .execute(&ctx.db)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE users SET invite_id = $1 WHERE account_id = $2")
+        .bind(invite_id)
+        .bind(bob_account_id)
         .execute(&ctx.db)
         .await
         .unwrap();
@@ -3100,27 +3254,45 @@ async fn test_delete_account_disables_and_retains_used_invites() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::OK);
 
-    // The user row is retained and disabled (not deleted).
-    let disabled: bool = sqlx::query_scalar("SELECT disabled FROM users WHERE id = $1")
-        .bind(user_id)
-        .fetch_one(&ctx.db)
+    // The invite went with the user record…
+    let invite_exists: Option<i64> = sqlx::query_scalar("SELECT id FROM invites WHERE id = $1")
+        .bind(invite_id)
+        .fetch_optional(&ctx.db)
         .await
-        .expect("user row should still exist");
-    assert!(disabled, "user should be disabled after deletion");
+        .unwrap();
+    assert!(
+        invite_exists.is_none(),
+        "invites should be destroyed with the user record"
+    );
 
-    // Used invite survives; unused invite is destroyed.
-    let used_exists: Option<i64> = sqlx::query_scalar("SELECT id FROM invites WHERE id = $1")
-        .bind(used_id)
-        .fetch_optional(&ctx.db)
+    // …but the lineage it encoded did not.
+    let inviter: Option<i64> = sqlx::query_scalar(
+        "SELECT inviter_account_id FROM eunha.invite_lineage WHERE account_id = $1",
+    )
+    .bind(bob_account_id)
+    .fetch_one(&ctx.db)
+    .await
+    .expect("lineage row for the invitee");
+    assert_eq!(
+        inviter,
+        Some(alice_account_id),
+        "invitee should still point at its inviter"
+    );
+
+    // Bob is still a member of the tree (promoted to a root, since a suspended
+    // inviter is not itself listed).
+    let tree: Value = ctx
+        .api
+        .get("/api/eunha/v1/invite_tree", Some(&ctx.bob_token))
+        .await
+        .json()
         .await
         .unwrap();
-    assert!(used_exists.is_some(), "used invite should survive deletion");
-    let unused_exists: Option<i64> = sqlx::query_scalar("SELECT id FROM invites WHERE id = $1")
-        .bind(unused_id)
-        .fetch_optional(&ctx.db)
-        .await
-        .unwrap();
-    assert!(unused_exists.is_none(), "unused invite should be destroyed");
+    let roots = tree["roots"].as_array().unwrap();
+    assert!(
+        roots.iter().any(|n| n["id"] == ctx.bob_id.as_str()),
+        "invitee should still appear in the invite tree: {tree}"
+    );
 }
 
 /// DELETE /api/v1/accounts with wrong password returns 401.

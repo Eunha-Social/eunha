@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, file_file_name FROM media_attachments\n           WHERE account_id = $1\n             AND NOT COALESCE($2::bool AND status_id = ANY($3::bigint[]), false)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "file_file_name",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Bool",
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "1b1e09439bbc07f48527ccd0ec668ef1b9bba3cf7b7e1bb65df53e6e96d29bdf"
+}

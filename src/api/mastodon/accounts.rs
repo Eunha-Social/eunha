@@ -1855,72 +1855,73 @@ pub async fn apply_account_stats(
 
 // ── DELETE /api/v1/accounts ────────────────────────────────────────────────
 
+/// Self-service account deletion, mirroring Mastodon's
+/// `Settings::DeletesController#destroy`: pass the challenge, suspend the
+/// account, then hand it to `DeleteAccountService` with the username reserved
+/// and the user record (with the email and the rest of the PII) destroyed.
 pub async fn delete_account(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedUser>,
     body: Option<Json<serde_json::Value>>,
 ) -> AppResult<axum::http::StatusCode> {
     auth.require_scope("write:accounts")?;
-    let password = body
-        .as_ref()
-        .and_then(|b| b.get("password"))
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let field = |name: &str| -> String {
+        body.as_ref()
+            .and_then(|b| b.get(name))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
 
     let user = sqlx::query!(
-        "SELECT encrypted_password FROM users WHERE account_id = $1",
+        r#"SELECT u.encrypted_password, a.username, a.suspended_at
+           FROM users u JOIN accounts a ON a.id = u.account_id
+           WHERE u.account_id = $1"#,
         auth.account_id,
     )
     .fetch_optional(&state.db)
     .await?
     .ok_or(AppError::Unauthorized)?;
 
-    crate::crypto::verify_password(password, &user.encrypted_password)?;
+    // `require_not_suspended!`
+    if user.suspended_at.is_some() {
+        return Err(AppError::Forbidden);
+    }
 
-    // Soft-delete: mark account as suspended, revoke tokens, disable the user.
-    // Hard delete of statuses/follows is deferred (could be a background job).
-    let mut tx = state.db.begin().await?;
-    sqlx::query!(
-        "UPDATE statuses SET deleted_at = now() WHERE account_id = $1 AND deleted_at IS NULL",
+    // `challenge_passed?`: the password, or the username for accounts that have
+    // none (OAuth-only sign-ins).
+    if user.encrypted_password.is_empty() {
+        if field("username") != user.username {
+            return Err(AppError::Unauthorized);
+        }
+    } else {
+        crate::crypto::verify_password(&field("password"), &user.encrypted_password)?;
+    }
+
+    crate::delete_account::suspend(
+        &state,
         auth.account_id,
+        crate::delete_account::suspension_origin::LOCAL,
+        // `block_email: false` — the address is being released, not banned.
+        false,
     )
-    .execute(&mut *tx)
     .await?;
-    sqlx::query!(
-        r#"UPDATE oauth_access_tokens t
-           SET revoked_at = now()
-           FROM users u
-           WHERE u.id = t.resource_owner_id
-             AND u.account_id = $1
-             AND t.revoked_at IS NULL"#,
-        auth.account_id,
-    )
-    .execute(&mut *tx)
-    .await?;
-    sqlx::query!(
-        "UPDATE accounts SET suspended_at = now() WHERE id = $1",
-        auth.account_id,
-    )
-    .execute(&mut *tx)
-    .await?;
-    // Match Mastodon DeleteAccountService's keep_user_record? branch: disable the
-    // user (rather than deleting the row) and destroy only unused invites. Keeping
-    // the user and its used invites preserves the invite tree; the auth paths all
-    // reject disabled users, so account access is still fully revoked.
-    sqlx::query!(
-        "UPDATE users SET disabled = true, updated_at = now() WHERE account_id = $1",
-        auth.account_id,
-    )
-    .execute(&mut *tx)
-    .await?;
-    sqlx::query!(
-        "DELETE FROM invites
-         WHERE uses = 0 AND user_id = (SELECT id FROM users WHERE account_id = $1)",
-        auth.account_id,
-    )
-    .execute(&mut *tx)
-    .await?;
-    tx.commit().await?;
+
+    // Mastodon hands the purge to `AccountDeletionWorker`; eunha runs it on a
+    // task for the same reason (an account can own a lot of content), except
+    // under the tests' synchronous-fanout switch.
+    let account_id = auth.account_id;
+    let options = crate::delete_account::Options::self_service();
+    if crate::feed::sync_fanout() {
+        crate::delete_account::call(&state, account_id, options).await?;
+    } else {
+        let state = state.clone();
+        tokio::spawn(async move {
+            if let Err(e) = crate::delete_account::call(&state, account_id, options).await {
+                tracing::error!(account_id, error = %e, "account deletion failed");
+            }
+        });
+    }
 
     Ok(axum::http::StatusCode::OK)
 }

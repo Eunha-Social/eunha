@@ -126,6 +126,12 @@ async fn run(
             result = rx.recv() => {
                 match result {
                     Ok(event) => {
+                        // A suspended/deleted account's connections are cut, not filtered.
+                        if let Event::Kill { account_id: killed } = *event {
+                            if account_id == Some(killed) {
+                                return;
+                            }
+                        }
                         for stream in &subscribed {
                             let msg = route_event(&event, stream, account_id, &following, &state.db).await;
                             if let Some(msg) = msg {
@@ -423,6 +429,9 @@ fn to_wire(
                 .to_string(),
             )
         }
+
+        // Handled by closing the connection in `run`, never sent on the wire.
+        Event::Kill { .. } => None,
     }
 }
 
@@ -526,7 +535,7 @@ async fn to_wire_authenticated(
             )
         }
 
-        Event::Notification { .. } | Event::FiltersChanged { .. } => None,
+        Event::Notification { .. } | Event::FiltersChanged { .. } | Event::Kill { .. } => None,
     }
 }
 

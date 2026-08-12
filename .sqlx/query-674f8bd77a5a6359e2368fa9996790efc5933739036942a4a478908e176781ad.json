@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE accounts\n           SET fields = '[{\"name\":\"Website\",\"value\":\"https://alice.example\",\"verified_at\":\"2026-01-01T00:00:00.000Z\"}]'::jsonb\n           WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "674f8bd77a5a6359e2368fa9996790efc5933739036942a4a478908e176781ad"
+}

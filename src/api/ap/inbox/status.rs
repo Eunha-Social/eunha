@@ -28,15 +28,30 @@ pub(super) async fn handle_delete(
     });
 
     if let Some(uri) = object_uri {
-        // Delete(actor) — remote account deleted itself
+        // Delete(actor) — remote account deleted itself. Mastodon's
+        // `ActivityPub::Activity::Delete#delete_person`: purge it outright,
+        // without announcing anything back over ActivityPub.
         if uri == actor_uri {
-            sqlx::query!(
-                "UPDATE accounts SET suspended_at = now() WHERE uri = $1 AND domain IS NOT NULL",
+            let account_id = sqlx::query_scalar!(
+                "SELECT id FROM accounts WHERE uri = $1 AND domain IS NOT NULL",
                 uri,
             )
-            .execute(&state.db)
+            .fetch_optional(&state.db)
             .await?;
-            tracing::debug!(actor_uri, "suspended remote account on Delete(actor)");
+            if let Some(account_id) = account_id {
+                crate::delete_account::call(
+                    state,
+                    account_id,
+                    crate::delete_account::Options {
+                        reserve_username: false,
+                        skip_activitypub: true,
+                        ..Default::default()
+                    },
+                )
+                .await
+                .map_err(crate::error::AppError::Internal)?;
+                tracing::debug!(actor_uri, "purged remote account on Delete(actor)");
+            }
         } else {
             // Delete(FeatureAuthorization) — a featured account revoked consent;
             // revoke the matching item (matched by the authorization URI we stored).

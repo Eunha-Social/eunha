@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ t_delete_account }} · {{ domain }}</title>
+<script src="https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js"></script>
+<script>
+function clearElkAndGo(){
+  Object.keys(localStorage).filter(k=>k.startsWith('elk-')).forEach(k=>localStorage.removeItem(k));
+  var r=indexedDB.open('keyval-store');
+  r.onsuccess=function(e){var t=e.target.result.transaction('keyval','readwrite');t.objectStore('keyval').delete('elk-users');t.oncomplete=go;t.onerror=go};
+  r.onerror=go;
+  function go(){location.replace('/')}
+}
+</script>
+<script>(function(){var t=localStorage.getItem('eunha-theme')||'system';var d=t==='dark'||(t!=='light'&&matchMedia('(prefers-color-scheme: dark)').matches);document.documentElement.classList.add(d?'dark':'light')})();</script>
+<link rel="stylesheet" href="/auth.css">
+</head>
+<body>
+<div class="topbar">
+  <span class="topbar-domain">{{ domain }}</span>
+  <div class="topbar-right">
+    <a class="back-link" href="/account">{{ t_back_to_account }}</a>
+    <button class="signout-btn"
+            hx-post="/account/logout"
+            hx-swap="none"
+            hx-on::after-request="clearElkAndGo()">{{ t_sign_out }}</button>
+  </div>
+</div>
+<div class="content">
+  <h1>{{ t_delete_account }}</h1>
+  <p class="hint">{{ t_warning_before }}</p>
+  <ul class="hint">
+    <li>{{ t_warning_irreversible }}</li>
+    <li>{{ t_warning_username_unavailable }}</li>
+    <li>{{ t_warning_data_removal }}</li>
+    <li>{{ t_warning_caches }}</li>
+  </ul>
+  <div id="msg">
+    {% if err %}<div class="error">{{ t_challenge_not_passed }}</div>{% endif %}
+  </div>
+  <form hx-post="/account/delete" hx-target="#msg" hx-swap="innerHTML">
+    {% if has_password %}
+    <label for="password">{{ t_confirm_password }}</label>
+    <input type="password" id="password" name="password" required autocomplete="current-password">
+    {% else %}
+    <label for="username">{{ t_confirm_username }}</label>
+    <input type="text" id="username" name="username" required autocomplete="off">
+    {% endif %}
+    <button type="submit" class="danger">{{ t_delete_account }}</button>
+  </form>
+</div>
+</body>
+</html>

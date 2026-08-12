@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE account_stats\n           SET statuses_count = 0, followers_count = 0, following_count = 0, updated_at = now()\n           WHERE account_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "475a24a53e8c0a4ab1d2c9672c4ee78e203ed585e8378395ca1d2d7a5b8e0b66"
+}

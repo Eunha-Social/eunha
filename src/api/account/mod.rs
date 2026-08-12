@@ -25,6 +25,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/account/logout", post(logout_post))
         .route("/account/sso", post(sso_post))
         .route("/account/password", get(password_page).post(password_post))
+        .route("/account/delete", get(delete_page).post(delete_post))
         .with_state(state)
 }
 
@@ -115,6 +116,7 @@ pub async fn account_home(
             t_change_password => locale.t("change_password"),
             t_sign_out => locale.t("sign_out"),
             t_go_to_timeline => locale.t("go_to_timeline"),
+            t_delete_account => locale.t("delete_account"),
         },
     );
     Html(html).into_response()
@@ -122,11 +124,18 @@ pub async fn account_home(
 
 // ── GET /account/login ─────────────────────────────────────────────────────────
 
+#[derive(Debug, Deserialize)]
+pub struct LoginQuery {
+    /// Set by the account-deletion redirect to show Mastodon's `success_msg`.
+    pub deleted: Option<String>,
+}
+
 pub async fn login_page(
     axum::extract::Extension(ResolvedInstance(instance)): axum::extract::Extension<
         ResolvedInstance,
     >,
     headers: HeaderMap,
+    Query(query): Query<LoginQuery>,
 ) -> Response {
     let locale = Locale::detect(None, accept_language(&headers));
     let domain = instance.domain.clone();
@@ -137,6 +146,8 @@ pub async fn login_page(
             lang => locale.as_str(),
             domain,
             error => "",
+            deleted => query.deleted.as_deref() == Some("1"),
+            t_deleted => locale.t("delete_success"),
             t_email => locale.t("email"),
             t_password => locale.t("password"),
             t_sign_in => locale.t("sign_in"),
@@ -458,6 +469,181 @@ pub async fn password_post(
         }
         Err(_) => err!(locale.t("password_error"), "/account/password?err=1"),
     }
+}
+
+// ── GET /account/delete ────────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct DeleteQuery {
+    pub err: Option<String>,
+}
+
+/// eunha's counterpart to Mastodon's `/settings/delete`.
+pub async fn delete_page(
+    State(state): State<AppState>,
+    axum::extract::Extension(ResolvedInstance(instance)): axum::extract::Extension<
+        ResolvedInstance,
+    >,
+    headers: HeaderMap,
+    Query(query): Query<DeleteQuery>,
+) -> Response {
+    let locale = Locale::detect(None, accept_language(&headers));
+
+    let Some(session) = get_session(&headers, &state).await else {
+        return Redirect::to("/account/login").into_response();
+    };
+
+    // `require_not_suspended!`
+    let account = match load_deletion_subject(&state, session.user_id).await {
+        Some(a) if a.suspended => return Redirect::to("/account").into_response(),
+        Some(a) => a,
+        None => return Redirect::to("/account/login").into_response(),
+    };
+
+    let html = templates::render(
+        "account_delete.html",
+        minijinja::context! {
+            lang => locale.as_str(),
+            domain => instance.domain.clone(),
+            err => query.err.as_deref() == Some("1"),
+            has_password => !account.encrypted_password.is_empty(),
+            t_delete_account => locale.t("delete_account"),
+            t_warning_before => locale.t("delete_warning_before"),
+            t_warning_irreversible => locale.t("delete_warning_irreversible"),
+            t_warning_username_unavailable => locale.t("delete_warning_username_unavailable"),
+            t_warning_data_removal => locale.t("delete_warning_data_removal"),
+            t_warning_caches => locale.t("delete_warning_caches"),
+            t_confirm_password => locale.t("delete_confirm_password"),
+            t_confirm_username => locale.t("delete_confirm_username"),
+            t_challenge_not_passed => locale.t("delete_challenge_not_passed"),
+            t_sign_out => locale.t("sign_out"),
+            t_back_to_account => locale.t("back_to_account"),
+        },
+    );
+    Html(html).into_response()
+}
+
+struct DeletionSubject {
+    account_id: i64,
+    username: String,
+    encrypted_password: String,
+    suspended: bool,
+}
+
+async fn load_deletion_subject(state: &AppState, user_id: i64) -> Option<DeletionSubject> {
+    let row = sqlx::query!(
+        r#"SELECT u.account_id, u.encrypted_password, a.username, a.suspended_at
+           FROM users u JOIN accounts a ON a.id = u.account_id
+           WHERE u.id = $1"#,
+        user_id,
+    )
+    .fetch_optional(&state.db)
+    .await
+    .ok()??;
+    Some(DeletionSubject {
+        account_id: row.account_id,
+        username: row.username,
+        encrypted_password: row.encrypted_password,
+        suspended: row.suspended_at.is_some(),
+    })
+}
+
+// ── POST /account/delete ───────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct DeleteForm {
+    pub password: Option<String>,
+    pub username: Option<String>,
+}
+
+/// Port of `Settings::DeletesController#destroy`: pass the challenge, suspend
+/// the account, purge it, and sign out.
+pub async fn delete_post(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Form(form): Form<DeleteForm>,
+) -> Response {
+    let locale = Locale::detect(None, accept_language(&headers));
+    let htmx = is_htmx(&headers);
+
+    let Some(session) = get_session(&headers, &state).await else {
+        return Redirect::to("/account/login").into_response();
+    };
+    let Some(account) = load_deletion_subject(&state, session.user_id).await else {
+        return Redirect::to("/account/login").into_response();
+    };
+    if account.suspended {
+        return Redirect::to("/account").into_response();
+    }
+
+    // `challenge_passed?`
+    let passed = if account.encrypted_password.is_empty() {
+        form.username.as_deref() == Some(account.username.as_str())
+    } else {
+        verify_password(
+            form.password.as_deref().unwrap_or(""),
+            &account.encrypted_password,
+        )
+        .is_ok()
+    };
+    if !passed {
+        if htmx {
+            return Html(format!(
+                "<div class=\"error\">{}</div>",
+                locale.t("delete_challenge_not_passed")
+            ))
+            .into_response();
+        }
+        return Redirect::to("/account/delete?err=1").into_response();
+    }
+
+    if let Err(e) = crate::delete_account::suspend(
+        &state,
+        account.account_id,
+        crate::delete_account::suspension_origin::LOCAL,
+        false,
+    )
+    .await
+    {
+        tracing::error!(account_id = account.account_id, error = %e, "failed to suspend account for deletion");
+        if htmx {
+            return Html(format!(
+                "<div class=\"error\">{}</div>",
+                locale.t("err_server")
+            ))
+            .into_response();
+        }
+        return Redirect::to("/account/delete?err=1").into_response();
+    }
+
+    let account_id = account.account_id;
+    let bg = state.clone();
+    tokio::spawn(async move {
+        if let Err(e) = crate::delete_account::call(
+            &bg,
+            account_id,
+            crate::delete_account::Options::self_service(),
+        )
+        .await
+        {
+            tracing::error!(account_id, error = %e, "account deletion failed");
+        }
+    });
+
+    // `sign_out`
+    let mut h = HeaderMap::new();
+    h.insert(
+        header::SET_COOKIE,
+        HeaderValue::from_str(clear_cookie()).unwrap(),
+    );
+    if htmx {
+        h.insert(
+            HeaderName::from_static("hx-redirect"),
+            HeaderValue::from_static("/account/login?deleted=1"),
+        );
+        return (h, Html(String::new())).into_response();
+    }
+    (h, Redirect::to("/account/login?deleted=1")).into_response()
 }
 
 // The instance invite tree now lives in the SPA (`/invite-tree`, backed by

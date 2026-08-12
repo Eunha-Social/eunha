@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE status_stats ss\n           SET replies_count = GREATEST(0, ss.replies_count - c.n), updated_at = now()\n           FROM (SELECT in_reply_to_id AS status_id, count(*) AS n FROM statuses\n                 WHERE id = ANY($1::bigint[]) AND in_reply_to_id IS NOT NULL\n                 GROUP BY in_reply_to_id) c\n           WHERE ss.status_id = c.status_id",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "584985f875abd91d24935d4fd4128e158cd01e848169cbd3d56f5f548b5f9f1b"
+}

@@ -32,6 +32,12 @@ pub enum Event {
     FiltersChanged {
         for_account_id: i64,
     },
+    /// Terminate every streaming connection belonging to an account, as
+    /// Mastodon's `Account#suspend!` does by publishing `{event: :kill}` on
+    /// `timeline:system:{id}`.
+    Kill {
+        account_id: i64,
+    },
 }
 
 #[derive(Clone)]

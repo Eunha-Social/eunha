@@ -713,6 +713,16 @@ pub async fn backfill_list_member(
     let _: redis::RedisResult<()> = pipe.query_async(redis).await;
 }
 
+/// Delete an account's home feed keys (Mastodon's `FeedManager#clean_feeds!`,
+/// called when the account is deleted).
+pub async fn delete_home_feed(redis: &mut ConnectionManager, account_id: i64) {
+    let _: redis::RedisResult<()> = redis::pipe()
+        .del(feed_key(account_id))
+        .del(populated_key(account_id))
+        .query_async(redis)
+        .await;
+}
+
 /// Delete a list's Redis feed keys (called when the list itself is deleted).
 pub async fn delete_list_feed(redis: &mut ConnectionManager, list_id: i64) {
     let _: redis::RedisResult<()> = redis::pipe()

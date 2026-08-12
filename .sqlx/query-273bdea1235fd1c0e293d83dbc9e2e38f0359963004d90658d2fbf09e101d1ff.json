@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE account_stats s\n           SET followers_count = GREATEST(0, s.followers_count - c.n), updated_at = now()\n           FROM (SELECT target_account_id AS account_id, count(*) AS n FROM follows\n                 WHERE account_id = $1 GROUP BY target_account_id) c\n           WHERE s.account_id = c.account_id",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "273bdea1235fd1c0e293d83dbc9e2e38f0359963004d90658d2fbf09e101d1ff"
+}

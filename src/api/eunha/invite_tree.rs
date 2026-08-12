@@ -53,19 +53,22 @@ pub async fn invite_tree(
     }
 
     // The inviter is reached via users.invite_id -> invites.user_id -> users ->
-    // accounts (Mastodon's `invite.user.account` path).
+    // accounts (Mastodon's `invite.user.account` path), falling back to
+    // `eunha.invite_lineage` for accounts whose inviter deleted its user record
+    // (which takes its `invites` — and so that link — with it).
     // Only genuine members: confirmed, admin-approved, and not suspended. This
     // keeps pending/unapproved signups and deleted (suspended) accounts out of
     // the tree.
     let rows = sqlx::query!(
         r#"SELECT a.id, a.username, a.display_name,
                   a.avatar_file_name, a.avatar_remote_url, u.created_at,
-                  inv_a.id AS "invited_by_id?"
+                  COALESCE(inv_a.id, il.inviter_account_id) AS "invited_by_id?"
            FROM users u
            JOIN accounts a ON a.id = u.account_id
            LEFT JOIN invites i ON i.id = u.invite_id
            LEFT JOIN users inv_u ON inv_u.id = i.user_id
            LEFT JOIN accounts inv_a ON inv_a.id = inv_u.account_id
+           LEFT JOIN eunha.invite_lineage il ON il.account_id = a.id
            WHERE a.domain IS NULL
              AND u.approved
              AND u.confirmed_at IS NOT NULL

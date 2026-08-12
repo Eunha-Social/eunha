@@ -2,6 +2,82 @@ use reqwest::StatusCode;
 
 use crate::helpers::TestContext;
 
+/// The server-rendered account-deletion page (eunha's `/settings/delete`).
+#[tokio::test]
+async fn test_account_delete_page_and_challenge() {
+    let ctx = TestContext::new("acct-delete-page").await;
+    let cookie = format!("account_session={}", ctx.alice_token);
+    let alice_account_id: i64 = ctx.alice_id.parse().unwrap();
+
+    // Signed out, the page sends you to the login form.
+    let anon = ctx.api.get("/account/delete", None).await;
+    assert_eq!(anon.status(), StatusCode::SEE_OTHER);
+
+    let page = ctx
+        .api
+        .http
+        .get(ctx.api.url("/account/delete"))
+        .header("host", &ctx.api.host)
+        .header("cookie", &cookie)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(page.status(), StatusCode::OK);
+    let body = page.text().await.unwrap();
+    assert!(body.contains("/auth.css"), "should link the shared stylesheet");
+    assert!(
+        body.contains("name=\"password\""),
+        "should ask for the password challenge",
+    );
+
+    // A failed challenge leaves the account alone.
+    let wrong = ctx
+        .api
+        .http
+        .post(ctx.api.url("/account/delete"))
+        .header("host", &ctx.api.host)
+        .header("cookie", &cookie)
+        .header("HX-Request", "true")
+        .form(&[("password", "notmypassword")])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(wrong.status(), StatusCode::OK);
+    assert!(wrong.text().await.unwrap().contains("error"));
+    let still_live: bool =
+        sqlx::query_scalar("SELECT suspended_at IS NULL FROM accounts WHERE id = $1")
+            .bind(alice_account_id)
+            .fetch_one(&ctx.db)
+            .await
+            .unwrap();
+    assert!(still_live, "a failed challenge must not delete anything");
+
+    let ok = ctx
+        .api
+        .http
+        .post(ctx.api.url("/account/delete"))
+        .header("host", &ctx.api.host)
+        .header("cookie", &cookie)
+        .header("HX-Request", "true")
+        .form(&[("password", "testpassword123")])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(ok.status(), StatusCode::OK);
+    assert_eq!(
+        ok.headers().get("hx-redirect").and_then(|v| v.to_str().ok()),
+        Some("/account/login?deleted=1"),
+        "a deleted account is signed out",
+    );
+    let suspended: bool =
+        sqlx::query_scalar("SELECT suspended_at IS NOT NULL FROM accounts WHERE id = $1")
+            .bind(alice_account_id)
+            .fetch_one(&ctx.db)
+            .await
+            .unwrap();
+    assert!(suspended, "account should be suspended for deletion");
+}
+
 /// The server-rendered auth pages link the shared SPA-matching stylesheet.
 #[tokio::test]
 async fn test_auth_pages_use_shared_stylesheet() {

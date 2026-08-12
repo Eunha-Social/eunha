@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO eunha.invite_lineage (account_id, inviter_account_id, invited_at)\n           -- the accounts this one invited\n           SELECT invitee.account_id, $1, invitee.created_at\n           FROM users invitee\n           JOIN invites i ON i.id = invitee.invite_id\n           JOIN users inviter ON inviter.id = i.user_id\n           WHERE inviter.account_id = $1\n           UNION\n           -- and who invited this one\n           SELECT u.account_id, inviter.account_id, u.created_at\n           FROM users u\n           JOIN invites i ON i.id = u.invite_id\n           JOIN users inviter ON inviter.id = i.user_id\n           WHERE u.account_id = $1\n           ON CONFLICT (account_id) DO UPDATE\n             SET inviter_account_id = COALESCE(EXCLUDED.inviter_account_id, eunha.invite_lineage.inviter_account_id),\n                 invited_at = COALESCE(EXCLUDED.invited_at, eunha.invite_lineage.invited_at)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b9c65c3016efeebb26083957da1196528764b313e5a7cdf266bec497ce38c4ff"
+}

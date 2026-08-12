@@ -4,6 +4,7 @@ pub mod config;
 pub mod counters;
 pub mod crypto;
 pub mod db;
+pub mod delete_account;
 pub mod email;
 pub mod error;
 pub mod federation;

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM canonical_email_blocks WHERE reference_account_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "059530f9b8a5263ab6a1289bcafe8df988105d4f2091900b9e298589e8c85cb6"
+}

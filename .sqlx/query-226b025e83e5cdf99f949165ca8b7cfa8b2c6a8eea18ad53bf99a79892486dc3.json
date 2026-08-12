@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE oauth_access_tokens t SET revoked_at = now()\n           FROM users u\n           WHERE u.id = t.resource_owner_id AND u.account_id = $1 AND t.revoked_at IS NULL",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "226b025e83e5cdf99f949165ca8b7cfa8b2c6a8eea18ad53bf99a79892486dc3"
+}

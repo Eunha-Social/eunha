@@ -6,6 +6,7 @@ use crate::state::AppState;
 pub fn spawn(state: AppState) {
     tokio::spawn(run_scheduled_statuses(state.clone()));
     tokio::spawn(run_poll_expiry(state.clone()));
+    tokio::spawn(run_suspended_account_cleanup(state.clone()));
     tokio::spawn(crate::federation::delivery::run_delivery_cleanup(
         state.clone(),
     ));
@@ -301,6 +302,52 @@ async fn publish_one(
         notified.insert(mentioned.id);
     }
 
+    Ok(())
+}
+
+// ── Suspended account cleanup ─────────────────────────────────────────────
+
+/// Mastodon's `Scheduler::SuspendedUserCleanupScheduler`: once a suspension has
+/// stood for `DELAY_TO_DELETION`, the account's data is purged for good. Since
+/// account deletion is expensive, only a few are processed per pass.
+async fn run_suspended_account_cleanup(state: AppState) {
+    let mut interval = tokio::time::interval(Duration::from_secs(120));
+    loop {
+        interval.tick().await;
+        if let Err(e) = process_deletion_requests(&state).await {
+            tracing::error!(error = %e, "suspended account cleanup failed");
+        }
+    }
+}
+
+/// `MAX_DELETIONS_PER_JOB`
+const MAX_DELETIONS_PER_PASS: i64 = 10;
+
+pub async fn process_deletion_requests(state: &AppState) -> anyhow::Result<()> {
+    let cutoff = chrono::Utc::now().naive_utc() - crate::delete_account::DELAY_TO_DELETION;
+    let due: Vec<i64> = sqlx::query_scalar!(
+        r#"SELECT account_id FROM account_deletion_requests
+           WHERE created_at < $1
+           ORDER BY id ASC
+           LIMIT $2"#,
+        cutoff,
+        MAX_DELETIONS_PER_PASS,
+    )
+    .fetch_all(&state.db)
+    .await?;
+
+    for account_id in due {
+        // `Admin::AccountDeletionWorker`: both records are kept, only the data goes.
+        if let Err(e) = crate::delete_account::call(
+            state,
+            account_id,
+            crate::delete_account::Options::default(),
+        )
+        .await
+        {
+            tracing::error!(account_id, error = %e, "scheduled account deletion failed");
+        }
+    }
     Ok(())
 }
 

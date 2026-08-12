@@ -243,6 +243,146 @@ async fn test_admin_suspend_and_unsuspend() {
     assert_eq!(unsuspended["suspended"].as_bool(), Some(false));
 }
 
+/// `Account#suspend!` records a deletion request (what makes the suspension
+/// reversible, and what the 30-day scheduler acts on) and blocks the email;
+/// `#unsuspend!` takes both back.
+#[tokio::test]
+async fn test_admin_suspend_records_deletion_request() {
+    let ctx = TestContext::new("admin-suspend-req").await;
+    make_admin(&ctx).await;
+    let bob_account_id: i64 = ctx.bob_id.parse().unwrap();
+
+    ctx.api
+        .post_json(
+            &format!("/api/v1/admin/accounts/{}/suspend", ctx.bob_id),
+            Some(&ctx.alice_token),
+            &serde_json::json!({}),
+        )
+        .await;
+
+    let requests: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM account_deletion_requests WHERE account_id = $1")
+            .bind(bob_account_id)
+            .fetch_one(&ctx.db)
+            .await
+            .unwrap();
+    assert_eq!(requests, 1, "suspension should record a deletion request");
+    let blocks: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM canonical_email_blocks WHERE reference_account_id = $1",
+    )
+    .bind(bob_account_id)
+    .fetch_one(&ctx.db)
+    .await
+    .unwrap();
+    assert_eq!(blocks, 1, "suspension should block the email");
+
+    ctx.api
+        .post_json(
+            &format!("/api/v1/admin/accounts/{}/unsuspend", ctx.bob_id),
+            Some(&ctx.alice_token),
+            &serde_json::json!({}),
+        )
+        .await;
+
+    let requests: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM account_deletion_requests WHERE account_id = $1")
+            .bind(bob_account_id)
+            .fetch_one(&ctx.db)
+            .await
+            .unwrap();
+    assert_eq!(requests, 0, "unsuspending should drop the deletion request");
+    let blocks: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM canonical_email_blocks WHERE reference_account_id = $1",
+    )
+    .bind(bob_account_id)
+    .fetch_one(&ctx.db)
+    .await
+    .unwrap();
+    assert_eq!(blocks, 0, "unsuspending should drop the email block");
+}
+
+/// DELETE /api/v1/admin/accounts/:id mirrors `AccountPolicy#destroy?`: only an
+/// account whose suspension is still reversible can be purged.
+#[tokio::test]
+async fn test_admin_delete_account_requires_suspension() {
+    let ctx = TestContext::new("admin-del-403").await;
+    make_admin(&ctx).await;
+
+    let resp = ctx
+        .api
+        .http
+        .delete(ctx.api.url(&format!("/api/v1/admin/accounts/{}", ctx.bob_id)))
+        .header("host", &ctx.api.host)
+        .bearer_auth(&ctx.alice_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::FORBIDDEN,
+        "deleting a live account should be refused"
+    );
+}
+
+/// `Admin::AccountDeletionWorker`: purge the data of a suspended account while
+/// keeping both records (`reserve_username: true, reserve_email: true`).
+#[tokio::test]
+async fn test_admin_delete_account_purges_suspended_account() {
+    let ctx = TestContext::new("admin-del-purge").await;
+    make_admin(&ctx).await;
+    let bob_account_id: i64 = ctx.bob_id.parse().unwrap();
+
+    ctx.api
+        .post_json(
+            "/api/v1/statuses",
+            Some(&ctx.bob_token),
+            &serde_json::json!({"status": "before the ban"}),
+        )
+        .await;
+    ctx.api
+        .post_json(
+            &format!("/api/v1/admin/accounts/{}/suspend", ctx.bob_id),
+            Some(&ctx.alice_token),
+            &serde_json::json!({}),
+        )
+        .await;
+
+    let resp = ctx
+        .api
+        .http
+        .delete(ctx.api.url(&format!("/api/v1/admin/accounts/{}", ctx.bob_id)))
+        .header("host", &ctx.api.host)
+        .bearer_auth(&ctx.alice_token)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let statuses: i64 = sqlx::query_scalar("SELECT count(*) FROM statuses WHERE account_id = $1")
+        .bind(bob_account_id)
+        .fetch_one(&ctx.db)
+        .await
+        .unwrap();
+    assert_eq!(statuses, 0, "statuses should be purged");
+
+    // Both records are reserved; the user is disabled rather than destroyed.
+    let disabled: bool = sqlx::query_scalar("SELECT disabled FROM users WHERE account_id = $1")
+        .bind(bob_account_id)
+        .fetch_one(&ctx.db)
+        .await
+        .expect("user record should be reserved");
+    assert!(disabled, "user should be disabled");
+    let account_exists: Option<i64> = sqlx::query_scalar("SELECT id FROM accounts WHERE id = $1")
+        .bind(bob_account_id)
+        .fetch_optional(&ctx.db)
+        .await
+        .unwrap();
+    assert!(
+        account_exists.is_some(),
+        "account record should be reserved"
+    );
+}
+
 /// GET /api/v1/admin/reports returns a list (empty when no reports filed).
 #[tokio::test]
 async fn test_admin_list_reports_empty() {
@@ -841,13 +981,21 @@ async fn test_admin_list_accounts_filter_by_status() {
     );
 }
 
-/// POST /api/v1/admin/accounts/:id/reject returns 200 (suspends account).
+/// POST /api/v1/admin/accounts/:id/reject deletes a pending signup outright
+/// (`DeleteAccountService(reserve_email: false, reserve_username: false)`).
 #[tokio::test]
 async fn test_admin_reject_account() {
     let ctx = TestContext::new("admin-reject").await;
     make_admin(&ctx).await;
+    let bob_account_id: i64 = ctx.bob_id.parse().unwrap();
 
-    // Create a fresh context to get an account to reject that doesn't affect other tests.
+    // Only a signup awaiting approval can be rejected (`UserPolicy#reject?`).
+    sqlx::query("UPDATE users SET approved = false WHERE account_id = $1")
+        .bind(bob_account_id)
+        .execute(&ctx.db)
+        .await
+        .unwrap();
+
     let resp = ctx
         .api
         .post_json(
@@ -858,7 +1006,7 @@ async fn test_admin_reject_account() {
         .await;
     assert_eq!(resp.status(), StatusCode::OK);
 
-    // Bob should now be suspended.
+    // Neither record survives a rejection.
     let get_resp = ctx
         .api
         .get(
@@ -866,13 +1014,97 @@ async fn test_admin_reject_account() {
             Some(&ctx.alice_token),
         )
         .await;
-    assert_eq!(get_resp.status(), StatusCode::OK);
-    let acc: Value = get_resp.json().await.unwrap();
     assert_eq!(
-        acc["suspended"].as_bool(),
-        Some(true),
-        "bob should be suspended after reject"
+        get_resp.status(),
+        StatusCode::NOT_FOUND,
+        "rejected account should be gone"
     );
+    let user_exists: Option<i64> = sqlx::query_scalar("SELECT id FROM users WHERE account_id = $1")
+        .bind(bob_account_id)
+        .fetch_optional(&ctx.db)
+        .await
+        .unwrap();
+    assert!(user_exists.is_none(), "rejected user should be gone");
+}
+
+/// `Scheduler::SuspendedUserCleanupScheduler`: a suspension older than
+/// `DELAY_TO_DELETION` is purged; a fresh one is left alone.
+#[tokio::test]
+async fn test_suspended_account_cleanup_after_delay() {
+    let ctx = TestContext::new("admin-cleanup").await;
+    make_admin(&ctx).await;
+    let bob_account_id: i64 = ctx.bob_id.parse().unwrap();
+
+    ctx.api
+        .post_json(
+            "/api/v1/statuses",
+            Some(&ctx.bob_token),
+            &serde_json::json!({"status": "still here"}),
+        )
+        .await;
+    ctx.api
+        .post_json(
+            &format!("/api/v1/admin/accounts/{}/suspend", ctx.bob_id),
+            Some(&ctx.alice_token),
+            &serde_json::json!({}),
+        )
+        .await;
+
+    // A fresh suspension is still reversible, so nothing is purged yet.
+    eunha::background::process_deletion_requests(&ctx.state)
+        .await
+        .unwrap();
+    let requests: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM account_deletion_requests WHERE account_id = $1")
+            .bind(bob_account_id)
+            .fetch_one(&ctx.db)
+            .await
+            .unwrap();
+    assert_eq!(requests, 1, "a fresh suspension should not be purged");
+
+    // Backdate it past the delay and run the pass again.
+    sqlx::query(
+        "UPDATE account_deletion_requests SET created_at = now() - interval '31 days' WHERE account_id = $1",
+    )
+    .bind(bob_account_id)
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+    eunha::background::process_deletion_requests(&ctx.state)
+        .await
+        .unwrap();
+
+    let requests: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM account_deletion_requests WHERE account_id = $1")
+            .bind(bob_account_id)
+            .fetch_one(&ctx.db)
+            .await
+            .unwrap();
+    assert_eq!(requests, 0, "the deletion request should be fulfilled");
+    let statuses: i64 = sqlx::query_scalar("SELECT count(*) FROM statuses WHERE account_id = $1")
+        .bind(bob_account_id)
+        .fetch_one(&ctx.db)
+        .await
+        .unwrap();
+    assert_eq!(statuses, 0, "the account's content should be purged");
+}
+
+/// Rejecting an already-approved account is refused, so `reject` can't be used
+/// as a delete button for live accounts.
+#[tokio::test]
+async fn test_admin_reject_approved_account_is_forbidden() {
+    let ctx = TestContext::new("admin-reject-403").await;
+    make_admin(&ctx).await;
+
+    let resp = ctx
+        .api
+        .post_json(
+            &format!("/api/v1/admin/accounts/{}/reject", ctx.bob_id),
+            Some(&ctx.alice_token),
+            &json!({}),
+        )
+        .await;
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
 /// admin/accounts?status=active returns approved, non-suspended accounts.

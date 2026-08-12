@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM media_attachments WHERE id = ANY($1::bigint[])",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "82270d59b5d349f5b891378195dd5805d5a4277bc8022e8567cfca08089a513b"
+}

@@ -128,6 +128,51 @@ impl Locale {
             (Self::Ko, "password_changed") => "비밀번호가 변경되었습니다.",
             (Self::En, "password_error") => "Failed. Check your current password.",
             (Self::Ko, "password_error") => "실패했습니다. 현재 비밀번호를 확인해 주세요.",
+            // ── account deletion (Mastodon `deletes.*`) ──────────────────────
+            (Self::En, "delete_account") => "Delete account",
+            (Self::Ko, "delete_account") => "계정 삭제",
+            (Self::En, "delete_warning_before") => {
+                "Before proceeding, please read these notes carefully:"
+            }
+            (Self::Ko, "delete_warning_before") => "진행하기 전, 주의사항을 꼼꼼히 읽어보세요:",
+            (Self::En, "delete_warning_irreversible") => {
+                "You will not be able to restore or reactivate your account"
+            }
+            (Self::Ko, "delete_warning_irreversible") => "계정을 복구하거나 다시 사용할 수 없게 됩니다",
+            (Self::En, "delete_warning_username_unavailable") => {
+                "Your username will remain unavailable"
+            }
+            (Self::Ko, "delete_warning_username_unavailable") => {
+                "당신의 계정명은 앞으로 사용할 수 없습니다"
+            }
+            (Self::En, "delete_warning_data_removal") => {
+                "Your posts and other data will be permanently removed"
+            }
+            (Self::Ko, "delete_warning_data_removal") => {
+                "당신의 게시물과 다른 정보들은 영구적으로 삭제 됩니다"
+            }
+            (Self::En, "delete_warning_caches") => {
+                "Content that has been cached by other servers may persist"
+            }
+            (Self::Ko, "delete_warning_caches") => {
+                "다른 서버에 캐싱된 정보들은 남아있을 수 있습니다"
+            }
+            (Self::En, "delete_confirm_password") => {
+                "Enter your current password to verify your identity"
+            }
+            (Self::Ko, "delete_confirm_password") => {
+                "본인 확인을 위해 현재 사용 중인 암호를 입력해 주십시오"
+            }
+            (Self::En, "delete_confirm_username") => {
+                "Enter your username to confirm the procedure"
+            }
+            (Self::Ko, "delete_confirm_username") => "절차를 진행하려면 당신의 사용자명을 입력하세요",
+            (Self::En, "delete_challenge_not_passed") => {
+                "The information you entered was not correct"
+            }
+            (Self::Ko, "delete_challenge_not_passed") => "입력한 정보가 올바르지 않습니다",
+            (Self::En, "delete_success") => "Your account was successfully deleted",
+            (Self::Ko, "delete_success") => "계정이 성공적으로 삭제되었습니다",
             // ── signup approval ──────────────────────────────────────────────
             (Self::En, "reason") => "Why do you want to join?",
             (Self::Ko, "reason") => "가입 이유를 알려주세요",

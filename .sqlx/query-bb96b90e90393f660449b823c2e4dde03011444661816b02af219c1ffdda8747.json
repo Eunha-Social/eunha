@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO canonical_email_blocks (canonical_email_hash, reference_account_id, created_at, updated_at)\n               SELECT encode(sha256(lower(btrim(u.email))::bytea), 'hex'), a.id, now(), now()\n               FROM accounts a JOIN users u ON u.account_id = a.id\n               WHERE a.id = $1 AND a.domain IS NULL AND u.email <> ''\n               ON CONFLICT (canonical_email_hash) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bb96b90e90393f660449b823c2e4dde03011444661816b02af219c1ffdda8747"
+}

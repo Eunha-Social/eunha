@@ -452,15 +452,23 @@ pub async fn reject_account(
     Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
     require_permission(&state, auth.account_id, perm::MANAGE_USERS).await?;
-    sqlx::query!(
-        "UPDATE users SET approved = false WHERE account_id = $1 AND NOT approved",
+    // `UserPolicy#reject?` — only a signup still awaiting approval can be
+    // rejected; anything else would be a full delete of a live account.
+    let pending = sqlx::query_scalar!(
+        r#"SELECT EXISTS (
+             SELECT 1 FROM users u JOIN accounts a ON a.id = u.account_id
+             WHERE u.account_id = $1 AND NOT u.approved AND a.domain IS NULL
+           ) AS "exists!""#,
         id,
     )
-    .execute(&state.db)
+    .fetch_one(&state.db)
     .await?;
-    sqlx::query!("UPDATE accounts SET suspended_at = now() WHERE id = $1", id,)
-        .execute(&state.db)
-        .await?;
+    if !pending {
+        return Err(AppError::Forbidden);
+    }
+    // Mastodon: `DeleteAccountService.new.call(@account, reserve_email: false,
+    // reserve_username: false)` — a rejected signup leaves nothing behind.
+    crate::delete_account::call(&state, id, crate::delete_account::Options::purge()).await?;
     Ok(StatusCode::OK)
 }
 
@@ -529,12 +537,20 @@ pub async fn suspend_account(
     Path(id): Path<i64>,
 ) -> AppResult<Json<AdminAccount>> {
     require_permission(&state, auth.account_id, perm::MANAGE_USERS).await?;
-    sqlx::query!(
-        "UPDATE accounts SET suspended_at = now() WHERE id = $1 AND suspended_at IS NULL",
-        id,
-    )
-    .execute(&state.db)
-    .await?;
+    let account = sqlx::query_as!(models::Account, "SELECT * FROM accounts WHERE id = $1", id)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or(AppError::NotFound)?;
+    if account.suspended_at.is_none() {
+        // `Account#suspend!`: records the deletion request that keeps the
+        // suspension reversible for 30 days and blocks the email from reuse.
+        let origin = if account.is_local() {
+            crate::delete_account::suspension_origin::LOCAL
+        } else {
+            crate::delete_account::suspension_origin::REMOTE
+        };
+        crate::delete_account::suspend(&state, id, origin, true).await?;
+    }
     sqlx::query!(
         "UPDATE statuses SET deleted_at = now() WHERE account_id = $1 AND deleted_at IS NULL",
         id,
@@ -556,9 +572,8 @@ pub async fn unsuspend_account(
     Path(id): Path<i64>,
 ) -> AppResult<Json<AdminAccount>> {
     require_permission(&state, auth.account_id, perm::MANAGE_USERS).await?;
-    sqlx::query!("UPDATE accounts SET suspended_at = NULL WHERE id = $1", id,)
-        .execute(&state.db)
-        .await?;
+    // `Account#unsuspend!`: drops the deletion request and the email block too.
+    crate::delete_account::unsuspend(&state, id).await?;
     let account = sqlx::query_as!(models::Account, "SELECT * FROM accounts WHERE id = $1", id)
         .fetch_optional(&state.db)
         .await?
@@ -2329,12 +2344,19 @@ pub async fn account_action(
             .await?;
         }
         "suspend" => {
-            sqlx::query!(
-                "UPDATE accounts SET suspended_at = now() WHERE id = $1 AND suspended_at IS NULL",
-                id,
-            )
-            .execute(&state.db)
-            .await?;
+            let account =
+                sqlx::query_as!(models::Account, "SELECT * FROM accounts WHERE id = $1", id)
+                    .fetch_optional(&state.db)
+                    .await?
+                    .ok_or(AppError::NotFound)?;
+            if account.suspended_at.is_none() {
+                let origin = if account.is_local() {
+                    crate::delete_account::suspension_origin::LOCAL
+                } else {
+                    crate::delete_account::suspension_origin::REMOTE
+                };
+                crate::delete_account::suspend(&state, id, origin, true).await?;
+            }
             sqlx::query!(
                 "UPDATE statuses SET deleted_at = now() WHERE account_id = $1 AND deleted_at IS NULL",
                 id,
@@ -2361,6 +2383,10 @@ pub async fn account_action(
 
 // ── DELETE /api/v1/admin/accounts/:id ────────────────────────────────────
 
+/// `Admin::AccountDeletionWorker`: purge the data of an account a moderator has
+/// already suspended, keeping both the account and user records. Mastodon's
+/// `AccountPolicy#destroy?` requires the suspension to still be reversible
+/// (i.e. to have a pending deletion request), so a live account is a 403.
 pub async fn delete_admin_account(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedUser>,
@@ -2368,31 +2394,30 @@ pub async fn delete_admin_account(
 ) -> AppResult<StatusCode> {
     require_permission(&state, auth.account_id, perm::MANAGE_USERS).await?;
 
-    let mut tx = state.db.begin().await?;
-    sqlx::query!(
-        "UPDATE statuses SET deleted_at = now() WHERE account_id = $1 AND deleted_at IS NULL",
+    let suspended_temporarily = sqlx::query_scalar!(
+        r#"SELECT EXISTS (
+             SELECT 1 FROM accounts a
+             JOIN account_deletion_requests r ON r.account_id = a.id
+             WHERE a.id = $1 AND a.suspended_at IS NOT NULL
+           ) AS "exists!""#,
         id,
     )
-    .execute(&mut *tx)
+    .fetch_one(&state.db)
     .await?;
-    sqlx::query!(
-        r#"UPDATE oauth_access_tokens t
-           SET revoked_at = now()
-           FROM users u
-           WHERE u.id = t.resource_owner_id
-             AND u.account_id = $1
-             AND t.revoked_at IS NULL"#,
+    if !suspended_temporarily {
+        return Err(AppError::Forbidden);
+    }
+
+    crate::delete_account::call(
+        &state,
         id,
+        crate::delete_account::Options {
+            reserve_username: true,
+            reserve_email: true,
+            ..Default::default()
+        },
     )
-    .execute(&mut *tx)
     .await?;
-    sqlx::query!("UPDATE accounts SET suspended_at = now() WHERE id = $1", id,)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query!("DELETE FROM users WHERE account_id = $1", id,)
-        .execute(&mut *tx)
-        .await?;
-    tx.commit().await?;
 
     Ok(StatusCode::OK)
 }

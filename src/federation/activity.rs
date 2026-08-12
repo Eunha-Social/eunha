@@ -149,6 +149,20 @@ pub fn delete(id: &str, actor: &str, object: &str) -> anyhow::Result<Value> {
     ))
 }
 
+/// Build the `Delete` activity announcing that a local actor is gone, matching
+/// Mastodon's `ActivityPub::DeleteActorSerializer`: the actor deletes itself,
+/// addressed to the public collection.
+pub fn delete_actor(actor: &str) -> Value {
+    serde_json::json!({
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "id": format!("{actor}#delete"),
+        "type": "Delete",
+        "actor": actor,
+        "to": [AS_PUBLIC],
+        "object": actor,
+    })
+}
+
 // ── Move ──────────────────────────────────────────────────────────────────────
 
 /// Build a `Move` activity for account migration. `object` is the old (moving)

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE status_stats ss\n           SET quotes_count = GREATEST(0, ss.quotes_count - c.n), updated_at = now()\n           FROM (SELECT quoted_status_id AS status_id, count(*) AS n FROM quotes\n                 WHERE status_id = ANY($1::bigint[]) AND state = 1 AND quoted_status_id IS NOT NULL\n                 GROUP BY quoted_status_id) c\n           WHERE ss.status_id = c.status_id",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e9fd95294e97d1dd2cdbd79ee2ff4abcc6126381ab15d46b1b6ec72be39731ae"
+}
