@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT private_key FROM keypairs\n           WHERE account_id = $1\n             AND local_fragment = $2\n             AND type = $3\n             AND NOT revoked\n             AND (expires_at IS NULL OR expires_at > now())\n           ORDER BY id DESC\n           LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "private_key",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "54d7867c070a549ccafd6baa4f732efa6b371ef1132aa6dc9d241d7085583a57"
+}

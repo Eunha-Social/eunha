@@ -4,6 +4,7 @@ mod account_delete;
 mod handles;
 mod ingress;
 mod instance_actor;
+mod integrity_proofs;
 mod keypairs;
 mod objects;
 mod quote;

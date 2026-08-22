@@ -20,8 +20,16 @@ use crate::state::AppState;
 /// The fragment Mastodon gives an account's main signing key.
 pub const MAIN_KEY_FRAGMENT: &str = "#main-key";
 
-/// `keypairs.type`, from the model's enum: `rsa: 0`.
+/// `keypairs.type`, from the model's enum: `rsa: 0`, `ed25519: 1`.
 const TYPE_RSA: i32 = 0;
+const TYPE_ED25519: i32 = 1;
+
+/// The fragment eunha gives an account's Ed25519 assertion key.
+///
+/// Distinct from `#main-key`, which is the RSA key that signs HTTP requests:
+/// the two live side by side, and a Multikey published under this fragment is
+/// what a peer resolves a proof's `verificationMethod` to.
+pub const ED25519_FRAGMENT: &str = "#ed25519-key";
 
 /// A local account's signing key, whichever place it lives in.
 pub struct SigningKey {
@@ -300,4 +308,114 @@ pub async fn migrate_local_keypairs(state: &AppState) -> Result<usize> {
     .await?;
 
     Ok(moved)
+}
+
+// ── Ed25519 assertion keys ────────────────────────────────────────────────
+
+/// An account's Ed25519 key: the seed that signs, and the public half to
+/// publish.
+pub struct AssertionKey {
+    pub seed: [u8; 32],
+    pub public_key: [u8; 32],
+}
+
+/// Read a local account's Ed25519 assertion key, generating one on first use.
+///
+/// Unlike the RSA signing key, this has no legacy home: an account either has
+/// one in `keypairs` or does not yet. Generation needs the encryption keys, for
+/// the same reason the RSA key does — a private key written in the clear is one
+/// nothing else could safely read.
+pub async fn assertion_key(state: &AppState, account_id: i64) -> Result<AssertionKey> {
+    let encryptor = state.encryptor.as_ref().ok_or_else(|| {
+        anyhow!("no ActiveRecord encryption keys are configured, so no key can be stored")
+    })?;
+
+    if let Some(row) = sqlx::query!(
+        r#"SELECT private_key FROM keypairs
+           WHERE account_id = $1
+             AND local_fragment = $2
+             AND type = $3
+             AND NOT revoked
+             AND (expires_at IS NULL OR expires_at > now())
+           ORDER BY id DESC
+           LIMIT 1"#,
+        account_id,
+        ED25519_FRAGMENT,
+        TYPE_ED25519,
+    )
+    .fetch_optional(&state.db)
+    .await?
+    {
+        if let Some(sealed) = row.private_key.filter(|key| !key.is_empty()) {
+            let pem = encryptor.decrypt(&sealed).with_context(|| {
+                format!("decrypting the assertion key for account {account_id}")
+            })?;
+            let (seed, public_key) = feder_runtime::integrity::parse_ed25519_key(&pem)?;
+            return Ok(AssertionKey { seed, public_key });
+        }
+    }
+
+    // Generate and store. `DO NOTHING` on conflict, then read back: two
+    // processes starting at once must agree on which key was published, and the
+    // first one written is the one peers may already have seen.
+    let pem = feder_runtime::integrity::generate_ed25519_key()?;
+    // Only the public half is needed here; the key that ends up in force is
+    // read back below, which may be another process's if it won the race.
+    let (_, public_key) = feder_runtime::integrity::parse_ed25519_key(&pem)?;
+    let multikey = feder_runtime::integrity::encode_ed25519_multikey(&public_key);
+    let sealed = encryptor.encrypt(&pem)?;
+
+    sqlx::query!(
+        r#"INSERT INTO keypairs
+             (account_id, type, local_fragment, public_key, private_key, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, now(), now())
+           ON CONFLICT (account_id, local_fragment) DO NOTHING"#,
+        account_id,
+        TYPE_ED25519,
+        ED25519_FRAGMENT,
+        multikey,
+        sealed,
+    )
+    .execute(&state.db)
+    .await?;
+
+    let stored = sqlx::query_scalar!(
+        r#"SELECT private_key FROM keypairs
+           WHERE account_id = $1 AND local_fragment = $2 AND type = $3"#,
+        account_id,
+        ED25519_FRAGMENT,
+        TYPE_ED25519,
+    )
+    .fetch_optional(&state.db)
+    .await?
+    .flatten()
+    .ok_or_else(|| anyhow!("assertion key for account {account_id} vanished after writing it"))?;
+
+    let pem = encryptor.decrypt(&stored)?;
+    let (seed, public_key) = feder_runtime::integrity::parse_ed25519_key(&pem)?;
+    Ok(AssertionKey { seed, public_key })
+}
+
+/// The `publicKeyMultibase` an account publishes, if it has one.
+///
+/// Read-only: an actor document is served far more often than an activity is
+/// signed, and generating a key to answer a GET would mean every crawler
+/// minting keys. The key appears once the account first signs something.
+pub async fn assertion_multikey(state: &AppState, account_id: i64) -> Result<Option<String>> {
+    Ok(sqlx::query_scalar!(
+        r#"SELECT public_key FROM keypairs
+           WHERE account_id = $1
+             AND local_fragment = $2
+             AND type = $3
+             AND NOT revoked
+             AND (expires_at IS NULL OR expires_at > now())
+           ORDER BY id DESC
+           LIMIT 1"#,
+        account_id,
+        ED25519_FRAGMENT,
+        TYPE_ED25519,
+    )
+    .fetch_optional(&state.db)
+    .await?
+    .filter(|key| !key.is_empty()))
 }

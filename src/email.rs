@@ -137,6 +137,95 @@ impl EmailSender {
         self.send(to, &subject, &body).await
     }
 
+    /// Tell an administrator that newer Mastodon releases exist than the one
+    /// this build implements.
+    ///
+    /// Mastodon's `AdminMailer#new_software_updates` and
+    /// `#new_critical_software_updates`. The wording differs because the
+    /// subject is not eunha's own version: eunha reproduces a Mastodon
+    /// release's schema and API, and it is that release which has been
+    /// superseded.
+    pub async fn send_software_updates(
+        &self,
+        to: &str,
+        name: &str,
+        instance_domain: &str,
+        tracked_version: &str,
+        versions: &[String],
+        urgent: bool,
+    ) -> anyhow::Result<()> {
+        let listed = versions
+            .iter()
+            .map(|v| format!("<li>Mastodon {v}</li>"))
+            .collect::<String>();
+
+        let subject = if urgent {
+            format!("[{instance_domain}] Critical Mastodon updates available")
+        } else {
+            format!("[{instance_domain}] Mastodon updates available")
+        };
+
+        let urgency = if urgent {
+            "<p><strong>At least one of these is marked urgent.</strong></p>"
+        } else {
+            ""
+        };
+
+        let body = format!(
+            "<p>Hi {name},</p>\
+             <p>{instance_domain} runs eunha, which implements Mastodon \
+             {tracked_version}. Newer Mastodon releases are available:</p>\
+             <ul>{listed}</ul>{urgency}\
+             <p>Adopting one of them means a newer eunha, not a Mastodon \
+             upgrade. Nothing here updates itself.</p>"
+        );
+
+        self.send(to, &subject, &body).await
+    }
+
+    /// Tell an administrator that the Mastodon release this build implements is
+    /// losing, or has lost, upstream support.
+    ///
+    /// Mastodon's `AdminMailer#end_of_support_*`. `days_remaining` is negative
+    /// once the date has passed.
+    pub async fn send_end_of_support(
+        &self,
+        to: &str,
+        name: &str,
+        instance_domain: &str,
+        branch: &str,
+        end_of_support: &str,
+        days_remaining: i64,
+    ) -> anyhow::Result<()> {
+        let (subject, urgency) = if days_remaining < 0 {
+            (
+                format!("[{instance_domain}] Mastodon {branch} is out of support"),
+                format!(
+                    "<p>Support for Mastodon {branch} ended on {end_of_support}. It no \
+                     longer receives fixes, including security fixes.</p>"
+                ),
+            )
+        } else {
+            (
+                format!("[{instance_domain}] Mastodon {branch} loses support soon"),
+                format!(
+                    "<p>Support for Mastodon {branch} ends on {end_of_support}, in \
+                     {days_remaining} days.</p>"
+                ),
+            )
+        };
+
+        let body = format!(
+            "<p>Hi {name},</p>\
+             <p>{instance_domain} runs eunha, which implements Mastodon \
+             {branch}.</p>{urgency}\
+             <p>An eunha that tracks a supported Mastodon release is the way \
+             out of this; see the project's release notes.</p>"
+        );
+
+        self.send(to, &subject, &body).await
+    }
+
     async fn send(&self, to: &str, subject: &str, html: &str) -> anyhow::Result<()> {
         let payload = serde_json::json!({
             "from": self.from,

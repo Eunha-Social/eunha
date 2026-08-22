@@ -394,6 +394,10 @@ async fn enqueue_to_inboxes(
         return Ok(0);
     }
 
+    // Sign once, before the fan-out: every inbox receives the same bytes, and
+    // the proof travels with the activity rather than with the connection.
+    let activity = attach_integrity_proof(state, activity, actor_account_id, &key_id).await;
+
     // One statement for the whole fan-out. A per-inbox INSERT loop costs a
     // round-trip per follower, which for a large account is the dominant cost
     // of posting — and it runs on the request path.
@@ -411,6 +415,93 @@ async fn enqueue_to_inboxes(
     .await?;
 
     Ok(result.rows_affected())
+}
+
+/// Attach a FEP-8b32 integrity proof to an outgoing activity.
+///
+/// An HTTP Signature authenticates the connection an activity arrived over; a
+/// proof authenticates the activity itself, so a relayed or forwarded copy can
+/// still be attributed to its author. Mastodon 4.7 verifies these — it does not
+/// produce them — and Fedify-based servers both produce and verify them.
+///
+/// Best-effort by design: an activity that cannot be signed is delivered
+/// unsigned rather than not delivered, because the HTTP Signature is what peers
+/// actually require. Instances with no encryption keys configured cannot store
+/// an assertion key at all, and simply never attach one.
+async fn attach_integrity_proof(
+    state: &AppState,
+    activity: Value,
+    account_id: i64,
+    key_id: &str,
+) -> Value {
+    if !state.config.sign_integrity_proofs || state.encryptor.is_none() {
+        return activity;
+    }
+    if !activity.is_object() || activity.get("proof").is_some() {
+        return activity;
+    }
+
+    let key = match crate::federation::keypair::assertion_key(state, account_id).await {
+        Ok(key) => key,
+        Err(e) => {
+            tracing::debug!(account_id, error = %e, "no assertion key; delivering without a proof");
+            return activity;
+        }
+    };
+
+    // The proof's `verificationMethod` is the actor's, which the key id names
+    // up to its fragment.
+    let actor_url = key_id.split('#').next().unwrap_or(key_id);
+    let verification_method = format!(
+        "{actor_url}{}",
+        crate::federation::keypair::ED25519_FRAGMENT
+    );
+
+    // A proof is only meaningful to a JSON-LD reader if `proof` is defined, so
+    // the document has to carry the data integrity context before it is signed
+    // — the signature covers `@context` too.
+    let with_context = match with_data_integrity_context(activity.clone()) {
+        Some(document) => document,
+        None => return activity,
+    };
+
+    match feder_runtime::integrity::sign_object_integrity_proof(
+        &with_context,
+        &verification_method,
+        &key.seed,
+    ) {
+        Ok(signed) => signed,
+        Err(e) => {
+            tracing::warn!(account_id, error = %e, "could not sign an integrity proof");
+            activity
+        }
+    }
+}
+
+/// Add the data integrity context to a document's `@context`, however it is
+/// currently shaped, leaving it alone if it is already there.
+fn with_data_integrity_context(mut activity: Value) -> Option<Value> {
+    const DATA_INTEGRITY: &str = "https://w3id.org/security/data-integrity/v1";
+
+    let object = activity.as_object_mut()?;
+    match object.get_mut("@context") {
+        Some(Value::Array(entries)) => {
+            if !entries.iter().any(|e| e.as_str() == Some(DATA_INTEGRITY)) {
+                entries.push(Value::from(DATA_INTEGRITY));
+            }
+        }
+        Some(existing) => {
+            let existing = existing.clone();
+            object.insert(
+                "@context".to_string(),
+                Value::Array(vec![existing, Value::from(DATA_INTEGRITY)]),
+            );
+        }
+        None => {
+            object.insert("@context".to_string(), Value::from(DATA_INTEGRITY));
+        }
+    }
+    Some(activity)
 }
 
 /// Run one loop of the durable ActivityPub delivery queue. `index` distinguishes

@@ -19,6 +19,12 @@ pub struct Config {
     /// the server Mastodon itself asks.
     #[serde(default = "default_software_update_url")]
     pub software_update_url: Option<String>,
+    /// Attach FEP-8b32 integrity proofs to outgoing activities, so that a
+    /// relayed or forwarded copy can still be attributed. Mastodon verifies
+    /// these but does not produce them; turn it off to send exactly what
+    /// Mastodon sends.
+    #[serde(default = "default_sign_integrity_proofs")]
+    pub sign_integrity_proofs: bool,
     #[serde(default)]
     pub workers: WorkersConfig,
 }
@@ -58,6 +64,10 @@ pub struct WorkersConfig {
     /// Activities processed concurrently per ingress loop.
     #[serde(default = "default_inbox_concurrency")]
     pub inbox_concurrency: usize,
+}
+
+fn default_sign_integrity_proofs() -> bool {
+    true
 }
 
 fn default_software_update_url() -> Option<String> {

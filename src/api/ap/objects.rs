@@ -245,6 +245,22 @@ pub async fn actor_json(
         None
     };
 
+    let assertion_method = crate::federation::keypair::assertion_multikey(&state, account.id)
+        .await
+        .unwrap_or_default()
+        .map(|multikey| {
+            let id = format!(
+                "{actor_url}{}",
+                crate::federation::keypair::ED25519_FRAGMENT
+            );
+            json!([{
+                "id": id,
+                "type": "Multikey",
+                "controller": actor_url,
+                "publicKeyMultibase": multikey,
+            }])
+        });
+
     // Since 4.7.0 the key may live in `keypairs`; an account without one
     // advertises an empty key rather than none, as it did before.
     let public_key = crate::federation::keypair::public_key(&state, account.id)
@@ -312,6 +328,8 @@ pub async fn actor_json(
         "@context": [
             "https://www.w3.org/ns/activitystreams",
             "https://w3id.org/security/v1",
+            // Defines `assertionMethod` and `Multikey` (FEP-521a).
+            "https://w3id.org/security/multikey/v1",
             {
                 "manuallyApprovesFollowers": "as:manuallyApprovesFollowers",
                 "alsoKnownAs": { "@id": "as:alsoKnownAs", "@type": "@id" },
@@ -358,6 +376,10 @@ pub async fn actor_json(
         "endpoints": {
             "sharedInbox": format!("{}/inbox", base),
         },
+        // FEP-521a: the Ed25519 key this account signs integrity proofs with,
+        // published as a Multikey so a peer can resolve a proof's
+        // `verificationMethod`. Absent until the account first signs something.
+        "assertionMethod": assertion_method,
         "alsoKnownAs": also_known_as,
         "movedTo": moved_to,
     });

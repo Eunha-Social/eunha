@@ -157,3 +157,110 @@ async fn test_stale_branches_are_cleared() {
             .unwrap();
     assert_eq!(warning, 0, "a date far off has earned no warning");
 }
+
+/// A release already recorded is not mailed about again: the check runs every
+/// few hours and nobody wants that in their inbox.
+#[tokio::test]
+async fn test_only_newly_seen_releases_are_reported() {
+    let ctx = TestContext::new("sw-repeat").await;
+    let body = r#"{"updatesAvailable":[
+             {"version":"4.8.0","releaseNotes":"","urgent":true,"type":"minor"}
+           ],"currentVersion":{"endOfSupport":null}}"#;
+    let url = spawn_update_server(body).await;
+
+    eunha::software_updates::check_once(&ctx.state, &url)
+        .await
+        .unwrap();
+    let first: i64 = sqlx::query_scalar("SELECT count(*) FROM software_updates")
+        .fetch_one(&ctx.db)
+        .await
+        .unwrap();
+    assert_eq!(first, 1);
+
+    // Running again records the same row and finds nothing new to report.
+    eunha::software_updates::check_once(&ctx.state, &url)
+        .await
+        .unwrap();
+    let second: i64 = sqlx::query_scalar("SELECT count(*) FROM software_updates")
+        .fetch_one(&ctx.db)
+        .await
+        .unwrap();
+    assert_eq!(second, 1, "a repeat check should not duplicate the row");
+
+    let updated_at: chrono::NaiveDateTime =
+        sqlx::query_scalar("SELECT updated_at FROM software_updates WHERE version = '4.8.0'")
+            .fetch_one(&ctx.db)
+            .await
+            .unwrap();
+    assert!(
+        updated_at <= chrono::Utc::now().naive_utc(),
+        "the row should still be refreshed on every check"
+    );
+}
+
+/// The end-of-support warning level only ever rises, so crossing a threshold
+/// is noted once rather than every time the check runs.
+#[tokio::test]
+async fn test_a_warning_is_not_reissued() {
+    let ctx = TestContext::new("sw-warn-once").await;
+    let url = spawn_update_server(
+        r#"{"updatesAvailable":[],"currentVersion":{"endOfSupport":"2020-01-01"}}"#,
+    )
+    .await;
+
+    eunha::software_updates::check_once(&ctx.state, &url)
+        .await
+        .unwrap();
+    eunha::software_updates::check_once(&ctx.state, &url)
+        .await
+        .unwrap();
+
+    let rows: i64 = sqlx::query_scalar("SELECT count(*) FROM software_deprecations")
+        .fetch_one(&ctx.db)
+        .await
+        .unwrap();
+    assert_eq!(rows, 1);
+
+    let warning: i32 =
+        sqlx::query_scalar("SELECT warning_issued FROM software_deprecations LIMIT 1")
+            .fetch_one(&ctx.db)
+            .await
+            .unwrap();
+    assert_eq!(warning, 3, "out of support, and it stays there");
+}
+
+/// A date that moves further out does not withdraw a warning already given.
+#[tokio::test]
+async fn test_a_later_date_does_not_lower_the_warning() {
+    let ctx = TestContext::new("sw-warn-keep").await;
+
+    let near = spawn_update_server(
+        r#"{"updatesAvailable":[],"currentVersion":{"endOfSupport":"2020-01-01"}}"#,
+    )
+    .await;
+    eunha::software_updates::check_once(&ctx.state, &near)
+        .await
+        .unwrap();
+
+    let far = spawn_update_server(
+        r#"{"updatesAvailable":[],"currentVersion":{"endOfSupport":"2099-01-01"}}"#,
+    )
+    .await;
+    eunha::software_updates::check_once(&ctx.state, &far)
+        .await
+        .unwrap();
+
+    let row = sqlx::query!("SELECT end_of_support, warning_issued FROM software_deprecations")
+        .fetch_one(&ctx.db)
+        .await
+        .unwrap();
+    assert_eq!(
+        row.end_of_support,
+        chrono::NaiveDate::from_ymd_opt(2099, 1, 1).unwrap(),
+        "the date itself follows the server"
+    );
+    assert_eq!(
+        row.warning_issued, 3,
+        "but a warning given is not withdrawn"
+    );
+}

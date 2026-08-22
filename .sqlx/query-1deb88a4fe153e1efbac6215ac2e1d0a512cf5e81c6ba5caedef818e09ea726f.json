@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT u.email, a.username, u.settings\n           FROM users u\n           JOIN accounts a ON a.id = u.account_id\n           JOIN user_roles ur ON ur.id = u.role_id\n           WHERE u.confirmed_at IS NOT NULL\n             AND u.approved\n             AND NOT u.disabled\n             AND a.suspended_at IS NULL\n             AND a.requested_deletion_at IS NULL\n             AND (ur.permissions & $1 <> 0 OR ur.permissions & $2 <> 0)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "username",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "settings",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "1deb88a4fe153e1efbac6215ac2e1d0a512cf5e81c6ba5caedef818e09ea726f"
+}

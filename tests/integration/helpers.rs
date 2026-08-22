@@ -525,6 +525,7 @@ impl TestContext {
             }),
             // Never reach for a third party's update server in tests.
             software_update_url: None,
+            sign_integrity_proofs: true,
             workers: Default::default(),
         };
         let state = eunha::state::AppState::new(db, config)

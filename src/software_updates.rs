@@ -106,7 +106,10 @@ pub async fn check_once(state: &AppState, url: &str) -> Result<()> {
 
     let check: UpdateCheck = response.json().await.context("parsing update notices")?;
 
-    record_updates(state, &check.updates_available).await?;
+    let new_updates = record_updates(state, &check.updates_available).await?;
+    if !new_updates.is_empty() {
+        notify_of_updates(state, &new_updates).await;
+    }
     if let Some(end_of_support) = check
         .current_version
         .and_then(|current| current.end_of_support)
@@ -116,11 +119,17 @@ pub async fn check_once(state: &AppState, url: &str) -> Result<()> {
     Ok(())
 }
 
-/// Replace the recorded updates with the ones the server still lists.
+/// Replace the recorded updates with the ones the server still lists, and
+/// report the ones that were not already recorded.
 ///
 /// A release that has come and gone — because eunha has since adopted it, or
-/// because upstream withdrew it — should not keep being advertised.
-async fn record_updates(state: &AppState, updates: &[AvailableUpdate]) -> Result<()> {
+/// because upstream withdrew it — should not keep being advertised. Only
+/// genuinely new ones are worth mailing about; the check runs every six hours
+/// and nobody wants that in their inbox.
+async fn record_updates<'a>(
+    state: &AppState,
+    updates: &'a [AvailableUpdate],
+) -> Result<Vec<&'a AvailableUpdate>> {
     let versions: Vec<String> = updates.iter().map(|u| u.version.clone()).collect();
     sqlx::query!(
         "DELETE FROM public.software_updates WHERE NOT (version = ANY($1))",
@@ -128,6 +137,15 @@ async fn record_updates(state: &AppState, updates: &[AvailableUpdate]) -> Result
     )
     .execute(&state.db)
     .await?;
+
+    let known: std::collections::HashSet<String> = sqlx::query_scalar!(
+        "SELECT version FROM public.software_updates WHERE version = ANY($1)",
+        &versions,
+    )
+    .fetch_all(&state.db)
+    .await?
+    .into_iter()
+    .collect();
 
     for update in updates {
         let kind = match update.kind.as_str() {
@@ -159,7 +177,157 @@ async fn record_updates(state: &AppState, updates: &[AvailableUpdate]) -> Result
         .execute(&state.db)
         .await?;
     }
-    Ok(())
+
+    Ok(updates
+        .iter()
+        .filter(|u| !known.contains(&u.version))
+        .collect())
+}
+
+/// Everyone who should hear about this: Mastodon mails the users whose role
+/// carries `view_devops`, and an administrator carries every permission.
+async fn devops_recipients(state: &AppState) -> Result<Vec<Recipient>> {
+    const ADMINISTRATOR: i64 = 1 << 0;
+    const VIEW_DEVOPS: i64 = 1 << 1;
+
+    Ok(sqlx::query_as!(
+        Recipient,
+        r#"SELECT u.email, a.username, u.settings
+           FROM users u
+           JOIN accounts a ON a.id = u.account_id
+           JOIN user_roles ur ON ur.id = u.role_id
+           WHERE u.confirmed_at IS NOT NULL
+             AND u.approved
+             AND NOT u.disabled
+             AND a.suspended_at IS NULL
+             AND a.requested_deletion_at IS NULL
+             AND (ur.permissions & $1 <> 0 OR ur.permissions & $2 <> 0)"#,
+        ADMINISTRATOR,
+        VIEW_DEVOPS,
+    )
+    .fetch_all(&state.db)
+    .await?)
+}
+
+struct Recipient {
+    email: String,
+    username: String,
+    settings: Option<String>,
+}
+
+impl Recipient {
+    /// Read one of Mastodon's `notification_emails.*` settings.
+    ///
+    /// The column is a serialized blob whose format is Rails' business; rather
+    /// than parse it, look for the setting's key and the value that follows.
+    /// A setting that cannot be read falls back to Mastodon's default, which
+    /// errs towards sending rather than towards silence.
+    fn notification_setting(&self, key: &str) -> Option<String> {
+        let settings = self.settings.as_deref()?;
+        let at = settings.find(key)? + key.len();
+        let rest = &settings[at..];
+        let start = rest.find(|c: char| c.is_ascii_alphanumeric())?;
+        let value: String = rest[start..]
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .collect();
+        (!value.is_empty()).then_some(value)
+    }
+
+    /// Mastodon's `should_notify_user?`, defaulting to `critical`.
+    fn wants_update_email(&self, urgent: bool, patch: bool) -> bool {
+        match self
+            .notification_setting("software_updates")
+            .as_deref()
+            .unwrap_or("critical")
+        {
+            "none" => false,
+            "patch" => urgent || patch,
+            "all" => true,
+            // "critical", and anything unrecognised.
+            _ => urgent,
+        }
+    }
+
+    /// Mastodon's `should_notify_about_end_of_support?`, defaulting to on.
+    fn wants_end_of_support_email(&self) -> bool {
+        self.notification_setting("end_of_support")
+            .as_deref()
+            .map_or(true, |value| value != "false")
+    }
+}
+
+/// Mail the administrators about releases that were not already recorded.
+async fn notify_of_updates(state: &AppState, updates: &[&AvailableUpdate]) {
+    let urgent = updates.iter().any(|u| u.urgent);
+    let patch = updates.iter().any(|u| u.kind == "patch");
+    let versions: Vec<String> = updates.iter().map(|u| u.version.clone()).collect();
+
+    let recipients = match devops_recipients(state).await {
+        Ok(recipients) => recipients,
+        Err(e) => {
+            tracing::warn!(error = %e, "could not list administrators for update notices");
+            return;
+        }
+    };
+
+    for recipient in recipients {
+        if !recipient.wants_update_email(urgent, patch) {
+            continue;
+        }
+        if let Err(e) = state
+            .email
+            .send_software_updates(
+                &recipient.email,
+                &recipient.username,
+                &state.instance.domain,
+                crate::version::MASTODON,
+                &versions,
+                urgent,
+            )
+            .await
+        {
+            tracing::warn!(error = %e, "could not send a software update notice");
+        }
+    }
+}
+
+/// Mail the administrators that support is ending, once per threshold crossed.
+async fn notify_of_end_of_support(
+    state: &AppState,
+    branch: &str,
+    end_of_support: chrono::NaiveDate,
+) {
+    let days_remaining = (end_of_support - chrono::Utc::now().date_naive()).num_days();
+    let end_of_support = end_of_support.to_string();
+
+    let recipients = match devops_recipients(state).await {
+        Ok(recipients) => recipients,
+        Err(e) => {
+            tracing::warn!(error = %e, "could not list administrators for end-of-support notices");
+            return;
+        }
+    };
+
+    for recipient in recipients {
+        if !recipient.wants_end_of_support_email() {
+            continue;
+        }
+        if let Err(e) = state
+            .email
+            .send_end_of_support(
+                &recipient.email,
+                &recipient.username,
+                &state.instance.domain,
+                branch,
+                &end_of_support,
+                days_remaining,
+            )
+            .await
+        {
+            tracing::warn!(error = %e, "could not send an end-of-support notice");
+        }
+    }
 }
 
 /// Record when the branch eunha implements stops being supported.
@@ -209,6 +377,7 @@ async fn record_deprecation(state: &AppState, end_of_support: &str) -> Result<()
     .await?;
 
     if warning > previous {
+        notify_of_end_of_support(state, &branch, end_of_support).await;
         match warning {
             warning::OUT_OF_SUPPORT => tracing::error!(
                 branch,
@@ -290,6 +459,76 @@ mod tests {
             "expected major.minor, got {branch}"
         );
         assert!(crate::version::MASTODON.starts_with(&branch));
+    }
+
+    fn recipient(settings: Option<&str>) -> Recipient {
+        Recipient {
+            email: "admin@example.test".into(),
+            username: "admin".into(),
+            settings: settings.map(str::to_owned),
+        }
+    }
+
+    /// Mastodon's default is `critical`: urgent releases are mailed about,
+    /// ordinary ones are not.
+    #[test]
+    fn an_unset_preference_means_critical_only() {
+        let r = recipient(None);
+        assert!(r.wants_update_email(true, false));
+        assert!(!r.wants_update_email(false, true));
+        assert!(!r.wants_update_email(false, false));
+        assert!(r.wants_end_of_support_email());
+    }
+
+    #[test]
+    fn each_preference_selects_what_mastodon_selects() {
+        let none = recipient(Some("notification_emails.software_updates: none"));
+        assert!(!none.wants_update_email(true, true));
+
+        let patch = recipient(Some("notification_emails.software_updates: patch"));
+        assert!(patch.wants_update_email(false, true));
+        assert!(patch.wants_update_email(true, false));
+        assert!(!patch.wants_update_email(false, false));
+
+        let all = recipient(Some("notification_emails.software_updates: all"));
+        assert!(all.wants_update_email(false, false));
+
+        let critical = recipient(Some("notification_emails.software_updates: critical"));
+        assert!(critical.wants_update_email(true, false));
+        assert!(!critical.wants_update_email(false, true));
+    }
+
+    #[test]
+    fn end_of_support_email_can_be_turned_off() {
+        assert!(
+            !recipient(Some("notification_emails.end_of_support: false"))
+                .wants_end_of_support_email()
+        );
+        assert!(recipient(Some("notification_emails.end_of_support: true"))
+            .wants_end_of_support_email());
+        // A blob that says nothing about it leaves it on, as Mastodon does.
+        assert!(recipient(Some("something_else: 1")).wants_end_of_support_email());
+    }
+
+    /// The settings blob is Rails' own format; reading it must not mistake one
+    /// setting's value for another's.
+    #[test]
+    fn reads_the_value_belonging_to_the_key() {
+        let r = recipient(Some(
+            "---\nnotification_emails.end_of_support: false\n\
+             notification_emails.software_updates: all\n",
+        ));
+        assert_eq!(
+            r.notification_setting("software_updates").as_deref(),
+            Some("all")
+        );
+        assert_eq!(
+            r.notification_setting("end_of_support").as_deref(),
+            Some("false")
+        );
+        assert_eq!(r.notification_setting("not_present"), None);
+        assert!(r.wants_update_email(false, false));
+        assert!(!r.wants_end_of_support_email());
     }
 
     #[test]

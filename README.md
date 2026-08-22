@@ -129,15 +129,33 @@ The request carries the Mastodon version being asked about and eunha's own
 `User-Agent`; it does not claim to be Mastodon. Set `software_update_url` to an
 empty string to turn the check off, or to another server to ask it instead.
 
+### Beyond 4.7.0
+
+Two things here go further than Mastodon 4.7 rather than catching up to it.
+Both are additive: what Mastodon sends is still sent, and a peer that ignores
+them is unaffected.
+
+**Integrity proofs on outgoing activities.** Mastodon 4.7 verifies FEP-8b32
+proofs but does not produce them; eunha produces them. An HTTP Signature
+authenticates the connection an activity arrived over, which says nothing about
+a copy that was relayed or forwarded — a proof authenticates the activity
+itself, so it stays attributable however it travelled. Each local account gets
+an Ed25519 key on first use, published as a FEP-521a `Multikey` under
+`assertionMethod`, and the key is stored the way Mastodon stores its own:
+encrypted, in `keypairs`, as a PKCS#8 PEM something else could read.
+
+Set `sign_integrity_proofs = false` to send exactly what Mastodon sends.
+
+**Update notices by email.** Administrators — users whose role carries
+`view_devops`, or who are administrators — are mailed when newer Mastodon
+releases appear and when the branch eunha implements approaches its end of
+support, honouring the same `notification_emails.software_updates` and
+`notification_emails.end_of_support` preferences Mastodon reads, with the same
+defaults. Only newly seen releases are mailed about, and a warning already given
+is not reissued.
+
 ### Outstanding from 4.7.0
 
-Nothing from 4.7.0 is outstanding. What eunha does not implement from it is a
-matter of choice rather than of catching up:
-
-* **Signing with Ed25519 or ML-DSA.** Both are verified on the way in —
-  `mldsa44-jcs-2024` integrity proofs and `ed25519` HTTP Message Signatures —
-  but local accounts have RSA keys, so that is what eunha signs with. The
-  `keypairs` table records a key's type, so issuing others is a matter of key
-  management rather than of cryptography.
-* **Email for update notices.** Mastodon mails its devops users; eunha logs,
-  and the notices land in the same tables the admin surfaces read.
+Nothing. Signing HTTP Message Signatures with Ed25519 or ML-DSA keys remains
+unimplemented, but so is it in Mastodon: local accounts' HTTP signatures are
+RSA on both sides. Both algorithms are verified inbound.

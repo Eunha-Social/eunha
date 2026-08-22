@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT end_of_support, warning_issued FROM software_deprecations",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "end_of_support",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 1,
+        "name": "warning_issued",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "0c8819cb3e45cf7b2e05bd202a3dbb02ac0be5f4f92c229951b4c62383a26e67"
+}
