@@ -243,6 +243,29 @@ DROP MATERIALIZED VIEW public.account_summaries;
 ALTER TABLE public.tmp_account_summaries RENAME TO account_summaries;
 ALTER TABLE public.tmp_global_follow_recommendations RENAME TO global_follow_recommendations;
 
+-- Postgres names NOT NULL constraints after the table they were created on, and
+-- renaming the table does not rename them. Left alone, these would keep their
+-- `tmp_` names for good, which is a difference a schema comparison sees and a
+-- migration that drops a constraint by name would trip over.
+ALTER TABLE public.account_summaries
+    RENAME CONSTRAINT tmp_account_summaries_account_id_not_null
+                   TO account_summaries_account_id_not_null;
+ALTER TABLE public.account_summaries
+    RENAME CONSTRAINT tmp_account_summaries_sensitive_not_null
+                   TO account_summaries_sensitive_not_null;
+ALTER TABLE public.global_follow_recommendations
+    RENAME CONSTRAINT tmp_global_follow_recommendations_account_id_not_null
+                   TO global_follow_recommendations_account_id_not_null;
+ALTER TABLE public.global_follow_recommendations
+    RENAME CONSTRAINT tmp_global_follow_recommendations_rank_not_null
+                   TO global_follow_recommendations_rank_not_null;
+ALTER TABLE public.global_follow_recommendations
+    RENAME CONSTRAINT tmp_global_follow_recommendations_reason_not_null
+                   TO global_follow_recommendations_reason_not_null;
+ALTER TABLE public.global_follow_recommendations
+    RENAME CONSTRAINT tmp_global_follow_recommendations_stale_not_null
+                   TO global_follow_recommendations_stale_not_null;
+
 CREATE SEQUENCE public.account_summaries_account_id_seq
     AS bigint START WITH 1 INCREMENT BY 1 NO MINVALUE NO MAXVALUE CACHE 1;
 ALTER SEQUENCE public.account_summaries_account_id_seq OWNED BY public.account_summaries.account_id;
@@ -266,11 +289,14 @@ CREATE INDEX idx_on_account_id_language_sensitive_250461e1eb
 CREATE INDEX index_global_follow_recommendations_on_rank
     ON public.global_follow_recommendations USING btree (rank);
 
+-- Rails derives a foreign key's name from a hash of the table and column, and
+-- its own migrations drop constraints by that name, so the names have to match
+-- rather than merely describe the same relationship.
 ALTER TABLE ONLY public.account_summaries
-    ADD CONSTRAINT fk_account_summaries_account_id FOREIGN KEY (account_id)
+    ADD CONSTRAINT fk_rails_4ea43ef304 FOREIGN KEY (account_id)
         REFERENCES public.accounts(id) ON DELETE CASCADE;
 ALTER TABLE ONLY public.global_follow_recommendations
-    ADD CONSTRAINT fk_global_follow_recommendations_account_id FOREIGN KEY (account_id)
+    ADD CONSTRAINT fk_rails_bacefde68a FOREIGN KEY (account_id)
         REFERENCES public.accounts(id) ON DELETE CASCADE;
 
 -- Record what upstream would have recorded.

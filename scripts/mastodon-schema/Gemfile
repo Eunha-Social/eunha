@@ -1,0 +1,7 @@
+source "https://rubygems.org"
+# Just enough to execute Mastodon's db/schema.rb against a real Postgres: the
+# ActiveRecord schema DSL and the pg adapter. Not Mastodon's bundle, and not
+# Scenic either — its `create_view` is a few lines, and the gem is a Railtie
+# that would drag in the whole framework.
+gem "activerecord", "~> 8.1"
+gem "pg"

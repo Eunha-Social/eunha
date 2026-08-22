@@ -46,12 +46,28 @@ does the tracking:
     mise run mastodon:plan --to v4.8.0       # what would adopting it involve?
     mise run schema:check                    # does this database match the target?
 
-`schema:check` reads the live database back out of Postgres and diffs it against
-upstream's `db/schema.rb` for the tracked release — tables, columns, types,
-nullability, index names and uniqueness, and foreign keys including `ON DELETE`.
-It is the test for the 100%-compatibility claim, so run it after any migration.
-`--schema-rb path/to/mastodon/db/schema.rb` compares against a local checkout
-instead of GitHub.
+`schema:check` reads the live database back out of Postgres and compares it
+against a **reference**: the structure of a database that Mastodon's own
+ActiveRecord built from its `db/schema.rb`. Comparing Postgres to Postgres
+means comparing everything Postgres knows — column types, nullability,
+defaults, the columns an index actually covers, constraint names, foreign keys
+and their `ON DELETE` — rather than what a parser of ours believes a Ruby file
+means. It is the test for the 100%-compatibility claim, and it runs on every
+`cargo test`.
+
+Three files under `mastodon/` support it, all regenerated together by
+`mise run schema:build-reference`:
+
+* `schema.rb` — upstream's own file, vendored verbatim.
+* `schema.sql` — a `pg_dump` of a database built from it, for reading and
+  diffing.
+* `schema.json` — the same database's structure as the checker sees it, which
+  is what the test compares against so that it needs neither Ruby nor a
+  database of its own.
+
+Building the reference runs Mastodon's `schema.rb` through the real ActiveRecord
+schema DSL. That needs Ruby, but not Mastodon: `activerecord` and `pg`, not its
+thousand-gem bundle.
 
 ### Adopting a release
 
@@ -62,9 +78,11 @@ instead of GitHub.
    migration eunha deliberately does not implement is left out of that list, so
    that a Mastodon booted on the database still runs it. `--sql` prints the
    insert.
-3. Update `mastodon.toml` and `Cargo.toml`, then `mise run schema:check`
-   against a database that has run the new migration.
-4. Rehearse it against real data before deploying. Migrations run at startup,
+3. Update `mastodon.toml` and `Cargo.toml`, replace `mastodon/schema.rb` with
+   that release's, and run `mise run schema:build-reference`. The reference's
+   diff is the schema delta you are adopting.
+4. `mise run schema:check` against a database that has run the new migration.
+5. Rehearse it against real data before deploying. Migrations run at startup,
    so an instance gets one attempt at them:
 
        scripts/rehearse_migration.sh postgres://user@localhost/seoul_earth
@@ -73,6 +91,20 @@ instead of GitHub.
    the clone as the server would, and reports every table whose row count
    changed plus the schema check. Anything that moves rows it should not is
    visible there rather than in production.
+
+### Migrations
+
+Migrations are applied by `eunha migrate`, not by starting the server. A
+migration takes as long as it takes and some are destructive — 4.7's account
+merge deletes rows — so running them from a deploy script, before the new binary
+starts, means a failure is found with the old version still serving rather than
+with nothing serving at all.
+
+Starting the server checks instead: an instance whose database is behind its
+binary refuses to serve and says so, rather than running queries against a shape
+that has moved. `eunha migrate --check` answers the same question without
+applying anything, and exits non-zero when something is pending, so a deploy
+script can gate on it.
 
 `public.schema_migrations` is what makes a database self-describing: it is
 seeded for everything through 4.6.0 by `007_mastodon_schema_versions.sql`, and

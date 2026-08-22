@@ -64,6 +64,18 @@ pub enum Finding {
         index: String,
         expected_unique: bool,
     },
+    IndexDefinitionMismatch {
+        table: String,
+        index: String,
+        live: String,
+        expected: String,
+    },
+    DefaultMismatch {
+        table: String,
+        column: String,
+        live: Option<String>,
+        expected: Option<String>,
+    },
     MissingForeignKey(ForeignKey),
     ExtraForeignKey(ForeignKey),
     OnDeleteMismatch {
@@ -125,6 +137,26 @@ impl std::fmt::Display for Finding {
             Finding::ExtraIndex { table, index } => {
                 write!(f, "unexpected index {index} on {table}")
             }
+            Finding::IndexDefinitionMismatch {
+                table,
+                index,
+                live,
+                expected,
+            } => write!(
+                f,
+                "index {index} on {table} covers\n      {live}\n    but should cover\n      {expected}"
+            ),
+            Finding::DefaultMismatch {
+                table,
+                column,
+                live,
+                expected,
+            } => write!(
+                f,
+                "{table}.{column} defaults to {} but should default to {}",
+                live.as_deref().unwrap_or("nothing"),
+                expected.as_deref().unwrap_or("nothing")
+            ),
             Finding::UniquenessMismatch {
                 table,
                 index,
@@ -169,10 +201,10 @@ pub async fn introspect(pool: &PgPool) -> Result<Schema> {
             .flatten();
     schema.version = version.unwrap_or_default();
 
-    let columns: Vec<(String, String, String, String, String)> = sqlx::query_as(
+    let columns: Vec<(String, String, String, String, String, Option<String>)> = sqlx::query_as(
         r#"
         SELECT c.table_name::text, c.column_name::text, c.is_nullable::text,
-               c.data_type::text, c.udt_name::text
+               c.data_type::text, c.udt_name::text, c.column_default::text
         FROM information_schema.columns c
         JOIN information_schema.tables t
           ON t.table_schema = c.table_schema AND t.table_name = c.table_name
@@ -183,7 +215,7 @@ pub async fn introspect(pool: &PgPool) -> Result<Schema> {
     .await
     .context("reading columns")?;
 
-    for (table, column, nullable, data_type, udt) in columns {
+    for (table, column, nullable, data_type, udt, default) in columns {
         schema
             .tables
             .entry(table)
@@ -195,15 +227,17 @@ pub async fn introspect(pool: &PgPool) -> Result<Schema> {
                     name: column,
                     sql_type: sql_type(&data_type, &udt),
                     nullable: nullable == "YES",
+                    default,
                 },
             );
     }
 
     // Primary-key and constraint-backed indexes are implied by the column and
     // constraint definitions, and upstream's schema.rb does not list them.
-    let indexes: Vec<(String, String, bool)> = sqlx::query_as(
+    let indexes: Vec<(String, String, bool, String)> = sqlx::query_as(
         r#"
-        SELECT t.relname::text, i.relname::text, x.indisunique
+        SELECT t.relname::text, i.relname::text, x.indisunique,
+               pg_get_indexdef(i.oid)::text
         FROM pg_index x
         JOIN pg_class i ON i.oid = x.indexrelid
         JOIN pg_class t ON t.oid = x.indrelid
@@ -221,7 +255,11 @@ pub async fn introspect(pool: &PgPool) -> Result<Schema> {
     .await
     .context("reading indexes")?;
 
-    for (table, index, unique) in indexes {
+    for (table, index, unique, definition) in indexes {
+        // `pg_get_indexdef` names the table the index is on, which differs
+        // between the reference database and the one under test; what matters
+        // is the rest — the columns or expression, the method, any predicate.
+        let definition = definition.replace(&format!(" ON public.{table} "), " ON <table> ");
         schema
             .tables
             .entry(table)
@@ -232,6 +270,7 @@ pub async fn introspect(pool: &PgPool) -> Result<Schema> {
                 Index {
                     name: index,
                     unique,
+                    definition,
                 },
             );
     }
@@ -343,6 +382,14 @@ pub fn diff(live: &Schema, upstream: &Schema) -> Vec<Finding> {
                             expected_nullable: expected_column.nullable,
                         });
                     }
+                    if actual_column.default != expected_column.default {
+                        findings.push(Finding::DefaultMismatch {
+                            table: name.clone(),
+                            column: column_name.clone(),
+                            live: actual_column.default.clone(),
+                            expected: expected_column.default.clone(),
+                        });
+                    }
                 }
             }
         }
@@ -368,6 +415,14 @@ pub fn diff(live: &Schema, upstream: &Schema) -> Vec<Finding> {
                         index: index_name.clone(),
                         expected_unique: expected_index.unique,
                     }),
+                Some(actual_index) if actual_index.definition != expected_index.definition => {
+                    findings.push(Finding::IndexDefinitionMismatch {
+                        table: name.clone(),
+                        index: index_name.clone(),
+                        live: actual_index.definition.clone(),
+                        expected: expected_index.definition.clone(),
+                    })
+                }
                 Some(_) => {}
             }
         }
@@ -457,87 +512,142 @@ pub fn covered_versions(migrations_dir: &std::path::Path) -> Result<BTreeSet<Str
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::upstream::parse_schema_rb;
 
-    fn schema(source: &str) -> Schema {
-        parse_schema_rb(source)
+    fn column(name: &str, sql_type: &str, nullable: bool) -> Column {
+        Column {
+            name: name.to_string(),
+            sql_type: sql_type.to_string(),
+            nullable,
+            default: None,
+        }
+    }
+
+    fn index(name: &str, unique: bool, definition: &str) -> Index {
+        Index {
+            name: name.to_string(),
+            unique,
+            definition: definition.to_string(),
+        }
+    }
+
+    fn table(columns: Vec<Column>, indexes: Vec<Index>) -> Table {
+        Table {
+            columns: columns.into_iter().map(|c| (c.name.clone(), c)).collect(),
+            indexes: indexes.into_iter().map(|i| (i.name.clone(), i)).collect(),
+        }
+    }
+
+    fn schema(tables: Vec<(&str, Table)>, foreign_keys: Vec<ForeignKey>) -> Schema {
+        Schema {
+            version: "20260812154114".to_string(),
+            tables: tables
+                .into_iter()
+                .map(|(name, t)| (name.to_string(), t))
+                .collect(),
+            foreign_keys: foreign_keys.into_iter().collect(),
+        }
+    }
+
+    fn reference() -> Schema {
+        schema(
+            vec![(
+                "accounts",
+                table(
+                    vec![
+                        column("id", "bigint", false),
+                        column("username", "character varying", false),
+                    ],
+                    vec![index(
+                        "index_accounts_on_username",
+                        true,
+                        "CREATE UNIQUE INDEX index_accounts_on_username ON <table> USING btree (username)",
+                    )],
+                ),
+            )],
+            vec![ForeignKey {
+                table: "statuses".into(),
+                column: "account_id".into(),
+                target: "accounts".into(),
+                on_delete: "cascade".into(),
+            }],
+        )
     }
 
     #[test]
     fn identical_schemas_have_no_findings() {
-        let s = schema(
-            r#"
-ActiveRecord::Schema[8.1].define(version: 2026_08_12_154114) do
-  create_table "accounts", force: :cascade do |t|
-    t.string "username", default: "", null: false
-    t.index ["username"], name: "index_accounts_on_username"
-  end
-  add_foreign_key "account_aliases", "accounts", on_delete: :cascade
-end
-"#,
-        );
+        let s = reference();
         assert!(diff(&s, &s).is_empty());
     }
 
+    /// The differences the checker exists to catch, including the two that a
+    /// `schema.rb` parser could not see: a wrong default, and an index over the
+    /// wrong columns.
     #[test]
-    fn reports_the_shape_of_a_missed_upgrade() {
-        let live = schema(
-            r#"
-ActiveRecord::Schema[8.1].define(version: 2026_06_11_150940) do
-  create_table "accounts", force: :cascade do |t|
-    t.string "uri", default: "", null: false
-    t.index ["username"], name: "index_accounts_on_username"
-  end
-  add_foreign_key "generated_annual_reports", "accounts"
-end
-"#,
-        );
-        let upstream = schema(
-            r#"
-ActiveRecord::Schema[8.1].define(version: 2026_08_12_154114) do
-  create_table "accounts", force: :cascade do |t|
-    t.string "uri"
-    t.datetime "requested_deletion_at"
-    t.index ["uri"], name: "index_accounts_on_uri", unique: true
-    t.index ["username"], name: "index_accounts_on_username", unique: true
-  end
-  create_table "software_deprecations", force: :cascade do |t|
-    t.string "branch", null: false
-  end
-  add_foreign_key "generated_annual_reports", "accounts", on_delete: :cascade
-end
-"#,
-        );
+    fn reports_every_kind_of_drift() {
+        let expected = reference();
+        let mut live = reference();
 
-        let findings = diff(&live, &upstream);
-        assert!(findings.contains(&Finding::SchemaVersion {
-            live: "20260611150940".into(),
-            expected: "20260812154114".into(),
-        }));
-        assert!(findings.contains(&Finding::MissingTable("software_deprecations".into())));
+        let accounts = live.tables.get_mut("accounts").unwrap();
+        accounts.columns.get_mut("username").unwrap().nullable = true;
+        accounts.columns.get_mut("username").unwrap().default =
+            Some("'anon'::character varying".into());
+        accounts.columns.get_mut("id").unwrap().sql_type = "integer".into();
+        accounts.indexes.get_mut("index_accounts_on_username").unwrap().definition =
+            "CREATE UNIQUE INDEX index_accounts_on_username ON <table> USING btree (lower(username))"
+                .into();
+        accounts
+            .columns
+            .insert("leftover".to_string(), column("leftover", "text", true));
+        live.tables
+            .insert("gone_missing".to_string(), Table::default());
+        live.foreign_keys.clear();
+
+        let findings = diff(&live, &expected);
+
+        assert!(
+            findings.iter().any(|f| matches!(
+                f,
+                Finding::DefaultMismatch { column, .. } if column == "username"
+            )),
+            "a wrong default must be reported: {findings:?}"
+        );
         assert!(findings.iter().any(|f| matches!(
             f,
-            Finding::MissingColumn { table, column } if table == "accounts" && column.name == "requested_deletion_at"
-        )));
-        assert!(findings.contains(&Finding::NullabilityMismatch {
-            table: "accounts".into(),
-            column: "uri".into(),
-            expected_nullable: true,
-        }));
-        assert!(findings.contains(&Finding::MissingIndex {
-            table: "accounts".into(),
-            index: "index_accounts_on_uri".into(),
-            unique: true,
-        }));
-        assert!(findings.contains(&Finding::UniquenessMismatch {
-            table: "accounts".into(),
-            index: "index_accounts_on_username".into(),
-            expected_unique: true,
-        }));
+            Finding::IndexDefinitionMismatch { index, .. } if index == "index_accounts_on_username"
+        )), "an index over the wrong columns must be reported");
         assert!(findings.iter().any(|f| matches!(
             f,
-            Finding::OnDeleteMismatch { key, live } if key.table == "generated_annual_reports" && live == "none"
+            Finding::NullabilityMismatch { column, .. } if column == "username"
         )));
+        assert!(findings.iter().any(|f| matches!(
+            f,
+            Finding::TypeMismatch { column, .. } if column == "id"
+        )));
+        assert!(findings.iter().any(|f| matches!(
+            f,
+            Finding::ExtraColumn { column, .. } if column == "leftover"
+        )));
+        assert!(findings
+            .iter()
+            .any(|f| matches!(f, Finding::ExtraTable(name) if name == "gone_missing")));
+        assert!(findings
+            .iter()
+            .any(|f| matches!(f, Finding::MissingForeignKey(k) if k.table == "statuses")));
+    }
+
+    /// Migration ledgers are not part of Mastodon's schema and are never drift.
+    #[test]
+    fn bookkeeping_tables_are_not_findings() {
+        let expected = reference();
+        let mut live = reference();
+        for ledger in [
+            "schema_migrations",
+            "ar_internal_metadata",
+            "_sqlx_migrations",
+        ] {
+            live.tables.insert(ledger.to_string(), Table::default());
+        }
+        assert!(diff(&live, &expected).is_empty());
     }
 
     #[test]

@@ -36,17 +36,20 @@ enum Command {
         #[arg(long)]
         sql: bool,
     },
-    /// Diff a live database against upstream's schema for the tracked release.
+    /// Diff a live database against the recorded Mastodon schema.
     Check {
         /// Database to inspect. Defaults to $DATABASE_URL.
         #[arg(long)]
         database_url: Option<String>,
-        /// Check against a different release than the tracked one.
+    },
+    /// Record a reference database's structure as `mastodon/schema.json`.
+    ///
+    /// Run against the database `scripts/build_mastodon_schema.sh` builds from
+    /// Mastodon's own `db/schema.rb`; that script does this for you.
+    RecordReference {
+        /// The reference database built from Mastodon's schema.rb.
         #[arg(long)]
-        against: Option<String>,
-        /// Read db/schema.rb from a local Mastodon checkout instead of GitHub.
-        #[arg(long, value_name = "PATH")]
-        schema_rb: Option<std::path::PathBuf>,
+        database_url: String,
     },
 }
 
@@ -57,11 +60,8 @@ async fn main() -> Result<()> {
     match Args::parse().command {
         Command::Status => status().await,
         Command::Plan { to, sql } => plan(to, sql).await,
-        Command::Check {
-            database_url,
-            against,
-            schema_rb,
-        } => check(database_url, against, schema_rb).await,
+        Command::Check { database_url } => check(database_url).await,
+        Command::RecordReference { database_url } => record_reference(database_url).await,
     }
 }
 
@@ -86,6 +86,25 @@ async fn status() -> Result<()> {
         version::MASTODON,
         version::MASTODON_SCHEMA
     );
+
+    // `check` compares against a reference built from the vendored
+    // `mastodon/schema.rb`, so it is worth knowing when that file has drifted
+    // from the release it claims to be.
+    match upstream::schema_rb(&tracked_tag()).await {
+        Ok(upstream_rb) => {
+            let vendored = include_str!("../../mastodon/schema.rb");
+            if vendored == upstream_rb {
+                println!("vendored schema  matches {} upstream", tracked_tag());
+            } else {
+                println!(
+                    "\nWARNING: mastodon/schema.rb differs from {} upstream.\n\
+                     Re-run scripts/build_mastodon_schema.sh after updating it.",
+                    tracked_tag()
+                );
+            }
+        }
+        Err(e) => println!("vendored schema  could not be checked against upstream: {e}"),
+    }
 
     let latest = upstream::latest_release().await?;
     println!(
@@ -185,20 +204,21 @@ async fn plan(to: Option<String>, sql: bool) -> Result<()> {
     }
 
     if adopting {
-        let schema = upstream::schema(&target).await?;
-        println!("\nSchema version at {target}: {}", schema.version);
+        let schema_version = upstream::schema_rb_version(&target).await?;
+        println!("\nSchema version at {target}: {schema_version}");
         println!(
             "Once migrations/ covers those, set mastodon.toml to version = \"{}\",",
             target.trim_start_matches('v')
         );
         println!(
             "schema_version = \"{}\", and give Cargo.toml a version ending in",
-            schema.version
+            schema_version
         );
         println!(
-            "`+mastodon.{}`. Then `mise run schema:check`.",
+            "`+mastodon.{}`. Then refresh mastodon/schema.rb from that tag and run",
             target.trim_start_matches('v')
         );
+        println!("scripts/build_mastodon_schema.sh, which records the new reference.");
     }
 
     if sql && !outstanding.is_empty() {
@@ -214,31 +234,12 @@ async fn plan(to: Option<String>, sql: bool) -> Result<()> {
     Ok(())
 }
 
-async fn check(
-    database_url: Option<String>,
-    against: Option<String>,
-    schema_rb: Option<std::path::PathBuf>,
-) -> Result<()> {
+async fn check(database_url: Option<String>) -> Result<()> {
     let database_url = database_url
         .or_else(|| std::env::var("DATABASE_URL").ok())
         .context("no database given: pass --database-url or set DATABASE_URL")?;
-    let target = match against {
-        Some(tag) if tag.starts_with('v') => tag,
-        Some(version) => format!("v{version}"),
-        None => tracked_tag(),
-    };
 
-    let (expected, source) = match &schema_rb {
-        Some(path) => {
-            let body = std::fs::read_to_string(path)
-                .with_context(|| format!("reading {}", path.display()))?;
-            (upstream::parse_schema_rb(&body), path.display().to_string())
-        }
-        None => (
-            upstream::schema(&target).await?,
-            format!("mastodon/mastodon@{target}"),
-        ),
-    };
+    let expected = upstream::reference_schema();
     let pool = sqlx::PgPool::connect(&database_url)
         .await
         .with_context(|| format!("connecting to {database_url}"))?;
@@ -247,19 +248,52 @@ async fn check(
     let findings = schema_check::diff(&live, &expected);
     if findings.is_empty() {
         println!(
-            "Schema matches {source} ({} tables, {} foreign keys).",
+            "Schema matches Mastodon {} ({} tables, {} foreign keys).",
+            version::MASTODON,
             expected.tables.len(),
             expected.foreign_keys.len()
         );
         return Ok(());
     }
 
-    println!("{} difference(s) from {source}:\n", findings.len());
+    println!(
+        "{} difference(s) from Mastodon {}:\n",
+        findings.len(),
+        version::MASTODON
+    );
     for finding in &findings {
         println!("  {finding}");
     }
     // A drifted schema is a failure, so CI and `mise run schema:check` notice.
     std::process::exit(1);
+}
+
+/// Record what a reference database looks like, for `check` to compare against.
+async fn record_reference(database_url: String) -> Result<()> {
+    let pool = sqlx::PgPool::connect(&database_url)
+        .await
+        .with_context(|| format!("connecting to {database_url}"))?;
+    let schema = schema_check::introspect(&pool).await?;
+
+    anyhow::ensure!(
+        schema.tables.len() > 100,
+        "the reference database has only {} tables; is it the right one?",
+        schema.tables.len()
+    );
+
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("mastodon/schema.json");
+    // Pretty-printed so that adopting a release shows a readable diff rather
+    // than one very long line.
+    let json = serde_json::to_string_pretty(&schema)?;
+    std::fs::write(&path, json + "\n").with_context(|| format!("writing {}", path.display()))?;
+
+    println!(
+        "Recorded {} tables and {} foreign keys to {}.",
+        schema.tables.len(),
+        schema.foreign_keys.len(),
+        path.display()
+    );
+    Ok(())
 }
 
 /// eunha's own migrations, relative to the crate rather than the cwd.

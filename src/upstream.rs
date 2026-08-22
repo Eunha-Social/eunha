@@ -9,9 +9,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use anyhow::{Context, Result};
-use once_cell::sync::Lazy;
-use regex::Regex;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 const API: &str = "https://api.github.com/repos/mastodon/mastodon";
 const RAW: &str = "https://raw.githubusercontent.com/mastodon/mastodon";
@@ -73,17 +71,20 @@ impl Migration {
 }
 
 /// A column as upstream declares it, normalised to how Postgres reports it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Column {
     pub name: String,
     pub sql_type: String,
     pub nullable: bool,
+    /// The column's default exactly as Postgres reports it. Both sides of a
+    /// comparison are Postgres, so there is nothing to normalise.
+    pub default: Option<String>,
 }
 
 /// A foreign key, keyed the way both sides can agree on: the constraint's
 /// auto-generated Rails name is not derivable from `schema.rb`, so identity is
 /// (table, column, target table) and the interesting part is `on_delete`.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ForeignKey {
     pub table: String,
     pub column: String,
@@ -98,20 +99,23 @@ pub struct ForeignKey {
 /// column lists while Postgres writes a normalised expression, and reconciling
 /// the two produces more noise than signal. Name and uniqueness catch what
 /// upstream actually churns between releases.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Index {
     pub name: String,
     pub unique: bool,
+    /// `pg_get_indexdef`, with the table name elided: the columns or expression
+    /// the index covers, its method, and any partial predicate.
+    pub definition: String,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Table {
     pub columns: BTreeMap<String, Column>,
     pub indexes: BTreeMap<String, Index>,
 }
 
 /// The full picture of a schema, from either upstream or a live database.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Schema {
     /// `define(version:)` from `schema.rb`, or `max(version)` from a live
     /// `public.schema_migrations`.
@@ -211,10 +215,13 @@ pub async fn migrations(tag: &str) -> Result<Vec<Migration>> {
     Ok(all)
 }
 
-/// Fetch and parse `db/schema.rb` at `tag`.
-pub async fn schema(tag: &str) -> Result<Schema> {
+/// Fetch upstream's `db/schema.rb` at `tag`, verbatim.
+///
+/// # Errors
+/// Returns an error if the file cannot be fetched.
+pub async fn schema_rb(tag: &str) -> Result<String> {
     let url = format!("{RAW}/{tag}/db/schema.rb");
-    let body = client()?
+    Ok(client()?
         .get(&url)
         .send()
         .await
@@ -222,293 +229,38 @@ pub async fn schema(tag: &str) -> Result<Schema> {
         .error_for_status()
         .with_context(|| format!("GET {url}"))?
         .text()
-        .await?;
-    Ok(parse_schema_rb(&body))
+        .await?)
 }
 
-static DEFINE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"define\(version:\s*([0-9_]+)\)").expect("valid regex"));
-static CREATE_TABLE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"^\s*create_table "(\w+)"(.*)$"#).expect("valid regex"));
-static COLUMN: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"^\s*t\.(\w+) "(\w+)"(.*)$"#).expect("valid regex"));
-static INDEX_NAME: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"name: "?([\w.]+)"?"#).expect("valid regex"));
-static PRIMARY_KEY: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"primary_key: "(\w+)""#).expect("valid regex"));
-static FOREIGN_KEY: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"^\s*add_foreign_key "(\w+)", "(\w+)"(.*)$"#).expect("valid regex"));
-static FK_COLUMN: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r#"column: "(\w+)""#).expect("valid regex"));
-static ON_DELETE: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"on_delete: :(\w+)").expect("valid regex"));
-
-/// Translate a Rails column type into the type Postgres reports for it.
-fn pg_type(rails_type: &str) -> Option<&'static str> {
-    Some(match rails_type {
-        "string" => "character varying",
-        "text" => "text",
-        "integer" => "integer",
-        "bigint" => "bigint",
-        "boolean" => "boolean",
-        // Rails' `precision: nil` and its default precision of 6 are the same
-        // type to Postgres, whose default timestamp precision is already 6.
-        "datetime" | "timestamp" => "timestamp without time zone",
-        "date" => "date",
-        "float" => "double precision",
-        "decimal" => "numeric",
-        "jsonb" => "jsonb",
-        "json" => "json",
-        "binary" => "bytea",
-        "uuid" => "uuid",
-        "inet" => "inet",
-        "interval" => "interval",
-        "daterange" => "daterange",
-        _ => return None,
-    })
-}
-
-/// Parse the subset of `schema.rb` that describes physical structure.
+/// The `define(version:)` of upstream's `db/schema.rb` at `tag` — the newest
+/// migration that release contains.
 ///
-/// Scenic's `create_view` blocks at the end of the file are skipped: views are
-/// derived objects, and a live database is compared on base tables only.
-pub fn parse_schema_rb(source: &str) -> Schema {
-    let mut schema = Schema::default();
-    if let Some(caps) = DEFINE.captures(source) {
-        schema.version = caps[1].replace('_', "");
-    }
-
-    let mut current: Option<String> = None;
-    for line in source.lines() {
-        if let Some(caps) = CREATE_TABLE.captures(line) {
-            let name = caps[1].to_string();
-            let options = &caps[2];
-            let mut table = Table::default();
-
-            // Rails gives every table an `id` bigint unless told otherwise:
-            // `primary_key: "x"` renames it, a composite `primary_key: [...]`
-            // is spelled out in the columns below, and `id: false` drops it.
-            if options.contains("primary_key: [") {
-                // Nothing implicit to add.
-            } else if let Some(pk) = PRIMARY_KEY.captures(options) {
-                table.columns.insert(
-                    pk[1].to_string(),
-                    Column {
-                        name: pk[1].to_string(),
-                        sql_type: "bigint".to_string(),
-                        nullable: false,
-                    },
-                );
-            } else if !options.contains("id: false") {
-                let sql_type = if options.contains("id: :uuid") {
-                    "uuid"
-                } else if options.contains("id: :integer") {
-                    "integer"
-                } else {
-                    "bigint"
-                };
-                table.columns.insert(
-                    "id".to_string(),
-                    Column {
-                        name: "id".to_string(),
-                        sql_type: sql_type.to_string(),
-                        nullable: false,
-                    },
-                );
-            }
-
-            schema.tables.insert(name.clone(), table);
-            current = Some(name);
-            continue;
-        }
-
-        if let Some(caps) = FOREIGN_KEY.captures(line) {
-            let table = caps[1].to_string();
-            let target = caps[2].to_string();
-            let rest = &caps[3];
-            let column = FK_COLUMN
-                .captures(rest)
-                .map(|c| c[1].to_string())
-                // Rails' default: the target table name, singularised, `_id`.
-                .unwrap_or_else(|| format!("{}_id", singularize(&target)));
-            let on_delete = ON_DELETE
-                .captures(rest)
-                .map(|c| c[1].to_string())
-                .unwrap_or_else(|| "none".to_string());
-            schema.foreign_keys.insert(ForeignKey {
-                table,
-                column,
-                target,
-                on_delete,
-            });
-            continue;
-        }
-
-        let Some(table_name) = current.clone() else {
-            continue;
-        };
-        if line.trim() == "end" {
-            current = None;
-            continue;
-        }
-
-        let Some(caps) = COLUMN.captures(line) else {
-            // `t.index "lower((username)::text)", name: "..."` — an expression
-            // index, whose name is all this comparison needs.
-            if line.trim_start().starts_with("t.index ") {
-                if let Some(name) = INDEX_NAME.captures(line) {
-                    if let Some(table) = schema.tables.get_mut(&table_name) {
-                        let name = name[1].to_string();
-                        table.indexes.insert(
-                            name.clone(),
-                            Index {
-                                name,
-                                unique: line.contains("unique: true"),
-                            },
-                        );
-                    }
-                }
-            }
-            continue;
-        };
-
-        let kind = caps[1].to_string();
-        let name = caps[2].to_string();
-        let rest = caps[3].to_string();
-        let Some(table) = schema.tables.get_mut(&table_name) else {
-            continue;
-        };
-
-        match kind.as_str() {
-            "index" => {
-                if let Some(index_name) = INDEX_NAME.captures(&rest) {
-                    let name = index_name[1].to_string();
-                    table.indexes.insert(
-                        name.clone(),
-                        Index {
-                            name,
-                            unique: rest.contains("unique: true"),
-                        },
-                    );
-                }
-            }
-            "check_constraint" => {}
-            _ => {
-                let Some(base) = pg_type(&kind) else { continue };
-                let sql_type = if rest.contains("array: true") {
-                    format!("{base}[]")
-                } else {
-                    base.to_string()
-                };
-                table.columns.insert(
-                    name.clone(),
-                    Column {
-                        name,
-                        sql_type,
-                        nullable: !rest.contains("null: false"),
-                    },
-                );
-            }
-        }
-    }
-
-    // `t.timestamps` expands to created_at/updated_at, but Mastodon's dumped
-    // schema.rb always writes them out explicitly, so no expansion is needed.
-    schema
+/// # Errors
+/// Returns an error if the file cannot be fetched or states no version.
+pub async fn schema_rb_version(tag: &str) -> Result<String> {
+    let body = schema_rb(tag).await?;
+    let at = body
+        .find("define(version:")
+        .context("schema.rb states no version")?;
+    let rest = &body[at + "define(version:".len()..];
+    let end = rest.find(')').context("malformed define(version:)")?;
+    Ok(rest[..end].trim().replace('_', ""))
 }
 
-/// Rails' inflection for the table names Mastodon actually uses.
-fn singularize(table: &str) -> String {
-    for (plural, singular) in [
-        ("statuses", "status"),
-        ("aliases", "alias"),
-        ("classes", "class"),
-        ("boxes", "box"),
-    ] {
-        if let Some(prefix) = table.strip_suffix(plural) {
-            return format!("{prefix}{singular}");
-        }
-    }
-    if let Some(prefix) = table.strip_suffix("ies") {
-        return format!("{prefix}y");
-    }
-    table.strip_suffix('s').unwrap_or(table).to_string()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_tables_columns_and_indexes() {
-        let schema = parse_schema_rb(
-            r#"
-ActiveRecord::Schema[8.1].define(version: 2026_08_12_154114) do
-  create_table "accounts", id: :bigint, default: -> { "timestamp_id('accounts'::text)" }, force: :cascade do |t|
-    t.string "also_known_as", array: true
-    t.string "username", default: "", null: false
-    t.datetime "requested_deletion_at"
-    t.index ["domain", "id"], name: "index_accounts_on_domain_and_id"
-    t.index "lower((username)::text)", name: "index_accounts_on_username_lower", unique: true
-  end
-
-  create_table "account_summaries", primary_key: "account_id", force: :cascade do |t|
-    t.boolean "sensitive", default: false, null: false
-  end
-
-  create_table "statuses_tags", primary_key: ["tag_id", "status_id"], force: :cascade do |t|
-    t.bigint "status_id", null: false
-    t.bigint "tag_id", null: false
-  end
-
-  add_foreign_key "account_aliases", "accounts", on_delete: :cascade
-  add_foreign_key "account_migrations", "accounts", column: "target_account_id", on_delete: :nullify
-end
-"#,
-        );
-
-        assert_eq!(schema.version, "20260812154114");
-
-        let accounts = &schema.tables["accounts"];
-        assert_eq!(accounts.columns["id"].sql_type, "bigint");
-        assert_eq!(
-            accounts.columns["also_known_as"].sql_type,
-            "character varying[]"
-        );
-        assert!(!accounts.columns["username"].nullable);
-        assert!(accounts.columns["requested_deletion_at"].nullable);
-        assert!(!accounts.indexes["index_accounts_on_domain_and_id"].unique);
-        assert!(accounts.indexes["index_accounts_on_username_lower"].unique);
-
-        // `primary_key:` renames the implicit id rather than adding to it.
-        let summaries = &schema.tables["account_summaries"];
-        assert!(summaries.columns.contains_key("account_id"));
-        assert!(!summaries.columns.contains_key("id"));
-
-        // A composite primary key means there is no implicit `id` at all.
-        let join_table = &schema.tables["statuses_tags"];
-        assert!(!join_table.columns.contains_key("id"));
-        assert_eq!(join_table.columns.len(), 2);
-
-        assert!(schema.foreign_keys.contains(&ForeignKey {
-            table: "account_aliases".into(),
-            column: "account_id".into(),
-            target: "accounts".into(),
-            on_delete: "cascade".into(),
-        }));
-        assert!(schema.foreign_keys.contains(&ForeignKey {
-            table: "account_migrations".into(),
-            column: "target_account_id".into(),
-            target: "accounts".into(),
-            on_delete: "nullify".into(),
-        }));
-    }
-
-    #[test]
-    fn singularizes_mastodon_table_names() {
-        assert_eq!(singularize("accounts"), "account");
-        assert_eq!(singularize("statuses"), "status");
-        assert_eq!(singularize("account_aliases"), "account_alias");
-        assert_eq!(singularize("policies"), "policy");
-    }
+/// The reference schema eunha is checked against: what Mastodon's own
+/// ActiveRecord builds from its `db/schema.rb`, introspected once and recorded
+/// here.
+///
+/// Recorded rather than derived, because deriving it means either parsing Ruby
+/// — a parser of ours standing between us and the truth — or running Rails,
+/// which no test should need. `scripts/build_mastodon_schema.sh` regenerates
+/// both this and the `.sql` beside it when a release is adopted.
+///
+/// # Panics
+/// Panics if the vendored file is not valid JSON, which would mean the build
+/// script wrote something broken.
+#[must_use]
+pub fn reference_schema() -> Schema {
+    serde_json::from_str(include_str!("../mastodon/schema.json"))
+        .expect("mastodon/schema.json is not a valid recorded schema")
 }

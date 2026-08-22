@@ -3,5 +3,6 @@
 mod auth_pages;
 mod invite_tree;
 mod oembed;
+mod schema_compatibility;
 mod software_updates;
 mod streaming;
