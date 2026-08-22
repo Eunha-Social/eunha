@@ -77,24 +77,41 @@ instead of GitHub.
 `public.schema_migrations` is what makes a database self-describing: it is
 seeded for everything through 4.6.0 by `007_mastodon_schema_versions.sql`, and
 `scripts/migrate_from_mastodon.sh` refuses a dump whose newest migration is not
-the one eunha builds.
+the one eunha builds. A migration whose work depends on the instance rather than
+the schema — so far only the move of local signing keys into `keypairs` — is
+applied from code at startup and records itself then; `mastodon:plan` lists
+those separately from ones still to write.
+
+### Signing keys
+
+Mastodon 4.7.0 keeps local accounts' signing keys in `keypairs`, with the
+private half encrypted the way Rails encrypts columns. Give eunha the same
+secrets that Mastodon requires and it reads and writes that form, moving any
+keys still in the old `accounts` columns on startup:
+
+    ACTIVE_RECORD_ENCRYPTION__PRIMARY_KEY=...
+    ACTIVE_RECORD_ENCRYPTION__KEY_DERIVATION_SALT=...
+
+Without them, keys stay in `accounts.private_key`, which upstream still reads
+(`Keypair.from_legacy_account`) — but a database whose keys have already moved
+cannot be signed with, and eunha says so loudly at startup.
 
 ### Outstanding from 4.7.0
 
-The schema is complete; these behaviours are not, and are why
-`mise run mastodon:plan` still reports one migration outstanding:
+Everything in the schema, and the behaviour that goes with it, is implemented.
+What is not:
 
-* **Local keypairs still live on `accounts`.** 4.7 moves them into the
-  `keypairs` table, keyed by `local_fragment`, with private keys encrypted at
-  rest. Eunha still signs from `accounts.private_key`, so upstream's
-  `20260702144128_migrate_local_account_keypairs` is deliberately not recorded
-  as applied — it would blank the keys eunha signs with.
-* **Handle changes.** 4.7 treats an actor's `id` as the primary identifier and
-  renames remote accounts that change handle instead of duplicating them.
-  Eunha renders the `invalid_handle` accounts such a database may already
-  contain, but never marks one itself.
-* **RFC9421 HTTP Message Signatures**, Ed25519 signatures, FEP-8b32 integrity
-  proof verification, and FEP-521a — federation work that belongs in feder.
-* **`Link` attachments (FEP-8967)** as the source of preview cards.
-* **Out-of-support version notifications**, which is what `software_deprecations`
-  and `software_updates.end_of_support` are for.
+* **RFC9421 HTTP Message Signatures**, and Ed25519 keys for them. 4.7 sends
+  RFC9421 as a fallback alongside the earlier draft everyone still accepts, so
+  its absence costs nothing yet. This belongs in feder.
+* **`mldsa44-jcs-2024` integrity proofs.** feder verifies FEP-8b32 proofs, but
+  only `eddsa-jcs-2022`; the post-quantum suite needs an ML-DSA implementation.
+* **Marking handles invalid.** Eunha renders the `invalid_handle` accounts a
+  database may already contain, and renames a remote account whose new handle
+  webfinger confirms, but it never invents the `! ` marker upstream uses for
+  handles it cannot resolve at all.
+* **Out-of-support version notifications.** `software_deprecations` and
+  `software_updates.end_of_support` exist in the schema and stay empty: they
+  describe Mastodon's release branches, which say nothing about whether the
+  Mastodon version *eunha* implements is still supported.
+  `mise run mastodon:status` answers that question instead.

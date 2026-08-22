@@ -1,26 +1,26 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT username, uri, private_key, id_scheme FROM accounts WHERE id = $1",
+  "query": "SELECT private_key, public_key, local_fragment, type FROM keypairs WHERE account_id = $1",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "username",
+        "name": "private_key",
         "type_info": "Varchar"
       },
       {
         "ordinal": 1,
-        "name": "uri",
+        "name": "public_key",
         "type_info": "Varchar"
       },
       {
         "ordinal": 2,
-        "name": "private_key",
-        "type_info": "Text"
+        "name": "local_fragment",
+        "type_info": "Varchar"
       },
       {
         "ordinal": 3,
-        "name": "id_scheme",
+        "name": "type",
         "type_info": "Int4"
       }
     ],
@@ -30,11 +30,11 @@
       ]
     },
     "nullable": [
+      true,
       false,
       true,
-      true,
-      true
+      false
     ]
   },
-  "hash": "55c2b864969687ee1e32ebe3d85238312505cf409eb62cf4a082b0654ec1dc14"
+  "hash": "9600fbb3bf930040479158616930f76315eb9a1bae9dcb6e588857af7e11e3b1"
 }

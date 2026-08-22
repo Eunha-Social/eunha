@@ -74,14 +74,16 @@ pub async fn move_account(
 
     // Announce the Move to followers so they re-follow the new account.
     let mover = sqlx::query!(
-        "SELECT username, uri, private_key, id_scheme FROM accounts WHERE id = $1",
+        "SELECT username, uri, id_scheme FROM accounts WHERE id = $1",
         auth.account_id,
     )
     .fetch_one(&state.db)
     .await?;
     // The Move names the new account by its actor id, which a local target does
     // not store, and it has to be signed.
-    let can_sign = mover.private_key.as_deref().is_some_and(|s| !s.is_empty());
+    let can_sign = crate::federation::keypair::has_signing_key(&state, auth.account_id)
+        .await
+        .unwrap_or(false);
     if let Some(new_uri) = new_uri.filter(|uri| !uri.is_empty() && can_sign) {
         let actor_url = crate::federation::tag::account_uri(
             &instance.domain,

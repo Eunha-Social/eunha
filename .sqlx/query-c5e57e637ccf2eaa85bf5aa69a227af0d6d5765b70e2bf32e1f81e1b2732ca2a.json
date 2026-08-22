@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT username, private_key FROM accounts WHERE id = $1 AND domain IS NULL",
+  "query": "SELECT username, display_name FROM accounts WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -10,8 +10,8 @@
       },
       {
         "ordinal": 1,
-        "name": "private_key",
-        "type_info": "Text"
+        "name": "display_name",
+        "type_info": "Varchar"
       }
     ],
     "parameters": {
@@ -21,8 +21,8 @@
     },
     "nullable": [
       false,
-      true
+      false
     ]
   },
-  "hash": "c8b1d509830088a74d09792f51581e40a350dae4b7fd9340602646f342cdb656"
+  "hash": "c5e57e637ccf2eaa85bf5aa69a227af0d6d5765b70e2bf32e1f81e1b2732ca2a"
 }

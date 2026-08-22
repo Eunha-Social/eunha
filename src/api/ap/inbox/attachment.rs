@@ -54,6 +54,19 @@ pub(super) fn attachment_url(value: &Value) -> Option<(String, Option<String>)> 
 /// aspect ratios, and an image with no dimensions contributes nothing — so a
 /// post whose images all lack `meta.original.{width,height}` divides by zero,
 /// producing a NaN layout that aborts the app (`CALayer position contains NaN`).
+/// FEP-8967: the `href` of the first `Link` in an object's `attachment`, which
+/// names the status's preview card.
+///
+/// Mastodon 4.7.0 uses the first `Link` it finds and ignores the rest, and
+/// falls back to scanning the content when there is none.
+pub(super) fn preview_card_link(attachments: &[Value]) -> Option<&str> {
+    attachments
+        .iter()
+        .find(|att| att.get("type").and_then(|t| t.as_str()) == Some("Link"))
+        .and_then(|att| att.get("href").and_then(|h| h.as_str()))
+        .filter(|href| !href.is_empty())
+}
+
 pub(super) fn ap_attachment_file_meta(att: &serde_json::Value) -> Option<serde_json::Value> {
     let width = att.get("width").and_then(|v| v.as_i64());
     let height = att.get("height").and_then(|v| v.as_i64());
@@ -166,6 +179,32 @@ mod tests {
         assert_eq!(classify_attachment_type("Document", "image/gif"), 1);
         assert_eq!(classify_attachment_type("Document", "video/mp4"), 2);
         assert_eq!(classify_attachment_type("Document", "audio/mpeg"), 3);
+    }
+
+    #[test]
+    fn preview_card_link_takes_the_first_link_attachment() {
+        let attachments = vec![
+            serde_json::json!({"type": "Document", "url": "https://example.test/a.png"}),
+            serde_json::json!({"type": "Link", "href": "https://example.test/article"}),
+            serde_json::json!({"type": "Link", "href": "https://example.test/other"}),
+        ];
+        assert_eq!(
+            preview_card_link(&attachments),
+            Some("https://example.test/article")
+        );
+    }
+
+    #[test]
+    fn preview_card_link_ignores_media_and_empty_hrefs() {
+        let media_only =
+            vec![serde_json::json!({"type": "Document", "url": "https://example.test/a.png"})];
+        assert_eq!(preview_card_link(&media_only), None);
+
+        let empty = vec![serde_json::json!({"type": "Link", "href": ""})];
+        assert_eq!(preview_card_link(&empty), None);
+
+        let no_href = vec![serde_json::json!({"type": "Link"})];
+        assert_eq!(preview_card_link(&no_href), None);
     }
 
     #[test]

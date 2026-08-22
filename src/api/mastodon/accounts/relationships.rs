@@ -208,10 +208,9 @@ pub async fn follow_account(
         .execute(&state.db)
         .await?;
 
-        let has_signing_key = requester
-            .private_key
-            .as_deref()
-            .is_some_and(|s| !s.is_empty());
+        let has_signing_key = crate::federation::keypair::has_signing_key(&state, requester.id)
+            .await
+            .unwrap_or(false);
         if !has_signing_key {
             tracing::warn!(username = %requester.username, "local account has no private key; cannot deliver Follow");
         }
@@ -404,10 +403,9 @@ pub async fn unfollow_account(
     let target = fetch_account(&state, target_id).await?;
     if target.domain.is_some() {
         let requester = fetch_account(&state, auth.account_id).await?;
-        if requester
-            .private_key
-            .as_deref()
-            .is_some_and(|s| !s.is_empty())
+        if crate::federation::keypair::has_signing_key(&state, requester.id)
+            .await
+            .unwrap_or(false)
         {
             let actor_url =
                 crate::federation::tag::account_uri_of(&state.instance.domain, &requester);

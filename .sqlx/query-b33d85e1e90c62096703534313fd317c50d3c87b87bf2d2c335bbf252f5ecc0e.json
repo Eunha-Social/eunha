@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT s.id, s.account_id, s.quote_approval_policy,\n                  a.username, a.id_scheme, a.private_key\n           FROM statuses s JOIN accounts a ON a.id = s.account_id\n           WHERE s.uri = $1 AND s.deleted_at IS NULL AND a.domain IS NULL",
+  "query": "SELECT s.id, s.account_id, s.quote_approval_policy,\n                  a.username, a.id_scheme\n           FROM statuses s JOIN accounts a ON a.id = s.account_id\n           WHERE s.uri = $1 AND s.deleted_at IS NULL AND a.domain IS NULL",
   "describe": {
     "columns": [
       {
@@ -27,11 +27,6 @@
         "ordinal": 4,
         "name": "id_scheme",
         "type_info": "Int4"
-      },
-      {
-        "ordinal": 5,
-        "name": "private_key",
-        "type_info": "Text"
       }
     ],
     "parameters": {
@@ -44,9 +39,8 @@
       false,
       false,
       false,
-      true,
       true
     ]
   },
-  "hash": "7295b2c8a710732d5cfeb5091b195a5eada389f2412f4a0019f30f5cfaaa03cd"
+  "hash": "b33d85e1e90c62096703534313fd317c50d3c87b87bf2d2c335bbf252f5ecc0e"
 }

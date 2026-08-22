@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO preview_cards (url, title, description, type, created_at, updated_at)\n           VALUES ('https://example.test/article', 'An article', '', 0, now(), now())\n           RETURNING id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "39c0ddf534aa17208d5c8a4196864b6f503d7d452cc66be195a6db17d7552a03"
+}

@@ -18,6 +18,10 @@ pub struct AppState {
     pub email: EmailSender,
     pub streaming: StreamBus,
     pub storage: Arc<Storage>,
+    /// Reads and writes Mastodon's encrypted `keypairs.private_key` column.
+    /// `None` when the instance has not been given the encryption keys, in
+    /// which case signing keys stay in the legacy `accounts` columns.
+    pub encryptor: Option<crate::rails_encryption::Encryptor>,
 }
 
 impl AppState {
@@ -45,6 +49,10 @@ impl AppState {
         let redis_client = redis::Client::open(config.redis_url.as_str())?;
         let redis = redis::aio::ConnectionManager::new(redis_client).await?;
 
+        let encryptor = config.active_record_encryption.as_ref().map(|keys| {
+            crate::rails_encryption::Encryptor::new(&keys.primary_key, &keys.key_derivation_salt)
+        });
+
         let instance = Arc::new(config.instance.clone());
         Ok(Self {
             db,
@@ -56,6 +64,7 @@ impl AppState {
             email,
             streaming: StreamBus::new(),
             storage,
+            encryptor,
         })
     }
 }

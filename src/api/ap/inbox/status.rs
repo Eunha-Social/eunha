@@ -83,9 +83,10 @@ pub(super) async fn handle_delete(
             // a concurrent Create for this uri (same `create:{uri}` lock) so we
             // observe its committed status and it observes our tombstone.
             let _create_lock = acquire_create_lock(state, uri).await;
-            let deleted = sqlx::query!("UPDATE statuses SET deleted_at = now() WHERE uri = $1", uri,)
-                .execute(&state.db)
-                .await?;
+            let deleted =
+                sqlx::query!("UPDATE statuses SET deleted_at = now() WHERE uri = $1", uri,)
+                    .execute(&state.db)
+                    .await?;
             // If the status isn't known yet (out-of-order delivery), remember the
             // Delete so a late Create with this URI is skipped.
             if deleted.rows_affected() == 0 {
@@ -485,6 +486,13 @@ pub(super) async fn handle_update(
             )
             .execute(&state.db)
             .await?;
+
+            // An actor that renamed itself carries the new handle here.
+            let claimed_username = object
+                .get("preferredUsername")
+                .and_then(|u| u.as_str())
+                .unwrap_or_default();
+            super::fetch::rename_if_handle_changed(state, actor_uri, claimed_username).await?;
         }
         "Note" => {
             let note_uri = object.get("id").and_then(|i| i.as_str()).unwrap_or("");

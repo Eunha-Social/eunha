@@ -25,56 +25,40 @@ pub fn key_id(domain: &str) -> String {
 pub async fn get_or_create(state: &AppState) -> anyhow::Result<(String, String)> {
     let domain = &state.instance.domain;
 
-    if let Some(row) = sqlx::query!(
-        "SELECT private_key, public_key FROM accounts WHERE id = $1",
-        INSTANCE_ACTOR_ID,
-    )
-    .fetch_optional(&state.db)
-    .await?
-    {
-        if let Some(private_key) = row.private_key.filter(|s| !s.is_empty()) {
-            if !row.public_key.is_empty() {
-                return Ok((private_key, row.public_key));
-            }
+    if let Ok(key) = crate::federation::keypair::signing_key(state, INSTANCE_ACTOR_ID).await {
+        if !key.public_key.is_empty() {
+            return Ok((key.private_key, key.public_key));
         }
     }
 
     let (private_pem, public_pem) = crate::crypto::generate_rsa_keypair()
         .map_err(|e| anyhow::anyhow!("instance actor keygen: {e}"))?;
 
-    let row = sqlx::query!(
+    // The account row has to exist before a keypair can reference it.
+    sqlx::query!(
         r#"INSERT INTO accounts
-             (id, username, private_key, public_key, actor_type, locked, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, 'Application', true, now(), now())
+             (id, username, public_key, actor_type, locked, created_at, updated_at)
+           VALUES ($1, $2, '', 'Application', true, now(), now())
            ON CONFLICT (id) DO UPDATE
              SET username = EXCLUDED.username,
-                 private_key = CASE
-                     WHEN accounts.private_key IS NULL OR accounts.private_key = ''
-                     THEN EXCLUDED.private_key
-                     ELSE accounts.private_key
-                 END,
-                 public_key = CASE
-                     WHEN accounts.public_key = ''
-                     THEN EXCLUDED.public_key
-                     ELSE accounts.public_key
-                 END,
                  actor_type = 'Application',
                  locked = true,
-                 updated_at = now()
-           RETURNING private_key, public_key"#,
+                 updated_at = now()"#,
         INSTANCE_ACTOR_ID,
         domain,
-        private_pem,
-        public_pem,
     )
-    .fetch_one(&state.db)
+    .execute(&state.db)
     .await?;
 
-    Ok((
-        row.private_key
-            .ok_or_else(|| anyhow::anyhow!("instance actor missing private key"))?,
-        row.public_key,
-    ))
+    let key = crate::federation::keypair::store_local(
+        state,
+        INSTANCE_ACTOR_ID,
+        &private_pem,
+        &public_pem,
+    )
+    .await?;
+
+    Ok((key.private_key, key.public_key))
 }
 
 /// Return just the instance actor's public key PEM (generating if needed).

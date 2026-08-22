@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE keypairs SET revoked = true WHERE account_id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e7f7d900ac76b8bdc90c03952b0530314f485169f8b91f5c7523aee4fb2eaf32"
+}

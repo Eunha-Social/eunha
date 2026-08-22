@@ -151,31 +151,62 @@ pub async fn block_account(
         let target_uri = target.uri.clone().unwrap_or_default();
         if target.domain.is_some() && !target_uri.is_empty() {
             if let Some(actor_row) = sqlx::query!(
-                "SELECT username, private_key, id_scheme FROM accounts WHERE id = $1 AND domain IS NULL",
+                "SELECT username, id_scheme FROM accounts WHERE id = $1 AND domain IS NULL",
                 auth.account_id,
-            ).fetch_optional(&state.db).await? {
-                if actor_row.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
+            )
+            .fetch_optional(&state.db)
+            .await?
+            {
+                if crate::federation::keypair::has_signing_key(&state, auth.account_id)
+                    .await
+                    .unwrap_or(false)
+                {
                     let domain = state.instance.domain.clone();
-                    let actor_url = crate::federation::tag::account_uri(&domain, auth.account_id, actor_row.id_scheme, &actor_row.username);
+                    let actor_url = crate::federation::tag::account_uri(
+                        &domain,
+                        auth.account_id,
+                        actor_row.id_scheme,
+                        &actor_row.username,
+                    );
                     let key_id = format!("{}#main-key", actor_url);
-                    let inbox = if !target.shared_inbox_url.is_empty() { target.shared_inbox_url.clone() } else { target.inbox_url.clone() };
+                    let inbox = if !target.shared_inbox_url.is_empty() {
+                        target.shared_inbox_url.clone()
+                    } else {
+                        target.inbox_url.clone()
+                    };
 
-                    let activity_id = || format!("https://{}/activities/{}", domain, crate::snowflake::next_id());
+                    let activity_id = || {
+                        format!(
+                            "https://{}/activities/{}",
+                            domain,
+                            crate::snowflake::next_id()
+                        )
+                    };
                     let mut activities: Vec<serde_json::Value> = Vec::new();
 
                     for f in &deleted {
-                        let Some(uri) = f.uri.clone().filter(|s| !s.is_empty()) else { continue };
+                        let Some(uri) = f.uri.clone().filter(|s| !s.is_empty()) else {
+                            continue;
+                        };
                         if f.account_id == auth.account_id {
                             // Our follow of the remote target -> Undo(Follow).
                             if let Ok(a) = crate::federation::activity::undo_follow(
-                                &activity_id(), &actor_url, &uri, &actor_url, &target_uri,
+                                &activity_id(),
+                                &actor_url,
+                                &uri,
+                                &actor_url,
+                                &target_uri,
                             ) {
                                 activities.push(a);
                             }
                         } else {
                             // The remote target's follow of us -> Reject(Follow).
                             if let Ok(a) = crate::federation::activity::reject_follow(
-                                &activity_id(), &actor_url, &uri, &target_uri, &actor_url,
+                                &activity_id(),
+                                &actor_url,
+                                &uri,
+                                &target_uri,
+                                &actor_url,
                             ) {
                                 activities.push(a);
                             }
@@ -186,7 +217,11 @@ pub async fn block_account(
                         if r.account_id == target_id {
                             if let Some(uri) = r.uri.clone().filter(|s| !s.is_empty()) {
                                 if let Ok(a) = crate::federation::activity::reject_follow(
-                                    &activity_id(), &actor_url, &uri, &target_uri, &actor_url,
+                                    &activity_id(),
+                                    &actor_url,
+                                    &uri,
+                                    &target_uri,
+                                    &actor_url,
                                 ) {
                                     activities.push(a);
                                 }
@@ -195,16 +230,26 @@ pub async fn block_account(
                     }
 
                     // The Block activity itself.
-                    let block_id = format!("https://{}/users/{}/blocks/{}", domain, actor_row.username, target_id);
-                    if let Ok(b) = crate::federation::activity::block(&block_id, &actor_url, &target_uri) {
+                    let block_id = format!(
+                        "https://{}/users/{}/blocks/{}",
+                        domain, actor_row.username, target_id
+                    );
+                    if let Ok(b) =
+                        crate::federation::activity::block(&block_id, &actor_url, &target_uri)
+                    {
                         activities.push(b);
                     }
 
                     if !inbox.is_empty() {
                         for act in activities {
                             if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
-                                &state, act, vec![inbox.clone()], key_id.clone(),
-                            ).await {
+                                &state,
+                                act,
+                                vec![inbox.clone()],
+                                key_id.clone(),
+                            )
+                            .await
+                            {
                                 tracing::warn!(error = %e, "failed to enqueue block-related activity");
                             }
                         }
@@ -254,19 +299,40 @@ pub async fn unblock_account(
         let target_uri = target.uri.clone().unwrap_or_default();
         if target.domain.is_some() && !target_uri.is_empty() {
             if let Some(actor_row) = sqlx::query!(
-                "SELECT username, private_key, id_scheme FROM accounts WHERE id = $1 AND domain IS NULL",
+                "SELECT username, id_scheme FROM accounts WHERE id = $1 AND domain IS NULL",
                 auth.account_id,
-            ).fetch_optional(&state.db).await? {
-                if actor_row.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
+            )
+            .fetch_optional(&state.db)
+            .await?
+            {
+                if crate::federation::keypair::has_signing_key(&state, auth.account_id)
+                    .await
+                    .unwrap_or(false)
+                {
                     let domain = state.instance.domain.clone();
-                    let actor_url = crate::federation::tag::account_uri(&domain, auth.account_id, actor_row.id_scheme, &actor_row.username);
-                    let block_id = format!("https://{}/users/{}/blocks/{}", domain, actor_row.username, target_id);
+                    let actor_url = crate::federation::tag::account_uri(
+                        &domain,
+                        auth.account_id,
+                        actor_row.id_scheme,
+                        &actor_row.username,
+                    );
+                    let block_id = format!(
+                        "https://{}/users/{}/blocks/{}",
+                        domain, actor_row.username, target_id
+                    );
                     let undo_id = format!("{}#undo", block_id);
                     let undo = crate::federation::activity::undo_block(
-                        &undo_id, &actor_url, &block_id, &target_uri,
+                        &undo_id,
+                        &actor_url,
+                        &block_id,
+                        &target_uri,
                     )?;
                     let key_id = format!("{}#main-key", actor_url);
-                    let inbox = if !target.shared_inbox_url.is_empty() { target.shared_inbox_url } else { target.inbox_url };
+                    let inbox = if !target.shared_inbox_url.is_empty() {
+                        target.shared_inbox_url
+                    } else {
+                        target.inbox_url
+                    };
                     if !inbox.is_empty() {
                         if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
                             &state,

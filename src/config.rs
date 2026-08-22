@@ -9,8 +9,22 @@ pub struct Config {
     pub smtp: Option<SmtpConfig>,
     pub resend: ResendConfig,
     pub instance: InstanceConfig,
+    /// Mastodon's ActiveRecord encryption keys, needed to read or write the
+    /// encrypted `keypairs.private_key` column a Mastodon 4.7 database uses.
+    /// Absent on instances whose keys still live in `accounts`.
+    #[serde(default)]
+    pub active_record_encryption: Option<ActiveRecordEncryptionConfig>,
     #[serde(default)]
     pub workers: WorkersConfig,
+}
+
+/// Mastodon's `ACTIVE_RECORD_ENCRYPTION_*` secrets. Both are required together;
+/// the deterministic key is not used, because the only encrypted column in
+/// Mastodon's schema (`keypairs.private_key`) is not deterministic.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ActiveRecordEncryptionConfig {
+    pub primary_key: String,
+    pub key_derivation_salt: String,
 }
 
 /// Sizing for the durable background queues. Every field has a default, so an
@@ -148,6 +162,7 @@ pub struct SmtpConfig {
 impl Config {
     pub fn from_env() -> anyhow::Result<Self> {
         dotenvy::dotenv().ok();
+        adopt_mastodon_encryption_env();
         let cfg = config::Config::builder()
             .add_source(config::File::with_name("config").required(false))
             .add_source(config::Environment::default().separator("__"))
@@ -160,5 +175,31 @@ impl Config {
             .add_source(config::File::from(std::path::Path::new(path)))
             .build()?;
         Ok(cfg.try_deserialize()?)
+    }
+}
+
+/// Accept Mastodon's own spelling of the encryption secrets.
+///
+/// Eunha's environment keys nest with `__`, so its name for the primary key is
+/// `ACTIVE_RECORD_ENCRYPTION__PRIMARY_KEY` — but the values themselves come
+/// from a Mastodon installation, whose `.env.production` spells them with a
+/// single underscore. Copying that file across should be enough.
+fn adopt_mastodon_encryption_env() {
+    for (mastodon, eunha) in [
+        (
+            "ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY",
+            "ACTIVE_RECORD_ENCRYPTION__PRIMARY_KEY",
+        ),
+        (
+            "ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT",
+            "ACTIVE_RECORD_ENCRYPTION__KEY_DERIVATION_SALT",
+        ),
+    ] {
+        if std::env::var_os(eunha).is_none() {
+            if let Some(value) = std::env::var_os(mastodon) {
+                // Safety: called once, before any threads read the environment.
+                unsafe { std::env::set_var(eunha, value) };
+            }
+        }
     }
 }

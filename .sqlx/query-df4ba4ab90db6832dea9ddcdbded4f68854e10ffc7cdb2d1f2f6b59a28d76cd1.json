@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT a.username, a.private_key\n         FROM collections c JOIN accounts a ON a.id = c.account_id\n         WHERE c.id = $1 AND a.domain IS NULL",
+  "query": "SELECT username, uri, id_scheme FROM accounts WHERE id = $1",
   "describe": {
     "columns": [
       {
@@ -10,8 +10,13 @@
       },
       {
         "ordinal": 1,
-        "name": "private_key",
-        "type_info": "Text"
+        "name": "uri",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 2,
+        "name": "id_scheme",
+        "type_info": "Int4"
       }
     ],
     "parameters": {
@@ -21,8 +26,9 @@
     },
     "nullable": [
       false,
+      true,
       true
     ]
   },
-  "hash": "e1c01acf4ffbcf7925ab065445340e9384fbc727215578bf30e02651f508b008"
+  "hash": "df4ba4ab90db6832dea9ddcdbded4f68854e10ffc7cdb2d1f2f6b59a28d76cd1"
 }

@@ -28,7 +28,7 @@ pub(super) async fn handle_quote_request(
     // The quoted status must be one of ours.
     let Some(status) = sqlx::query!(
         r#"SELECT s.id, s.account_id, s.quote_approval_policy,
-                  a.username, a.id_scheme, a.private_key
+                  a.username, a.id_scheme
            FROM statuses s JOIN accounts a ON a.id = s.account_id
            WHERE s.uri = $1 AND s.deleted_at IS NULL AND a.domain IS NULL"#,
         object_uri,
@@ -53,7 +53,10 @@ pub(super) async fn handle_quote_request(
     } else {
         quoter.inbox_url
     };
-    if status.private_key.as_deref().is_none_or(|s| s.is_empty()) {
+    if !crate::federation::keypair::has_signing_key(state, status.account_id)
+        .await
+        .unwrap_or(false)
+    {
         return Ok(());
     }
     if inbox.is_empty() {
@@ -298,12 +301,10 @@ pub(super) async fn handle_feature_request(
     )
     .fetch_one(&state.db)
     .await?;
-    let has_signing_key =
-        sqlx::query_scalar!("SELECT private_key FROM accounts WHERE id = $1", local.id,)
-            .fetch_one(&state.db)
-            .await?
-            .is_some_and(|s| !s.is_empty());
-    if !has_signing_key {
+    if !crate::federation::keypair::has_signing_key(state, local.id)
+        .await
+        .unwrap_or(false)
+    {
         return Ok(());
     }
 

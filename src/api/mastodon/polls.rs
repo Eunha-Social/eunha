@@ -154,7 +154,7 @@ async fn federate_poll_votes(
     }
 
     let voter = sqlx::query!(
-        "SELECT username, private_key, id_scheme FROM accounts WHERE id = $1 AND domain IS NULL",
+        "SELECT username, id_scheme FROM accounts WHERE id = $1 AND domain IS NULL",
         voter_id,
     )
     .fetch_optional(&state.db)
@@ -162,7 +162,10 @@ async fn federate_poll_votes(
     let Some(voter) = voter else {
         return Ok(());
     };
-    if voter.private_key.as_deref().is_none_or(|s| s.is_empty()) {
+    if !crate::federation::keypair::has_signing_key(state, voter_id)
+        .await
+        .unwrap_or(false)
+    {
         return Ok(());
     }
 
@@ -246,7 +249,7 @@ async fn federate_poll_votes(
 pub(crate) async fn federate_poll_update(state: &AppState, status_id: i64) -> anyhow::Result<()> {
     let status = sqlx::query!(
         r#"SELECT s.account_id, s.visibility, a.username, a.uri AS account_uri, a.id_scheme,
-                  a.private_key, p.updated_at AS poll_updated_at
+                  p.updated_at AS poll_updated_at
            FROM statuses s
            JOIN accounts a ON a.id = s.account_id
            JOIN polls p ON p.status_id = s.id
@@ -261,7 +264,10 @@ pub(crate) async fn federate_poll_update(state: &AppState, status_id: i64) -> an
     let Some(status) = status else {
         return Ok(());
     };
-    if status.private_key.as_deref().is_none_or(|s| s.is_empty()) {
+    if !crate::federation::keypair::has_signing_key(state, status.account_id)
+        .await
+        .unwrap_or(false)
+    {
         return Ok(());
     }
 

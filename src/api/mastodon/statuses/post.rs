@@ -148,7 +148,9 @@ pub async fn post_status(
             .await?;
             let resp = ScheduledStatusResponse {
                 id: row.id.to_string(),
-                scheduled_at: row.scheduled_at.map(crate::api::mastodon::convert::mastodon_date),
+                scheduled_at: row
+                    .scheduled_at
+                    .map(crate::api::mastodon::convert::mastodon_date),
                 params,
                 media_attachments: vec![],
             };
@@ -827,10 +829,9 @@ pub async fn post_status(
     if matches!(
         visibility.as_str(),
         "public" | "unlisted" | "private" | "direct"
-    ) && account
-        .private_key
-        .as_deref()
-        .is_some_and(|s| !s.is_empty())
+    ) && crate::federation::keypair::has_signing_key(&state, account.id)
+        .await
+        .unwrap_or(false)
     {
         let domain = &instance.domain;
         let actor_url = crate::federation::tag::account_uri_of(domain, &account);

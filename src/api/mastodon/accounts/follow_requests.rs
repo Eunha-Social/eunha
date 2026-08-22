@@ -127,10 +127,9 @@ pub async fn authorize_follow_request(
         if let Some(follow_uri) = deleted_row.uri {
             if requester.domain.is_some()
                 && !requester_uri.is_empty()
-                && accepter
-                    .private_key
-                    .as_deref()
-                    .is_some_and(|s| !s.is_empty())
+                && crate::federation::keypair::has_signing_key(&state, accepter.id)
+                    .await
+                    .unwrap_or(false)
             {
                 let accepter_actor_url =
                     crate::federation::tag::account_uri_of(&state.instance.domain, &accepter);
@@ -221,10 +220,9 @@ pub async fn reject_follow_request(
             let requester_uri = requester.stored_uri().unwrap_or_default().to_string();
             if requester.domain.is_some() && !requester_uri.is_empty() {
                 let rejecter = fetch_account(&state, auth.account_id).await?;
-                if rejecter
-                    .private_key
-                    .as_deref()
-                    .is_some_and(|s| !s.is_empty())
+                if crate::federation::keypair::has_signing_key(&state, rejecter.id)
+                    .await
+                    .unwrap_or(false)
                 {
                     let rejecter_actor_url =
                         crate::federation::tag::account_uri_of(&state.instance.domain, &rejecter);

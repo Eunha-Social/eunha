@@ -562,12 +562,9 @@ async fn force_terminal(state: &AppState, id: i64) {
 /// Load a local account's signing private key by id. Errors if the account or
 /// its key is gone.
 async fn load_signing_key(state: &AppState, account_id: i64) -> anyhow::Result<String> {
-    sqlx::query_scalar!("SELECT private_key FROM accounts WHERE id = $1", account_id)
-        .fetch_optional(&state.db)
+    Ok(crate::federation::keypair::signing_key(state, account_id)
         .await?
-        .flatten()
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| anyhow::anyhow!("no signing key for account {account_id}"))
+        .private_key)
 }
 
 /// Persist the result of a single delivery attempt: mark delivered, re-schedule

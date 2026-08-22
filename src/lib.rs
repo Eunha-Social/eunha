@@ -15,6 +15,7 @@ pub mod media;
 pub mod middleware;
 pub mod preview_card;
 pub mod push;
+pub mod rails_encryption;
 pub mod schema_check;
 pub mod snowflake;
 pub mod state;

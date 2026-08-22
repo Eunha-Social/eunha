@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT username, private_key, inbox_url, shared_inbox_url, id_scheme FROM accounts WHERE id = $1 AND domain IS NULL",
+  "query": "SELECT username, inbox_url, shared_inbox_url, id_scheme FROM accounts WHERE id = $1 AND domain IS NULL",
   "describe": {
     "columns": [
       {
@@ -10,21 +10,16 @@
       },
       {
         "ordinal": 1,
-        "name": "private_key",
-        "type_info": "Text"
-      },
-      {
-        "ordinal": 2,
         "name": "inbox_url",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 3,
+        "ordinal": 2,
         "name": "shared_inbox_url",
         "type_info": "Varchar"
       },
       {
-        "ordinal": 4,
+        "ordinal": 3,
         "name": "id_scheme",
         "type_info": "Int4"
       }
@@ -36,11 +31,10 @@
     },
     "nullable": [
       false,
-      true,
       false,
       false,
       true
     ]
   },
-  "hash": "72c03b81bd297b4a11ea1e4ac4795677b54b6f5722a20abf277a259dcd7204ef"
+  "hash": "1f8fad0ff2e416022dc29b221e087686a84b0c24dcfc67d82f72976b2ed8c73b"
 }

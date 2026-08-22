@@ -632,10 +632,9 @@ pub async fn delete_status(
     // Federate the removal (Mastodon RemoveStatusService): a reblog sends
     // Undo(Announce); any other status sends Delete(Tombstone). Reach is the
     // full StatusReachFinder (unsafe) audience.
-    if account
-        .private_key
-        .as_deref()
-        .is_some_and(|s| !s.is_empty())
+    if crate::federation::keypair::has_signing_key(&state, account.id)
+        .await
+        .unwrap_or(false)
     {
         let domain = &state.instance.domain;
         let actor_url = crate::federation::tag::account_uri_of(domain, &account);
@@ -763,10 +762,9 @@ pub async fn favourite_status(
 
     // Send Like to remote status author
     if account.domain.is_some()
-        && from_account
-            .private_key
-            .as_deref()
-            .is_some_and(|s| !s.is_empty())
+        && crate::federation::keypair::has_signing_key(&state, from_account.id)
+            .await
+            .unwrap_or(false)
     {
         let domain = state.instance.domain.clone();
         let actor_url = crate::federation::tag::account_uri_of(&domain, &from_account);
@@ -825,10 +823,10 @@ pub async fn unfavourite_status(
     // Send Undo(Like) to remote status author
     if account.domain.is_some() {
         if let Some(actor_row) = sqlx::query!(
-            "SELECT username, private_key, inbox_url, shared_inbox_url, id_scheme FROM accounts WHERE id = $1 AND domain IS NULL",
+            "SELECT username, inbox_url, shared_inbox_url, id_scheme FROM accounts WHERE id = $1 AND domain IS NULL",
             auth.account_id,
         ).fetch_optional(&state.db).await? {
-            if actor_row.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
+            if crate::federation::keypair::has_signing_key(&state, auth.account_id).await.unwrap_or(false) {
                 let domain = state.instance.domain.clone();
                 let actor_url = crate::federation::tag::account_uri(&domain, auth.account_id, actor_row.id_scheme, &actor_row.username);
                 let like_id = format!("{actor_url}/likes/{id}");
@@ -1030,10 +1028,9 @@ pub async fn reblog_status(
     }
 
     // Send Announce activity to followers and original status author (if remote)
-    if boost_account
-        .private_key
-        .as_deref()
-        .is_some_and(|s| !s.is_empty())
+    if crate::federation::keypair::has_signing_key(&state, boost_account.id)
+        .await
+        .unwrap_or(false)
     {
         let domain = state.instance.domain.clone();
         let actor_url = crate::federation::tag::account_uri_of(&domain, &boost_account);
@@ -1150,17 +1147,37 @@ pub async fn unreblog_status(
         // Send Undo(Announce) to followers and original status author (if remote)
         let boost_id = del.id;
         if let Some(actor_row) = sqlx::query!(
-            "SELECT username, private_key, id_scheme FROM accounts WHERE id = $1 AND domain IS NULL",
+            "SELECT username, id_scheme FROM accounts WHERE id = $1 AND domain IS NULL",
             auth.account_id,
-        ).fetch_optional(&state.db).await? {
-            if actor_row.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
+        )
+        .fetch_optional(&state.db)
+        .await?
+        {
+            if crate::federation::keypair::has_signing_key(&state, auth.account_id)
+                .await
+                .unwrap_or(false)
+            {
                 let domain = state.instance.domain.clone();
-                let actor_url = crate::federation::tag::account_uri(&domain, auth.account_id, actor_row.id_scheme, &actor_row.username);
+                let actor_url = crate::federation::tag::account_uri(
+                    &domain,
+                    auth.account_id,
+                    actor_row.id_scheme,
+                    &actor_row.username,
+                );
                 let announce_id = format!("{actor_url}/statuses/{boost_id}/activity");
-                let original_uri = sqlx::query_scalar!("SELECT uri FROM statuses WHERE id = $1", original_id)
-                    .fetch_optional(&state.db).await?.flatten().unwrap_or_default();
+                let original_uri =
+                    sqlx::query_scalar!("SELECT uri FROM statuses WHERE id = $1", original_id)
+                        .fetch_optional(&state.db)
+                        .await?
+                        .flatten()
+                        .unwrap_or_default();
                 let undo_id = format!("{}#undo", announce_id);
-                let undo = crate::federation::activity::undo_announce(&undo_id, &actor_url, &announce_id, &original_uri)?;
+                let undo = crate::federation::activity::undo_announce(
+                    &undo_id,
+                    &actor_url,
+                    &announce_id,
+                    &original_uri,
+                )?;
                 let key_id = format!("{}#main-key", actor_url);
 
                 // Deliver to remote original author's inbox
@@ -1185,7 +1202,14 @@ pub async fn unreblog_status(
                     }
                 }
 
-                if let Err(e) = crate::federation::delivery::fanout_to_followers(&state, undo, auth.account_id, key_id).await {
+                if let Err(e) = crate::federation::delivery::fanout_to_followers(
+                    &state,
+                    undo,
+                    auth.account_id,
+                    key_id,
+                )
+                .await
+                {
                     tracing::warn!(error = %e, "failed to enqueue Undo(Announce) fanout");
                 }
             }
@@ -1253,7 +1277,11 @@ pub async fn unbookmark_status(
 /// collection, delivered to followers (Mastodon PinsController). No-op for
 /// remote authors or accounts without a signing key.
 async fn federate_pin_change(state: &AppState, account: &Account, status: &DbStatus, is_add: bool) {
-    if account.domain.is_some() || account.private_key.as_deref().is_none_or(|s| s.is_empty()) {
+    if account.domain.is_some()
+        || !crate::federation::keypair::has_signing_key(state, account.id)
+            .await
+            .unwrap_or(false)
+    {
         return;
     }
     let Some(status_uri) = status.uri.clone().filter(|s| !s.is_empty()) else {
@@ -1820,7 +1848,10 @@ pub(crate) async fn federate_status_update(
         return Ok(());
     }
 
-    if account.private_key.as_deref().is_none_or(|s| s.is_empty()) {
+    if !crate::federation::keypair::has_signing_key(state, account.id)
+        .await
+        .unwrap_or(false)
+    {
         return Ok(());
     }
 

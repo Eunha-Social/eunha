@@ -276,7 +276,25 @@ pub async fn build_note(
     )
     .fetch_all(&state.db)
     .await?;
-    let attachment: Vec<Value> = media.iter().filter_map(media_attachment_ap).collect();
+    let mut attachment: Vec<Value> = media.iter().filter_map(media_attachment_ap).collect();
+
+    // FEP-8967: the status's preview card travels as a `Link` attachment, so
+    // receivers do not have to scrape the content for a URL and guess. Mastodon
+    // 4.7.0 reads the first one it finds.
+    if let Some(card_url) = sqlx::query_scalar!(
+        r#"SELECT c.url
+           FROM preview_cards c
+           JOIN preview_cards_statuses cs ON cs.preview_card_id = c.id
+           WHERE cs.status_id = $1
+           ORDER BY c.id
+           LIMIT 1"#,
+        s.id,
+    )
+    .fetch_optional(&state.db)
+    .await?
+    {
+        attachment.push(json!({ "type": "Link", "href": card_url }));
+    }
 
     // ── Content + addressing ────────────────────────────────────────────────
     let content = render_content(&s.text, domain, &mention_map);

@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO keypairs\n             (account_id, type, local_fragment, public_key, private_key, created_at, updated_at)\n           VALUES ($1, $2, $3, $4, $5, now(), now())\n           ON CONFLICT (account_id, local_fragment) DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int4",
+        "Varchar",
+        "Varchar",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d5783d95018580e6bb1b93fb7d718e75fcdf75e9777b556732459c5369176d6f"
+}

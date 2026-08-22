@@ -65,6 +65,15 @@ async fn main() -> Result<()> {
     }
 }
 
+/// Upstream migrations eunha applies from code rather than from a file in
+/// `migrations/`, because what they do depends on the instance rather than on
+/// the schema. They are recorded in `public.schema_migrations` when they run.
+const RUNTIME_MIGRATIONS: [(&str, &str); 1] = [(
+    "20260702144128",
+    "moves local signing keys into `keypairs`, encrypted; runs at startup once \
+     ActiveRecord encryption keys are configured",
+)];
+
 /// The tag for the release this build targets.
 fn tracked_tag() -> String {
     format!("v{}", version::MASTODON)
@@ -97,6 +106,11 @@ async fn status() -> Result<()> {
     let outstanding = migrations
         .iter()
         .filter(|m| !covered.contains(&m.version))
+        .filter(|m| {
+            !RUNTIME_MIGRATIONS
+                .iter()
+                .any(|(version, _)| *version == m.version)
+        })
         .count();
 
     println!(
@@ -119,10 +133,14 @@ async fn plan(to: Option<String>, sql: bool) -> Result<()> {
 
     let migrations = upstream::migrations(&target).await?;
     let covered = schema_check::covered_versions(migrations_dir().as_path())?;
-    let outstanding: Vec<_> = migrations
+    let (runtime, outstanding): (Vec<_>, Vec<_>) = migrations
         .iter()
         .filter(|m| !covered.contains(&m.version))
-        .collect();
+        .partition(|m| {
+            RUNTIME_MIGRATIONS
+                .iter()
+                .any(|(version, _)| *version == m.version)
+        });
 
     let adopting = target != tracked_tag();
     if adopting {
@@ -154,6 +172,18 @@ async fn plan(to: Option<String>, sql: bool) -> Result<()> {
         println!("\nSource: https://github.com/mastodon/mastodon/tree/{target}/db");
     }
 
+    if !runtime.is_empty() {
+        println!("\nApplied from code, once per instance rather than once per schema:");
+        for migration in &runtime {
+            let note = RUNTIME_MIGRATIONS
+                .iter()
+                .find(|(version, _)| *version == migration.version)
+                .map(|(_, note)| *note)
+                .unwrap_or_default();
+            println!("  {}  {}\n      {note}", migration.version, migration.name);
+        }
+    }
+
     if adopting {
         let schema = upstream::schema(&target).await?;
         println!("\nSchema version at {target}: {}", schema.version);
@@ -168,11 +198,6 @@ async fn plan(to: Option<String>, sql: bool) -> Result<()> {
         println!(
             "`+mastodon.{}`. Then `mise run schema:check`.",
             target.trim_start_matches('v')
-        );
-    } else if !outstanding.is_empty() {
-        println!(
-            "\nThese are outstanding by choice; see the migration that covers this\n\
-             release for why. `mise run schema:check` confirms the schema itself matches."
         );
     }
 

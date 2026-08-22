@@ -6,7 +6,9 @@ use serde_json::Value;
 
 use crate::{error::AppResult, state::AppState};
 
-use super::attachment::{ap_attachment_file_meta, attachment_url, classify_attachment_type};
+use super::attachment::{
+    ap_attachment_file_meta, attachment_url, classify_attachment_type, preview_card_link,
+};
 use super::{
     acquire_create_lock, as_string_vec, delete_arrived_first, fetch_remote_status,
     resolve_or_fetch_remote_account, tag_type_is,
@@ -374,6 +376,28 @@ pub(super) async fn handle_create(
         )
         .execute(&state.db)
         .await;
+    }
+
+    // FEP-8967: a `Link` attachment names the status's preview card outright,
+    // which is the only way a remote status gets one here — eunha builds cards
+    // for local posts by scanning their content, but does not scrape remote
+    // ones. Mastodon 4.7.0 likewise takes the first `Link` it finds.
+    if let Some(card_url) = preview_card_link(&attachments).map(str::to_owned) {
+        let state = state.clone();
+        tokio::spawn(async move {
+            let Some(card_id) =
+                crate::preview_card::fetch_and_store(&state.db, &state.fetch, &card_url).await
+            else {
+                return;
+            };
+            let _ = sqlx::query!(
+                "INSERT INTO preview_cards_statuses (status_id, preview_card_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                inserted_id,
+                card_id,
+            )
+            .execute(&state.db)
+            .await;
+        });
     }
 
     // Hashtags

@@ -1252,10 +1252,9 @@ pub async fn remove_from_followers(
             let remover = fetch_account(&state, auth.account_id).await?;
             let follower = fetch_account(&state, requester_id).await?;
             if follower.domain.is_some()
-                && remover
-                    .private_key
-                    .as_deref()
-                    .is_some_and(|s| !s.is_empty())
+                && crate::federation::keypair::has_signing_key(&state, remover.id)
+                    .await
+                    .unwrap_or(false)
             {
                 let actor_url =
                     crate::federation::tag::account_uri_of(&state.instance.domain, &remover);

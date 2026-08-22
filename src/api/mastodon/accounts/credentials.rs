@@ -502,7 +502,10 @@ async fn do_update_credentials(
 }
 
 async fn distribute_account_update(state: &AppState, domain: &str, account: &Account) {
-    if account.private_key.as_deref().is_none_or(|s| s.is_empty()) {
+    if !crate::federation::keypair::has_signing_key(state, account.id)
+        .await
+        .unwrap_or(false)
+    {
         return;
     }
     if account.domain.is_some() {
@@ -591,8 +594,9 @@ pub async fn patch_profile(
         .collect();
 
     let a = &account;
-    let fields =
-        crate::api::mastodon::convert::fields_from_db(a.fields.as_ref().unwrap_or(&serde_json::json!([])));
+    let fields = crate::api::mastodon::convert::fields_from_db(
+        a.fields.as_ref().unwrap_or(&serde_json::json!([])),
+    );
     let formatted_fields = fields
         .iter()
         .map(|f| crate::api::mastodon::types::Field {
@@ -632,8 +636,9 @@ async fn build_credential_account_response(
     auth: &AuthenticatedUser,
     account: Account,
 ) -> AppResult<Json<ApiAccount>> {
-    let fields =
-        crate::api::mastodon::convert::fields_from_db(account.fields.as_ref().unwrap_or(&serde_json::json!([])));
+    let fields = crate::api::mastodon::convert::fields_from_db(
+        account.fields.as_ref().unwrap_or(&serde_json::json!([])),
+    );
     let mut api_account = account_from_db(&account);
     api_account.emojis = fetch_account_emojis(state, &account).await;
     apply_account_stats(state, &mut api_account, account.id).await;
@@ -754,8 +759,9 @@ async fn build_profile(
         .collect();
 
     let a = &account;
-    let fields =
-        crate::api::mastodon::convert::fields_from_db(a.fields.as_ref().unwrap_or(&serde_json::json!([])));
+    let fields = crate::api::mastodon::convert::fields_from_db(
+        a.fields.as_ref().unwrap_or(&serde_json::json!([])),
+    );
     let formatted_fields = fields
         .iter()
         .map(|f| crate::api::mastodon::types::Field {

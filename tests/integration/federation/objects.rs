@@ -17,6 +17,53 @@ async fn post_status(ctx: &TestContext, body: &Value) -> String {
     status["id"].as_str().expect("status id").to_string()
 }
 
+/// FEP-8967: a status with a preview card advertises it as a `Link`
+/// attachment, so receivers do not have to scrape the content for a URL.
+#[tokio::test]
+async fn test_preview_card_is_served_as_a_link_attachment() {
+    let ctx = TestContext::new("ap-fep8967").await;
+    let id = post_status(
+        &ctx,
+        &json!({ "status": "look at https://example.test/article", "visibility": "public" }),
+    )
+    .await;
+
+    // The card itself is fetched in the background from a URL this test cannot
+    // reach, so attach one directly — the serialization is what is under test.
+    let status_id: i64 = id.parse().unwrap();
+    let card_id: i64 = sqlx::query_scalar!(
+        r#"INSERT INTO preview_cards (url, title, description, type, created_at, updated_at)
+           VALUES ('https://example.test/article', 'An article', '', 0, now(), now())
+           RETURNING id"#,
+    )
+    .fetch_one(&ctx.db)
+    .await
+    .unwrap();
+    sqlx::query!(
+        "INSERT INTO preview_cards_statuses (status_id, preview_card_id) VALUES ($1, $2)",
+        status_id,
+        card_id,
+    )
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+
+    let note: Value = ctx
+        .api
+        .get(&format!("/users/alice/statuses/{id}"), None)
+        .await
+        .json()
+        .await
+        .unwrap();
+
+    let attachments = note["attachment"].as_array().expect("attachment array");
+    let link = attachments
+        .iter()
+        .find(|a| a["type"].as_str() == Some("Link"))
+        .expect("no Link attachment for the preview card");
+    assert_eq!(link["href"].as_str(), Some("https://example.test/article"));
+}
+
 /// GET /users/{u}/statuses/{id} serves a Note; /activity serves the Create.
 #[tokio::test]
 async fn test_status_served_as_ap_note() {

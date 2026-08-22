@@ -293,10 +293,9 @@ async fn distribute_activities(state: &AppState, account: &Account, options: &Op
 /// combination only arises for unconfirmed/pending users, where Mastodon (and
 /// this port) skip side effects entirely.
 async fn delete_actor(state: &AppState, account: &Account) -> Result<()> {
-    if account
-        .private_key
-        .as_deref()
-        .is_none_or(|key| key.is_empty())
+    if !crate::federation::keypair::has_signing_key(state, account.id)
+        .await
+        .unwrap_or(false)
     {
         return Ok(());
     }

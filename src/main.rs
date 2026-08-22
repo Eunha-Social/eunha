@@ -34,6 +34,12 @@ async fn main() -> anyhow::Result<()> {
     sqlx::migrate!("./migrations").run(&db).await?;
 
     let state = state::AppState::new(db, config.clone()).await?;
+
+    // Mastodon 4.7's post-deploy migration, which cannot be SQL: the keys it
+    // moves have to be encrypted with this instance's configured secrets.
+    if let Err(e) = eunha::federation::keypair::migrate_local_keypairs(&state).await {
+        tracing::error!(error = %e, "could not move local signing keys into `keypairs`");
+    }
     eunha::background::spawn(state.clone());
     let app = build_app(state);
 

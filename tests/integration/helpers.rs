@@ -483,6 +483,12 @@ impl TestContext {
                 privacy_policy: String::new(),
                 terms_of_service: String::new(),
             },
+            // Exercise the same path a Mastodon 4.7 database uses: local
+            // signing keys in `keypairs`, encrypted with these secrets.
+            active_record_encryption: Some(eunha::config::ActiveRecordEncryptionConfig {
+                primary_key: "0123456789abcdef0123456789abcdef".into(),
+                key_derivation_salt: "fedcba9876543210fedcba9876543210".into(),
+            }),
             workers: Default::default(),
         };
         let state = eunha::state::AppState::new(db, config)

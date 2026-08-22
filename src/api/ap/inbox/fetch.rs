@@ -275,6 +275,85 @@ async fn fetch_remote_status_depth(
 }
 
 /// Looks up a remote account by URI, fetching it from the remote server if unknown.
+/// Adopt a remote account's new handle, if it can be verified.
+///
+/// Mastodon 4.7.0 treats an actor's `id` as the account's identity, so an
+/// account whose `preferredUsername` changes is renamed in place instead of
+/// turning into a second account that later has to be merged. The claimed
+/// handle is only taken once webfinger resolves it back to this same actor:
+/// anyone can put any `preferredUsername` in their actor document, and
+/// believing it outright would let one account take over another's handle.
+pub(super) async fn rename_if_handle_changed(
+    state: &AppState,
+    actor_uri: &str,
+    claimed_username: &str,
+) -> AppResult<()> {
+    if claimed_username.is_empty() {
+        return Ok(());
+    }
+
+    let Some(account) = sqlx::query!(
+        "SELECT id, username, domain FROM accounts WHERE uri = $1 AND domain IS NOT NULL",
+        actor_uri,
+    )
+    .fetch_optional(&state.db)
+    .await?
+    else {
+        return Ok(());
+    };
+    let Some(domain) = account.domain else {
+        return Ok(());
+    };
+    if account.username.eq_ignore_ascii_case(claimed_username) {
+        return Ok(());
+    }
+
+    match crate::federation::webfinger::resolve(&state.fetch, claimed_username, &domain).await {
+        Ok(resolved) if resolved == actor_uri => {}
+        Ok(resolved) => {
+            tracing::warn!(
+                actor_uri,
+                claimed_username,
+                resolved,
+                "ignoring a handle change that webfinger maps to a different actor"
+            );
+            return Ok(());
+        }
+        Err(e) => {
+            tracing::warn!(actor_uri, claimed_username, error = %e, "could not verify a handle change");
+            return Ok(());
+        }
+    }
+
+    // The handle may already belong to another account here, in which case the
+    // rename is refused by the unique index and the old handle stands.
+    match sqlx::query!(
+        r#"UPDATE accounts
+           SET username = $2, last_webfingered_at = now(), updated_at = now()
+           WHERE id = $1"#,
+        account.id,
+        claimed_username,
+    )
+    .execute(&state.db)
+    .await
+    {
+        Ok(_) => tracing::info!(
+            actor_uri,
+            from = %account.username,
+            to = claimed_username,
+            "remote account changed handle"
+        ),
+        Err(e) => tracing::warn!(
+            actor_uri,
+            claimed_username,
+            error = %e,
+            "could not adopt a verified handle change; the handle is most likely taken"
+        ),
+    }
+
+    Ok(())
+}
+
 pub async fn resolve_or_fetch_remote_account(state: &AppState, actor_uri: &str) -> AppResult<i64> {
     // An actor URI on our own domain is a *local* account, not a remote one.
     // Resolve it directly (local accounts store an empty `uri`, so the lookup

@@ -138,7 +138,9 @@ pub(super) async fn handle_follow(
     // Details for any Accept/Reject we sign as the (local) target and deliver
     // back to the follower. `object_uri` is the target's own actor URL.
     let key_id = format!("{object_uri}#main-key");
-    let can_sign = target.private_key.as_deref().is_some_and(|s| !s.is_empty());
+    let can_sign = crate::federation::keypair::has_signing_key(state, target.id)
+        .await
+        .unwrap_or(false);
     let follower_inbox =
         sqlx::query_scalar!("SELECT inbox_url FROM accounts WHERE id = $1", follower_id,)
             .fetch_optional(&state.db)
@@ -338,7 +340,10 @@ pub(super) async fn handle_follow(
                 }
             }
             feder_core::inbound::Action::SendAccept(accept) => {
-                if target.private_key.as_deref().is_none_or(|s| s.is_empty()) {
+                if !crate::federation::keypair::has_signing_key(state, target.id)
+                    .await
+                    .unwrap_or(false)
+                {
                     tracing::warn!(username = %target.username, "local account has no private key; cannot send Accept");
                     continue;
                 }

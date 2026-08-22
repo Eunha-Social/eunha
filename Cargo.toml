@@ -107,6 +107,12 @@ blurhash = "0.2"
 img-parts = "0.4.0"
 scraper = "0.23"
 
+# Rails ActiveRecord::Encryption compatibility (keypairs.private_key)
+aes-gcm = "0.10"
+pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
+sha1 = "0.10"
+flate2 = "1"
+
 # Push notifications (VAPID + Web Push)
 p256 = { version = "0.13", features = ["ecdsa", "pkcs8", "pem"] }
 web-push = "0.10"

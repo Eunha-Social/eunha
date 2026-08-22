@@ -591,7 +591,7 @@ async fn add_item(state: &AppState, collection_id: i64, account_id: i64) -> AppR
     let domain = &state.instance.domain;
 
     let owner = sqlx::query!(
-        "SELECT a.username, a.private_key
+        "SELECT a.id, a.username
          FROM collections c JOIN accounts a ON a.id = c.account_id
          WHERE c.id = $1 AND a.domain IS NULL",
         collection_id,
@@ -641,7 +641,10 @@ async fn add_item(state: &AppState, collection_id: i64, account_id: i64) -> AppR
     // Send the FeatureRequest asking the remote account for consent.
     if is_remote {
         if let (Some(owner), Some(activity_uri)) = (owner, activity_uri) {
-            if owner.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
+            if crate::federation::keypair::has_signing_key(state, owner.id)
+                .await
+                .unwrap_or(false)
+            {
                 let inbox = if !target.shared_inbox_url.is_empty() {
                     target.shared_inbox_url.clone()
                 } else {
@@ -688,14 +691,16 @@ async fn add_item(state: &AppState, collection_id: i64, account_id: i64) -> AppR
 /// (The key itself is loaded from the account at delivery time.)
 async fn owner_signing_username(state: &AppState, owner_account_id: i64) -> Option<String> {
     let row = sqlx::query!(
-        "SELECT username, private_key FROM accounts WHERE id = $1 AND domain IS NULL",
+        "SELECT username FROM accounts WHERE id = $1 AND domain IS NULL",
         owner_account_id,
     )
     .fetch_optional(&state.db)
     .await
     .ok()??;
-    row.private_key.filter(|s| !s.is_empty())?;
-    Some(row.username)
+    crate::federation::keypair::has_signing_key(state, owner_account_id)
+        .await
+        .ok()?
+        .then_some(row.username)
 }
 
 /// Distribute an `Add`/`Update(FeaturedCollection)` to the owner's followers.

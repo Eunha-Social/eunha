@@ -408,6 +408,15 @@ pub async fn confirm_email(
         Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     };
 
+    // Written to `accounts` above so that the account is never keyless; move it
+    // to wherever this instance keeps signing keys. A failure here is not fatal
+    // — the legacy columns still hold a usable key, and the next start moves it.
+    if let Err(e) =
+        crate::federation::keypair::store_local(&state, account_id, &private_key, &public_key).await
+    {
+        tracing::warn!(account_id, error = %e, "could not move the new account's signing key into `keypairs`");
+    }
+
     let needs_approval = state.instance.approval_required && pending.invite_id.is_none();
     let user_id = match sqlx::query_scalar!(
         r#"INSERT INTO users

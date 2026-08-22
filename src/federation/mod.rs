@@ -3,6 +3,7 @@ pub mod consent;
 pub mod delivery;
 pub mod fetch;
 pub mod instance_actor;
+pub mod keypair;
 pub mod moderation;
 pub mod safe_fetch;
 pub mod signature;
