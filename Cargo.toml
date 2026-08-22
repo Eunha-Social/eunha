@@ -129,6 +129,13 @@ emojis = "0.9"
 
 [dev-dependencies]
 axum-test = "17"
+# Used to build signatures by hand in tests, independently of the signer under
+# test, so that a test of "does this verify?" is not also a test of our own
+# signing code.
+rsa = { version = "0.9", features = ["sha2", "pem"] }
+sha2 = "0.10"
+base64 = "0.22"
+chrono = "0.4"
 feder-runtime = { git = "https://github.com/limeburst/feder.git" }
 reqwest = { version = "0.12", features = ["json", "multipart"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }

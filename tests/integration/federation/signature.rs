@@ -92,3 +92,107 @@ async fn test_unsigned_delete_accepted_without_processing() {
         "unverified Delete should be accepted without processing"
     );
 }
+
+/// A signature built the way Mastodon builds it — covered headers in its
+/// order, `(request-target)` last and carrying the query string — is accepted.
+/// Constructed by hand rather than through eunha's signer, so that it stays a
+/// test of what the network sends rather than of what eunha happens to emit.
+#[tokio::test]
+async fn test_mastodon_shaped_signature_is_accepted() {
+    use base64::Engine as _;
+    use sha2::Digest as _;
+
+    let ctx = TestContext::new("cavage-mastodon").await;
+    let (priv_pem, pub_pem) = eunha::crypto::generate_rsa_keypair().unwrap();
+    let uri = "https://remote.invalid/users/mona";
+    sqlx::query(
+        r#"INSERT INTO accounts (id, username, domain, display_name, note, url, uri, public_key, inbox_url, outbox_url, created_at, updated_at)
+           VALUES ($1, 'mona', 'remote.invalid', 'Mona', '', $2, $2, $3, $2 || '/inbox', $2 || '/outbox', now(), now())"#,
+    )
+    .bind(eunha::snowflake::next_id())
+    .bind(uri)
+    .bind(&pub_pem)
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+
+    let activity = json!({
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "id": format!("{uri}#update-mastodon-shape"),
+        "type": "Update",
+        "actor": uri,
+        "object": {
+            "id": uri,
+            "type": "Person",
+            "preferredUsername": "mona",
+            "name": "Mona, via a Mastodon-shaped signature",
+            "inbox": format!("{uri}/inbox"),
+        },
+    });
+    let body = serde_json::to_vec(&activity).unwrap();
+
+    let digest = format!(
+        "SHA-256={}",
+        base64::engine::general_purpose::STANDARD.encode(sha2::Sha256::digest(&body))
+    );
+    let date = chrono::Utc::now()
+        .format("%a, %d %b %Y %H:%M:%S GMT")
+        .to_string();
+    let content_type = "application/activity+json";
+    // A query string, which Mastodon's `(request-target)` covers and which a
+    // verifier that only rebuilt the path would get wrong.
+    let path_and_query = "/inbox?shared=true";
+
+    // Mastodon's order: host, date, content-type, digest, (request-target).
+    let signing_string = format!(
+        "host: {}\ndate: {date}\ncontent-type: {content_type}\ndigest: {digest}\n\
+         (request-target): post {path_and_query}",
+        ctx.api.host,
+    );
+    let signature = sign_rsa_sha256(&priv_pem, signing_string.as_bytes());
+    let header = format!(
+        r#"keyId="{uri}#main-key",algorithm="rsa-sha256",headers="host date content-type digest (request-target)",signature="{signature}""#
+    );
+
+    let resp = ctx
+        .api
+        .http
+        .post(ctx.api.url(path_and_query))
+        .header("host", &ctx.api.host)
+        .header("date", date)
+        .header("content-type", content_type)
+        .header("digest", digest)
+        .header("signature", header)
+        .body(body)
+        .send()
+        .await
+        .unwrap();
+
+    assert!(
+        resp.status().is_success(),
+        "a Mastodon-shaped signature should verify, got {}",
+        resp.status()
+    );
+
+    let display_name: String =
+        sqlx::query_scalar("SELECT display_name FROM accounts WHERE uri = $1")
+            .bind(uri)
+            .fetch_one(&ctx.db)
+            .await
+            .unwrap();
+    assert_eq!(display_name, "Mona, via a Mastodon-shaped signature");
+}
+
+/// Sign with RSASSA-PKCS1-v1_5 over SHA-256, the way any HTTP Signature
+/// implementation does. Written out here so the test does not lean on the
+/// signer it is meant to be checking against.
+fn sign_rsa_sha256(private_key_pem: &str, message: &[u8]) -> String {
+    use base64::Engine as _;
+    use rsa::pkcs1v15::SigningKey;
+    use rsa::pkcs8::DecodePrivateKey as _;
+    use rsa::signature::{SignatureEncoding as _, Signer as _};
+
+    let key = rsa::RsaPrivateKey::from_pkcs8_pem(private_key_pem).expect("parse test key");
+    let signature: rsa::pkcs1v15::Signature = SigningKey::<sha2::Sha256>::new(key).sign(message);
+    base64::engine::general_purpose::STANDARD.encode(signature.to_bytes())
+}

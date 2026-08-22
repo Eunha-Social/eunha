@@ -206,8 +206,10 @@ pub async fn shared_inbox(
     // signature is rejected, except `Delete` activities we cannot verify: the
     // signing actor (or its key) may already be gone, and rejecting them would
     // create backscatter, so we accept-and-ignore those (matching Mastodon).
+    // The signer covered the path *and* any query string, so pass both.
+    let path_and_query = uri.path_and_query().map_or(uri.path(), |pq| pq.as_str());
     if let Err(reason) =
-        verify_inbound_signature(&state, &headers, uri.path(), &body, &actor_uri).await
+        verify_inbound_signature(&state, &headers, path_and_query, &body, &actor_uri).await
     {
         // Fall back to the FEP-8b32 Object Integrity Proof. Fedify-based servers
         // (GoToSocial, hackers.pub) sign activities with an `eddsa-jcs-2022`
@@ -547,7 +549,10 @@ pub async fn run_inbox_cleanup(state: AppState) {
 }
 
 /// Recompute a collection's `item_count` (pending + accepted items).
-pub(super) async fn refresh_collection_item_count(state: &AppState, collection_id: i64) -> AppResult<()> {
+pub(super) async fn refresh_collection_item_count(
+    state: &AppState,
+    collection_id: i64,
+) -> AppResult<()> {
     sqlx::query!(
         r#"UPDATE collections SET item_count =
              (SELECT COUNT(*) FROM collection_items WHERE collection_id = $1 AND state IN (0, 1))
@@ -709,7 +714,11 @@ pub(super) async fn upsert_remote_collection(
 }
 
 /// Mirror one `FeaturedItem` into a (remote) collection.
-pub(super) async fn mirror_item_into(state: &AppState, collection_id: i64, item: &Value) -> AppResult<()> {
+pub(super) async fn mirror_item_into(
+    state: &AppState,
+    collection_id: i64,
+    item: &Value,
+) -> AppResult<()> {
     let item_uri = item.get("id").and_then(|v| v.as_str());
     let account_uri = json_uri(item.get("featuredObject"));
     if account_uri.is_empty() {

@@ -156,7 +156,10 @@ async fn test_retry_carries_rfc9421_headers() {
         "unexpected covered components: {signature_input}"
     );
     assert!(signature_input.contains(&format!("keyid=\"{key_id}\"")));
-    assert!(signature_input.contains("alg=\"rsa-v1_5-sha256\""));
+    assert!(
+        !signature_input.contains("alg="),
+        "Mastodon's signer states no algorithm; neither should this one"
+    );
     assert!(signature.starts_with("sig1=:") && signature.ends_with(':'));
     assert!(
         content_digest.starts_with("sha-256=:") && content_digest.ends_with(':'),

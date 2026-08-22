@@ -45,7 +45,7 @@ fn date_within_skew(date_val: &str, skew: chrono::Duration) -> bool {
 pub(super) async fn verify_inbound_signature(
     state: &AppState,
     headers: &axum::http::HeaderMap,
-    path: &str,
+    path_and_query: &str,
     body: &[u8],
     actor_uri: &str,
 ) -> Result<(), String> {
@@ -63,7 +63,7 @@ pub(super) async fn verify_inbound_signature(
             headers,
             signature_input,
             sig_val,
-            path,
+            path_and_query,
             body,
             actor_uri,
         )
@@ -122,7 +122,13 @@ pub(super) async fn verify_inbound_signature(
         .iter()
         .map(|(k, v)| (k.as_str(), v.as_str()))
         .collect();
-    match crate::federation::signature::verify_request("post", path, &hdr_refs, body, &pem) {
+    match crate::federation::signature::verify_request(
+        "post",
+        path_and_query,
+        &hdr_refs,
+        body,
+        &pem,
+    ) {
         Ok(()) => Ok(()),
         Err(first_err) => {
             let refreshed_pem = refresh_public_key(state, key_actor)
@@ -130,7 +136,7 @@ pub(super) async fn verify_inbound_signature(
                 .map_err(|e| format!("could not refresh public key: {e}"))?;
             crate::federation::signature::verify_request(
                 "post",
-                path,
+                path_and_query,
                 &hdr_refs,
                 body,
                 &refreshed_pem,
@@ -155,7 +161,7 @@ async fn verify_rfc9421_signature(
     headers: &axum::http::HeaderMap,
     signature_input: &str,
     signature: &str,
-    path: &str,
+    path_and_query: &str,
     body: &[u8],
     actor_uri: &str,
 ) -> Result<(), String> {
@@ -192,7 +198,7 @@ async fn verify_rfc9421_signature(
         .get("host")
         .and_then(|h| h.to_str().ok())
         .ok_or_else(|| "missing Host header".to_string())?;
-    let target_uri = format!("https://{host}{path}");
+    let target_uri = format!("https://{host}{path_and_query}");
     let content_digest = headers.get("content-digest").and_then(|h| h.to_str().ok());
 
     let verify = |pem: &str| {

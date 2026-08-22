@@ -167,6 +167,7 @@ impl ApiClient {
             &body_bytes,
             key_id,
             private_key_pem,
+            &[],
         )
         .expect("sign request");
         self.http
