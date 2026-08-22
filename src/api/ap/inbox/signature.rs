@@ -203,7 +203,7 @@ async fn verify_rfc9421_signature(
             signature,
             content_digest,
             body,
-            pem,
+            &feder_runtime::rfc9421::VerifyingKey::RsaPem(pem),
         )
     };
 
@@ -232,8 +232,9 @@ pub(super) async fn verify_object_integrity(
     activity: &serde_json::Value,
     actor_uri: &str,
 ) -> Result<(), String> {
-    let (proof, verification_method) = feder_runtime::integrity::extract_integrity_proof(activity)
-        .ok_or_else(|| "no eddsa-jcs-2022 integrity proof".to_string())?;
+    let (proof, cryptosuite, verification_method) =
+        feder_runtime::integrity::extract_integrity_proof(activity)
+            .ok_or_else(|| "no usable integrity proof".to_string())?;
 
     // The signing key must belong to the same host as the actor.
     if actor_uri.is_empty() || !same_host(&verification_method, actor_uri) {
@@ -243,17 +244,17 @@ pub(super) async fn verify_object_integrity(
     }
 
     // Fetch the actor document and confirm it declares this verification method
-    // as an assertionMethod, then read the Ed25519 public key.
+    // as an assertionMethod, then read the key it publishes there.
     let actor_doc = crate::federation::fetch::signed_get_json(state, actor_uri)
         .await
         .map_err(|e| format!("could not fetch actor for proof key: {e}"))?;
     let multibase = assertion_method_key(&actor_doc, &verification_method)
         .ok_or_else(|| format!("actor does not declare assertionMethod {verification_method}"))?;
-    let public_key = feder_runtime::integrity::decode_ed25519_multikey(&multibase)
+    let public_key = feder_runtime::integrity::decode_multikey(&multibase)
         .map_err(|e| format!("invalid assertionMethod key: {e}"))?;
 
     feder_runtime::integrity::verify_object_integrity_proof(activity, &proof, &public_key)
-        .map_err(|e| e.to_string())
+        .map_err(|e| format!("{} proof: {e}", cryptosuite.as_str()))
 }
 
 /// Find the `publicKeyMultibase` of the `assertionMethod` whose id equals

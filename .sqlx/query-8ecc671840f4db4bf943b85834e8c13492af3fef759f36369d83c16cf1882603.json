@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT version, urgent, type, release_notes FROM software_updates ORDER BY version",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "version",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "urgent",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "type",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "release_notes",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "8ecc671840f4db4bf943b85834e8c13492af3fef759f36369d83c16cf1882603"
+}

@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO public.software_updates\n                 (version, urgent, type, release_notes, end_of_support, created_at, updated_at)\n               VALUES ($1, $2, $3, $4, $5, now(), now())\n               ON CONFLICT (version) DO UPDATE\n                 SET urgent = EXCLUDED.urgent,\n                     type = EXCLUDED.type,\n                     release_notes = EXCLUDED.release_notes,\n                     end_of_support = EXCLUDED.end_of_support,\n                     updated_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Bool",
+        "Int4",
+        "Varchar",
+        "Date"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bcff78ba2528ff70dd5f912a06d66e053a0d8973c3192fafebf8ab30ca06d1af"
+}

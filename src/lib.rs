@@ -18,6 +18,7 @@ pub mod push;
 pub mod rails_encryption;
 pub mod schema_check;
 pub mod snowflake;
+pub mod software_updates;
 pub mod state;
 pub mod streaming;
 pub mod templates;

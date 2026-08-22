@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO software_deprecations (branch, end_of_support, warning_issued, created_at, updated_at)\n           VALUES ('3.5', '2023-01-01', 3, now(), now())",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "2fc15cc9767b048f08d7c70cb45983b2cd093a4eb838ecdfc4528c2df39f30c2"
+}

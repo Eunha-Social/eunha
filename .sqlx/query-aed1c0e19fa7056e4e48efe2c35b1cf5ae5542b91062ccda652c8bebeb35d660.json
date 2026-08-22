@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO software_updates (version, urgent, type, release_notes, created_at, updated_at)\n           VALUES ('4.0.0', false, 0, '', now(), now())",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "aed1c0e19fa7056e4e48efe2c35b1cf5ae5542b91062ccda652c8bebeb35d660"
+}

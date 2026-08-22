@@ -14,6 +14,11 @@ pub struct Config {
     /// Absent on instances whose keys still live in `accounts`.
     #[serde(default)]
     pub active_record_encryption: Option<ActiveRecordEncryptionConfig>,
+    /// Where to ask about newer Mastodon releases and the end of support of the
+    /// one eunha implements. Empty or absent turns the check off. Defaults to
+    /// the server Mastodon itself asks.
+    #[serde(default = "default_software_update_url")]
+    pub software_update_url: Option<String>,
     #[serde(default)]
     pub workers: WorkersConfig,
 }
@@ -53,6 +58,10 @@ pub struct WorkersConfig {
     /// Activities processed concurrently per ingress loop.
     #[serde(default = "default_inbox_concurrency")]
     pub inbox_concurrency: usize,
+}
+
+fn default_software_update_url() -> Option<String> {
+    Some("https://api.joinmastodon.org/update-check".to_string())
 }
 
 fn default_delivery_workers() -> usize {

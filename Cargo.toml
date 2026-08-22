@@ -25,6 +25,10 @@ name = "eunha-send-test-push"
 path = "src/bin/send_test_push.rs"
 
 [[bin]]
+name = "eunha-generate-secrets"
+path = "src/bin/generate_secrets.rs"
+
+[[bin]]
 name = "eunha-schema"
 path = "src/bin/schema.rs"
 

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO public.software_deprecations\n             (branch, end_of_support, warning_issued, created_at, updated_at)\n           VALUES ($1, $2, $3, now(), now())\n           ON CONFLICT (branch) DO UPDATE\n             SET end_of_support = EXCLUDED.end_of_support,\n                 -- A warning already given is not withdrawn by a later date.\n                 warning_issued = GREATEST(\n                     software_deprecations.warning_issued,\n                     EXCLUDED.warning_issued\n                 ),\n                 updated_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Varchar",
+        "Date",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6863ad57013341c3d5abf9d75b3862a531de401e8dbfc04e5555d8d639f7333a"
+}

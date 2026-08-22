@@ -103,12 +103,14 @@ async fn test_rejected_delivery_is_retried_with_rfc9421() {
 /// list, a signature under the same label, and the digest it covers.
 #[tokio::test]
 async fn test_retry_carries_rfc9421_headers() {
-    let captured: Arc<std::sync::Mutex<Vec<(String, String, String)>>> =
+    /// The RFC 9421 headers one request arrived with.
+    type CapturedHeaders = (String, String, String);
+    let captured: Arc<std::sync::Mutex<Vec<CapturedHeaders>>> =
         Arc::new(std::sync::Mutex::new(Vec::new()));
 
     let app = Router::new()
         .fallback(any(
-            |State(captured): State<Arc<std::sync::Mutex<Vec<(String, String, String)>>>>,
+            |State(captured): State<Arc<std::sync::Mutex<Vec<CapturedHeaders>>>>,
              req: Request<Body>| async move {
                 let header = |name: &str| {
                     req.headers()
@@ -242,7 +244,7 @@ async fn test_inbound_rfc9421_rejects_a_swapped_body() {
         &format!("https://{}/inbox", ctx.api.host),
         Some(&serde_json::to_vec(&signed_body).unwrap()),
         &format!("{uri}#main-key"),
-        &priv_pem,
+        &feder_runtime::rfc9421::SigningKey::RsaPem(&priv_pem),
     )
     .unwrap();
 

@@ -134,7 +134,7 @@ impl ApiClient {
             &signing_url,
             Some(&body_bytes),
             key_id,
-            private_key_pem,
+            &feder_runtime::rfc9421::SigningKey::RsaPem(private_key_pem),
         )
         .expect("sign request");
         let mut request = self
@@ -522,6 +522,8 @@ impl TestContext {
                 primary_key: "0123456789abcdef0123456789abcdef".into(),
                 key_derivation_salt: "fedcba9876543210fedcba9876543210".into(),
             }),
+            // Never reach for a third party's update server in tests.
+            software_update_url: None,
             workers: Default::default(),
         };
         let state = eunha::state::AppState::new(db, config)

@@ -12,6 +12,7 @@ pub fn spawn(state: AppState) {
     ));
     tokio::spawn(crate::api::ap::inbox::run_inbox_cleanup(state.clone()));
     tokio::spawn(crate::api::mastodon::media::run_media_queue(state.clone()));
+    tokio::spawn(crate::software_updates::run_update_check(state.clone()));
 
     // Queue loops are sized from `[workers]` in config. Each loop claims work
     // with `FOR UPDATE SKIP LOCKED`, so adding loops within this process scales

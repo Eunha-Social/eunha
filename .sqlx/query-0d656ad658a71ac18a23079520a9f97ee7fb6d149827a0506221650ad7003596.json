@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT warning_issued FROM public.software_deprecations WHERE branch = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "warning_issued",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "0d656ad658a71ac18a23079520a9f97ee7fb6d149827a0506221650ad7003596"
+}

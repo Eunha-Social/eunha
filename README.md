@@ -109,16 +109,28 @@ a recent `Date`. Both live in [feder].
 [RFC 9421]: https://www.rfc-editor.org/rfc/rfc9421.html
 [feder]: https://github.com/limeburst/feder
 
+### Update notices
+
+Mastodon polls an update server for newer releases and for the end of support
+of the branch it runs, and records both in `software_updates` and
+`software_deprecations`. Eunha asks the same server the same question about the
+Mastodon release *it implements*: eunha builds 4.7.0's schema and serves its
+API, so when that branch stops receiving fixes, what eunha reproduces is what
+is going out of support.
+
+The request carries the Mastodon version being asked about and eunha's own
+`User-Agent`; it does not claim to be Mastodon. Set `software_update_url` to an
+empty string to turn the check off, or to another server to ask it instead.
+
 ### Outstanding from 4.7.0
 
-* **`mldsa44-jcs-2024` integrity proofs.** feder verifies FEP-8b32 proofs, but
-  only `eddsa-jcs-2022`; the post-quantum suite needs an ML-DSA implementation,
-  and upstream needs OpenSSL 3.5 for it too.
-* **Ed25519 HTTP Message Signatures.** The RFC 9421 support here signs and
-  verifies `rsa-v1_5-sha256`, which is what Mastodon uses for the keys it has;
-  Ed25519 keys wait on the key types that would carry them.
-* **Out-of-support version notifications.** `software_deprecations` and
-  `software_updates.end_of_support` exist in the schema and stay empty: they
-  describe Mastodon's release branches, which say nothing about whether the
-  Mastodon version *eunha* implements is still supported.
-  `mise run mastodon:status` answers that question instead.
+Nothing from 4.7.0 is outstanding. What eunha does not implement from it is a
+matter of choice rather than of catching up:
+
+* **Signing with Ed25519 or ML-DSA.** Both are verified on the way in —
+  `mldsa44-jcs-2024` integrity proofs and `ed25519` HTTP Message Signatures —
+  but local accounts have RSA keys, so that is what eunha signs with. The
+  `keypairs` table records a key's type, so issuing others is a matter of key
+  management rather than of cryptography.
+* **Email for update notices.** Mastodon mails its devops users; eunha logs,
+  and the notices land in the same tables the admin surfaces read.

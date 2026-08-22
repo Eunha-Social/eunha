@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM public.software_deprecations WHERE branch <> $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4385b75b4b037aa1ec7913428982769b2ec2c12c1de24209426c31ecc3678ca0"
+}

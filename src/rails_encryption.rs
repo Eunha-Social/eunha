@@ -212,6 +212,23 @@ impl Encryptor {
     }
 }
 
+/// Generate one of Mastodon's `ACTIVE_RECORD_ENCRYPTION_*` secrets.
+///
+/// Matches what `bin/rails db:encryption:init` produces — 32 characters of
+/// `SecureRandom.alphanumeric` — so that secrets generated here and secrets
+/// generated there are interchangeable. The value is used as a PBKDF2 password
+/// and salt, not as key material directly, so its length is a matter of
+/// entropy rather than of the cipher.
+pub fn generate_secret() -> String {
+    use rand::Rng as _;
+
+    rand::rng()
+        .sample_iter(rand::distr::Alphanumeric)
+        .take(32)
+        .map(char::from)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,6 +238,24 @@ mod tests {
             "a3d1b2c4e5f60718293a4b5c6d7e8f90",
             "1f2e3d4c5b6a798877665544332211ff",
         )
+    }
+
+    #[test]
+    fn generates_secrets_rails_would_have_generated() {
+        let secret = generate_secret();
+        assert_eq!(secret.len(), 32);
+        assert!(
+            secret.chars().all(|c| c.is_ascii_alphanumeric()),
+            "SecureRandom.alphanumeric is [A-Za-z0-9] only, got {secret:?}"
+        );
+        assert_ne!(secret, generate_secret());
+    }
+
+    #[test]
+    fn a_generated_pair_of_secrets_can_be_used_to_encrypt() {
+        let encryptor = Encryptor::new(&generate_secret(), &generate_secret());
+        let sealed = encryptor.encrypt("a private key").unwrap();
+        assert_eq!(encryptor.decrypt(&sealed).unwrap(), "a private key");
     }
 
     #[test]
