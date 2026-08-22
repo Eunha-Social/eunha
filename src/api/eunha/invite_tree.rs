@@ -72,7 +72,7 @@ pub async fn invite_tree(
            WHERE a.domain IS NULL
              AND u.approved
              AND u.confirmed_at IS NOT NULL
-             AND a.suspended_at IS NULL
+             AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
            ORDER BY u.created_at ASC"#,
     )
     .fetch_all(&state.db)

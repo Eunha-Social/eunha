@@ -109,7 +109,7 @@ pub async fn fanout_to_followers(
            WHERE f.target_account_id = $1
              AND a.domain IS NOT NULL
              AND a.inbox_url <> ''
-             AND a.suspended_at IS NULL"#,
+             AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL"#,
         actor_account_id,
     )
     .fetch_all(&state.db)
@@ -150,30 +150,30 @@ pub async fn account_reach_inboxes(
             -- followers
             SELECT CASE WHEN a.shared_inbox_url <> '' THEN a.shared_inbox_url ELSE a.inbox_url END AS inbox
             FROM follows f JOIN accounts a ON a.id = f.account_id
-            WHERE f.target_account_id = $1 AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.inbox_url <> ''
+            WHERE f.target_account_id = $1 AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL AND a.inbox_url <> ''
             UNION
             -- reporters (accounts that reported this account)
             SELECT CASE WHEN a.shared_inbox_url <> '' THEN a.shared_inbox_url ELSE a.inbox_url END
             FROM reports r JOIN accounts a ON a.id = r.account_id
-            WHERE r.target_account_id = $1 AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.inbox_url <> ''
+            WHERE r.target_account_id = $1 AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL AND a.inbox_url <> ''
             UNION
             -- accounts mentioned in this account's recent statuses
             SELECT CASE WHEN a.shared_inbox_url <> '' THEN a.shared_inbox_url ELSE a.inbox_url END
             FROM mentions m JOIN accounts a ON a.id = m.account_id JOIN statuses s ON s.id = m.status_id
             WHERE s.account_id = $1 AND s.deleted_at IS NULL AND s.created_at >= now() - interval '2 days'
-              AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.inbox_url <> ''
+              AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL AND a.inbox_url <> ''
             UNION
             -- accounts this account recently followed
             SELECT CASE WHEN a.shared_inbox_url <> '' THEN a.shared_inbox_url ELSE a.inbox_url END
             FROM follows f JOIN accounts a ON a.id = f.target_account_id
             WHERE f.account_id = $1 AND f.created_at >= now() - interval '2 days'
-              AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.inbox_url <> ''
+              AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL AND a.inbox_url <> ''
             UNION
             -- targets of this account's recent follow requests
             SELECT CASE WHEN a.shared_inbox_url <> '' THEN a.shared_inbox_url ELSE a.inbox_url END
             FROM follow_requests fr JOIN accounts a ON a.id = fr.target_account_id
             WHERE fr.account_id = $1 AND fr.created_at >= now() - interval '2 days'
-              AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.inbox_url <> ''
+              AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL AND a.inbox_url <> ''
             UNION
             -- enabled relays
             SELECT inbox_url FROM relays WHERE state = 2 AND inbox_url <> ''
@@ -231,22 +231,22 @@ pub async fn status_reach_inboxes(
             -- mentioned accounts (non-reblog statuses only)
             SELECT CASE WHEN a.shared_inbox_url <> '' THEN a.shared_inbox_url ELSE a.inbox_url END AS inbox
             FROM mentions m JOIN accounts a ON a.id = m.account_id
-            WHERE $8::bigint IS NULL AND m.status_id = $1 AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.inbox_url <> ''
+            WHERE $8::bigint IS NULL AND m.status_id = $1 AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL AND a.inbox_url <> ''
             UNION
             -- replied-to author (distributable only)
             SELECT CASE WHEN a.shared_inbox_url <> '' THEN a.shared_inbox_url ELSE a.inbox_url END
             FROM accounts a
-            WHERE $8::bigint IS NULL AND $4::bool AND a.id = $3 AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.inbox_url <> ''
+            WHERE $8::bigint IS NULL AND $4::bool AND a.id = $3 AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL AND a.inbox_url <> ''
             UNION
             -- quoted author
             SELECT CASE WHEN a.shared_inbox_url <> '' THEN a.shared_inbox_url ELSE a.inbox_url END
             FROM quotes q JOIN accounts a ON a.id = q.quoted_account_id
-            WHERE $8::bigint IS NULL AND q.status_id = $1 AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.inbox_url <> ''
+            WHERE $8::bigint IS NULL AND q.status_id = $1 AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL AND a.inbox_url <> ''
             UNION
             -- interactors (distributable or unsafe)
             SELECT CASE WHEN a.shared_inbox_url <> '' THEN a.shared_inbox_url ELSE a.inbox_url END
             FROM accounts a
-            WHERE $8::bigint IS NULL AND ($4::bool OR $5::bool) AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.inbox_url <> ''
+            WHERE $8::bigint IS NULL AND ($4::bool OR $5::bool) AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL AND a.inbox_url <> ''
               AND a.id IN (
                 SELECT account_id FROM statuses WHERE reblog_of_id = $1 AND deleted_at IS NULL
                 UNION SELECT account_id FROM statuses WHERE in_reply_to_id = $1 AND deleted_at IS NULL
@@ -257,12 +257,12 @@ pub async fn status_reach_inboxes(
             -- reblog: the original author
             SELECT CASE WHEN a.shared_inbox_url <> '' THEN a.shared_inbox_url ELSE a.inbox_url END
             FROM accounts a
-            WHERE a.id = $8 AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.inbox_url <> ''
+            WHERE a.id = $8 AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL AND a.inbox_url <> ''
             UNION
             -- followers (author's; plus a local thread author's followers for distributable replies)
             SELECT CASE WHEN a.shared_inbox_url <> '' THEN a.shared_inbox_url ELSE a.inbox_url END
             FROM accounts a
-            WHERE $7::bool AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.inbox_url <> ''
+            WHERE $7::bool AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL AND a.inbox_url <> ''
               AND (
                 EXISTS (SELECT 1 FROM follows f WHERE f.account_id = a.id AND f.target_account_id = $2)
                 OR (
@@ -278,7 +278,7 @@ pub async fn status_reach_inboxes(
             -- above no longer sees them)
             SELECT CASE WHEN a.shared_inbox_url <> '' THEN a.shared_inbox_url ELSE a.inbox_url END
             FROM accounts a
-            WHERE a.id = ANY($9::bigint[]) AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.inbox_url <> ''
+            WHERE a.id = ANY($9::bigint[]) AND a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL AND a.inbox_url <> ''
             UNION
             -- relays (public only)
             SELECT inbox_url FROM relays WHERE $6::bool AND state = 2 AND inbox_url <> ''
@@ -330,12 +330,14 @@ async fn signing_account_id(state: &AppState, key_id: &str) -> anyhow::Result<i6
     let id = match segments.as_slice() {
         // The instance actor (`https://{domain}/actor`) signs server-level
         // activities such as a Reject of a follow targeting it.
-        ["actor"] => sqlx::query_scalar!(
-            "SELECT id FROM accounts WHERE id = $1",
-            crate::federation::instance_actor::INSTANCE_ACTOR_ID,
-        )
-        .fetch_optional(&state.db)
-        .await?,
+        ["actor"] => {
+            sqlx::query_scalar!(
+                "SELECT id FROM accounts WHERE id = $1",
+                crate::federation::instance_actor::INSTANCE_ACTOR_ID,
+            )
+            .fetch_optional(&state.db)
+            .await?
+        }
         ["ap", "users", id] => {
             let id: i64 = id
                 .parse()
@@ -549,7 +551,10 @@ async fn force_terminal(state: &AppState, id: i64) {
     .execute(&state.db)
     .await;
     match forced {
-        Ok(_) => tracing::warn!(id, "delivery job forced terminal after unrecordable outcome"),
+        Ok(_) => tracing::warn!(
+            id,
+            "delivery job forced terminal after unrecordable outcome"
+        ),
         Err(e) => tracing::error!(id, error = %e, "could not force delivery job terminal"),
     }
 }

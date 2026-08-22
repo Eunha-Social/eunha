@@ -122,8 +122,11 @@ pub async fn authorize_follow_request(
         )
         .await;
 
+        // A remote requester always has an actor id to address the Accept to.
+        let requester_uri = requester.stored_uri().unwrap_or_default().to_string();
         if let Some(follow_uri) = deleted_row.uri {
             if requester.domain.is_some()
+                && !requester_uri.is_empty()
                 && accepter
                     .private_key
                     .as_deref()
@@ -141,14 +144,17 @@ pub async fn authorize_follow_request(
                     &accept_id,
                     &accepter_actor_url,
                     &follow_uri,
-                    &requester.uri,
+                    &requester_uri,
                     &accepter_actor_url,
                 )?;
                 let inbox = requester.inbox_url.clone();
                 if inbox.is_empty() {
-                    tracing::warn!(requester_uri = %requester.uri, "cannot deliver Accept: remote actor has no inbox URL");
+                    tracing::warn!(
+                        requester_uri,
+                        "cannot deliver Accept: remote actor has no inbox URL"
+                    );
                 } else {
-                    tracing::debug!(inbox, requester_uri = %requester.uri, "enqueueing Accept");
+                    tracing::debug!(inbox, requester_uri, "enqueueing Accept");
                     if let Err(e) = crate::federation::delivery::deliver_to_inboxes(
                         &state,
                         activity,
@@ -212,7 +218,8 @@ pub async fn reject_follow_request(
     if let Some(deleted_row) = deleted {
         if let Some(follow_uri) = deleted_row.uri {
             let requester = fetch_account(&state, requester_id).await?;
-            if requester.domain.is_some() {
+            let requester_uri = requester.stored_uri().unwrap_or_default().to_string();
+            if requester.domain.is_some() && !requester_uri.is_empty() {
                 let rejecter = fetch_account(&state, auth.account_id).await?;
                 if rejecter
                     .private_key
@@ -231,7 +238,7 @@ pub async fn reject_follow_request(
                         &reject_id,
                         &rejecter_actor_url,
                         &follow_uri,
-                        &requester.uri,
+                        &requester_uri,
                         &rejecter_actor_url,
                     )?;
                     let inbox = requester.inbox_url.clone();

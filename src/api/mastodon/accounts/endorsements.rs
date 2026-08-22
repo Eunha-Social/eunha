@@ -75,7 +75,7 @@ pub async fn get_endorsements(
            WHERE ap.account_id = $1
              AND ($2::bigint IS NULL OR a.id < $2)
              AND ($3::bigint IS NULL OR a.id > $3)
-             AND a.suspended_at IS NULL
+             AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
            ORDER BY a.id DESC
            LIMIT $4"#,
         id,
@@ -122,7 +122,7 @@ pub async fn get_my_endorsements(
            WHERE ap.account_id = $1
              AND ($2::bigint IS NULL OR a.id < $2)
              AND ($3::bigint IS NULL OR a.id > $3)
-             AND a.suspended_at IS NULL
+             AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
            ORDER BY a.id DESC
            LIMIT $4"#,
         auth.account_id,

@@ -85,7 +85,8 @@ pub async fn authenticate(State(state): State<AppState>, mut req: Request, next:
         if let Some(tok) = sqlx::query!(
             r#"SELECT t.id, u.account_id, t.application_id, t.scopes,
                       t.expires_in, t.created_at, t.revoked_at, u.id as "user_id?",
-                      u.disabled as "disabled?", a.suspended_at AS "suspended_at?"
+                      u.disabled as "disabled?", a.suspended_at AS "suspended_at?",
+                      a.requested_deletion_at AS "requested_deletion_at?"
                FROM oauth_access_tokens t
                LEFT JOIN users u ON u.id = t.resource_owner_id
                LEFT JOIN accounts a ON a.id = u.account_id
@@ -100,10 +101,11 @@ pub async fn authenticate(State(state): State<AppState>, mut req: Request, next:
             // App-only tokens (client_credentials) have no user, so `disabled` is
             // NULL there and must stay valid; a disabled user's tokens are rejected.
             let user_disabled = tok.disabled.unwrap_or(false);
-            // Mastodon's `Api::BaseController#require_not_suspended!`: a
-            // suspended account cannot act, but its tokens stay intact so
+            // Mastodon's `Api::BaseController#require_not_suspended!`: an
+            // unavailable account cannot act, but its tokens stay intact so
             // unsuspending restores access without a new sign-in.
-            let account_suspended = tok.suspended_at.is_some();
+            let account_suspended =
+                tok.suspended_at.is_some() || tok.requested_deletion_at.is_some();
             let valid = tok.revoked_at.is_none()
                 && token_not_expired(tok.created_at, tok.expires_in)
                 && !user_disabled

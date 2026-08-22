@@ -222,13 +222,10 @@ pub async fn unsuspend(state: &AppState, account_id: i64) -> Result<()> {
 /// Port of `DeleteAccountService#call`. Deleting an account that no longer
 /// exists is a no-op (Mastodon's workers swallow `RecordNotFound`).
 pub async fn call(state: &AppState, account_id: i64, options: Options) -> Result<()> {
-    let Some(account) = sqlx::query_as!(
-        Account,
-        "SELECT * FROM accounts WHERE id = $1",
-        account_id,
-    )
-    .fetch_optional(&state.db)
-    .await?
+    let Some(account) =
+        sqlx::query_as!(Account, "SELECT * FROM accounts WHERE id = $1", account_id,)
+            .fetch_optional(&state.db)
+            .await?
     else {
         return Ok(());
     };
@@ -324,7 +321,7 @@ async fn delete_actor_inboxes(state: &AppState) -> Result<Vec<String>> {
         SELECT DISTINCT inbox AS "inbox!" FROM (
             SELECT CASE WHEN a.shared_inbox_url <> '' THEN a.shared_inbox_url ELSE a.inbox_url END AS inbox
             FROM accounts a
-            WHERE a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.inbox_url <> ''
+            WHERE a.domain IS NOT NULL AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL AND a.inbox_url <> ''
             UNION
             SELECT inbox_url FROM relays WHERE state = 2 AND inbox_url <> ''
         ) reach
@@ -340,11 +337,13 @@ async fn delete_actor_inboxes(state: &AppState) -> Result<Vec<String>> {
 /// on its own server, so force the follow relationships apart in both
 /// directions rather than leaving it able to receive our posts.
 async fn sever_remote_follows(state: &AppState, account: &Account) -> Result<()> {
-    if account.inbox_url.is_empty() || account.uri.is_empty() {
+    let Some(remote_uri) = account.stored_uri().map(str::to_owned) else {
+        return Ok(());
+    };
+    if account.inbox_url.is_empty() {
         return Ok(());
     }
     let domain = &state.instance.domain;
-    let remote_uri = account.uri.clone();
 
     // Follows *by* the remote account: Reject them, signed by the local target.
     let outgoing = sqlx::query!(
@@ -356,8 +355,12 @@ async fn sever_remote_follows(state: &AppState, account: &Account) -> Result<()>
     .fetch_all(&state.db)
     .await?;
     for follow in outgoing {
-        let target_url =
-            crate::federation::tag::account_uri(domain, follow.target_id, follow.id_scheme, &follow.username);
+        let target_url = crate::federation::tag::account_uri(
+            domain,
+            follow.target_id,
+            follow.id_scheme,
+            &follow.username,
+        );
         let key_id = format!("{target_url}#main-key");
         let follow_uri = follow
             .uri
@@ -533,6 +536,13 @@ async fn snapshot_invite_lineage(state: &AppState, account_id: i64) -> Result<()
 
 /// `purge_profile!` — there is no point scrubbing an account record that is
 /// about to be deleted.
+///
+/// Since Mastodon 4.7.0 this records `requested_deletion_at` rather than
+/// suspending the account: a deletion the owner asked for and a suspension a
+/// moderator imposed are now distinct states. An account that was suspended
+/// first keeps its `suspended_at` — the two can hold at once. Both hide the
+/// account, through the `suspended_at IS NULL AND requested_deletion_at IS
+/// NULL` pairs that stand in for Mastodon's `without_suspended` scope.
 async fn purge_profile(state: &AppState, account: &Account, options: &Options) -> Result<()> {
     if !options.reserve_username {
         return Ok(());
@@ -542,8 +552,7 @@ async fn purge_profile(state: &AppState, account: &Account, options: &Options) -
     sqlx::query!(
         r#"UPDATE accounts SET
              silenced_at = NULL,
-             suspended_at = COALESCE(suspended_at, now()),
-             suspension_origin = $2,
+             requested_deletion_at = COALESCE(requested_deletion_at, now()),
              locked = false,
              memorial = false,
              discoverable = false,
@@ -570,7 +579,6 @@ async fn purge_profile(state: &AppState, account: &Account, options: &Options) -
              updated_at = now()
            WHERE id = $1"#,
         account.id,
-        suspension_origin::LOCAL,
     )
     .execute(&state.db)
     .await?;
@@ -862,12 +870,10 @@ async fn purge_feeds(state: &AppState, account: &Account, options: &Options) -> 
     if !account.is_local() || options.skip_side_effects {
         return Ok(());
     }
-    let list_ids: Vec<i64> = sqlx::query_scalar!(
-        "SELECT id FROM lists WHERE account_id = $1",
-        account.id,
-    )
-    .fetch_all(&state.db)
-    .await?;
+    let list_ids: Vec<i64> =
+        sqlx::query_scalar!("SELECT id FROM lists WHERE account_id = $1", account.id,)
+            .fetch_all(&state.db)
+            .await?;
 
     let mut redis = state.redis.clone();
     crate::feed::delete_home_feed(&mut redis, account.id).await;
@@ -924,10 +930,10 @@ async fn purge_associations(state: &AppState, account_id: i64, options: &Options
     let statements: &[&str] = &[
         "DELETE FROM account_notes WHERE account_id = $1",
         "DELETE FROM account_pins WHERE account_id = $1",
-        "DELETE FROM follows WHERE account_id = $1",           // active_relationships
-        "DELETE FROM account_aliases WHERE account_id = $1",   // aliases
-        "DELETE FROM blocks WHERE account_id = $1",            // block_relationships
-        "DELETE FROM blocks WHERE target_account_id = $1",     // blocked_by_relationships
+        "DELETE FROM follows WHERE account_id = $1", // active_relationships
+        "DELETE FROM account_aliases WHERE account_id = $1", // aliases
+        "DELETE FROM blocks WHERE account_id = $1",  // block_relationships
+        "DELETE FROM blocks WHERE target_account_id = $1", // blocked_by_relationships
         "DELETE FROM conversation_mutes WHERE account_id = $1",
         "DELETE FROM account_conversations WHERE account_id = $1",
         "DELETE FROM custom_filters WHERE account_id = $1",
@@ -936,11 +942,11 @@ async fn purge_associations(state: &AppState, account_id: i64, options: &Options
         "DELETE FROM follow_requests WHERE account_id = $1",
         "DELETE FROM list_accounts WHERE account_id = $1",
         "DELETE FROM account_migrations WHERE account_id = $1",
-        "DELETE FROM mutes WHERE account_id = $1",             // mute_relationships
-        "DELETE FROM mutes WHERE target_account_id = $1",      // muted_by_relationships
+        "DELETE FROM mutes WHERE account_id = $1", // mute_relationships
+        "DELETE FROM mutes WHERE target_account_id = $1", // muted_by_relationships
         "DELETE FROM notifications WHERE account_id = $1",
-        "DELETE FROM lists WHERE account_id = $1",             // owned_lists
-        "DELETE FROM follows WHERE target_account_id = $1",    // passive_relationships
+        "DELETE FROM lists WHERE account_id = $1", // owned_lists
+        "DELETE FROM follows WHERE target_account_id = $1", // passive_relationships
         "DELETE FROM report_notes WHERE account_id = $1",
         "DELETE FROM scheduled_statuses WHERE account_id = $1",
         "DELETE FROM status_pins WHERE account_id = $1",
@@ -960,10 +966,7 @@ async fn purge_associations(state: &AppState, account_id: i64, options: &Options
         on_destroy
     };
     for sql in statements.iter().chain(also_on_destroy) {
-        sqlx::query(sql)
-            .bind(account_id)
-            .execute(&state.db)
-            .await?;
+        sqlx::query(sql).bind(account_id).execute(&state.db).await?;
     }
     Ok(())
 }

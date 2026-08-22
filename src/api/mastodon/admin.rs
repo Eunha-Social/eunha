@@ -294,7 +294,7 @@ pub async fn list_admin_accounts(
                   ($3 = 'pending' AND EXISTS (
                       SELECT 1 FROM users u WHERE u.account_id = a.id AND NOT u.approved
                   )) OR
-                  ($3 = 'active' AND a.suspended_at IS NULL AND a.silenced_at IS NULL
+                  ($3 = 'active' AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL AND a.silenced_at IS NULL
                       AND NOT EXISTS (SELECT 1 FROM users u WHERE u.account_id = a.id AND NOT u.approved))
              )
              AND ($4::bigint IS NULL OR a.id < $4)
@@ -375,7 +375,7 @@ pub async fn list_admin_accounts_v2(
                   ($6 = 'sensitized' AND a.sensitized_at IS NOT NULL) OR
                   ($6 = 'disabled' AND a.suspended_at IS NOT NULL) OR
                   ($6 = 'pending' AND NOT u.approved AND u.id IS NOT NULL) OR
-                  ($6 = 'active' AND a.suspended_at IS NULL AND a.silenced_at IS NULL
+                  ($6 = 'active' AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL AND a.silenced_at IS NULL
                       AND (u.id IS NULL OR u.approved))
              )
              AND ($7::text IS NULL OR (lower(u.email) = lower($7) AND a.domain IS NULL))
@@ -1292,7 +1292,7 @@ pub async fn get_dimensions(
                 let redis_version = parse_redis_info_field(&redis_info, "redis_version")
                     .unwrap_or_else(|| "unknown".to_string());
 
-                let eunha_version = env!("CARGO_PKG_VERSION").to_string();
+                let eunha_version = crate::version::EUNHA_FULL.to_string();
 
                 serde_json::json!({
                     "key": key,

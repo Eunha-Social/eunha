@@ -28,7 +28,7 @@ pub(super) async fn handle_quote_request(
     // The quoted status must be one of ours.
     let Some(status) = sqlx::query!(
         r#"SELECT s.id, s.account_id, s.quote_approval_policy,
-                  a.username, a.uri AS account_uri, a.private_key
+                  a.username, a.id_scheme, a.private_key
            FROM statuses s JOIN accounts a ON a.id = s.account_id
            WHERE s.uri = $1 AND s.deleted_at IS NULL AND a.domain IS NULL"#,
         object_uri,
@@ -61,8 +61,18 @@ pub(super) async fn handle_quote_request(
     }
 
     let domain = &instance.domain;
-    let actor_url = status.account_uri.clone();
+    // The quoted status is ours, so its author's actor id is derived rather
+    // than read from `accounts.uri`, which local accounts leave unset.
+    let actor_url = crate::federation::tag::account_uri(
+        domain,
+        status.account_id,
+        status.id_scheme,
+        &status.username,
+    );
     let key_id = format!("{actor_url}#main-key");
+    // A remote actor we just resolved always has a URI; fall back to the one it
+    // was resolved from rather than signing an empty address.
+    let quoter_uri = quoter.uri.unwrap_or_else(|| actor_uri.to_string());
 
     // quote_approval_policy 0 = public (auto-accept); anything else requires the
     // owner's manual approval, which we do not auto-grant -> reject.
@@ -72,7 +82,7 @@ pub(super) async fn handle_quote_request(
             crate::snowflake::next_id()
         );
         if let Ok(r) =
-            crate::federation::consent::reject(&reject_id, &actor_url, &quoter.uri, req_id)
+            crate::federation::consent::reject(&reject_id, &actor_url, &quoter_uri, req_id)
         {
             if let Err(e) =
                 crate::federation::delivery::deliver_to_inboxes(state, r, vec![inbox], key_id).await
@@ -138,7 +148,7 @@ pub(super) async fn handle_quote_request(
     if let Ok(accept) = crate::federation::consent::accept(
         &accept_id,
         &actor_url,
-        &quoter.uri,
+        &quoter_uri,
         req_id,
         &authorization_uri,
     ) {
@@ -184,7 +194,8 @@ pub(super) async fn handle_feature_request(
 
     // The featured account must be local and active.
     let Some(local) = sqlx::query!(
-        "SELECT id, username, suspended_at, id_scheme FROM accounts WHERE uri = $1 AND domain IS NULL",
+        r#"SELECT id, username, suspended_at, requested_deletion_at, id_scheme
+           FROM accounts WHERE uri = $1 AND domain IS NULL"#,
         account_uri,
     )
     .fetch_optional(&state.db)
@@ -192,7 +203,7 @@ pub(super) async fn handle_feature_request(
     else {
         return Ok(());
     };
-    if local.suspended_at.is_some() {
+    if local.suspended_at.is_some() || local.requested_deletion_at.is_some() {
         return Ok(());
     }
 
@@ -305,7 +316,7 @@ pub(super) async fn handle_feature_request(
         let actor_url =
             crate::federation::tag::account_uri(domain, local.id, local.id_scheme, &local.username);
         let accept_id = format!("{actor_url}#accepts/feature_requests/{item_id}");
-        let owner_uri = owner.uri;
+        let owner_uri = owner.uri.unwrap_or_default();
         if let Ok(accept) = crate::federation::consent::accept(
             &accept_id,
             &actor_url,

@@ -135,11 +135,7 @@ fn safe_redirect_policy() -> reqwest::redirect::Policy {
 /// Build the dedicated HTTP client for fetching untrusted remote content.
 pub fn build_client() -> reqwest::Client {
     reqwest::Client::builder()
-        .user_agent(concat!(
-            "eunha/",
-            env!("CARGO_PKG_VERSION"),
-            " (ActivityPub)"
-        ))
+        .user_agent(crate::version::USER_AGENT)
         .timeout(std::time::Duration::from_secs(30))
         .redirect(safe_redirect_policy())
         .dns_resolver(Arc::new(PublicOnlyResolver))

@@ -35,7 +35,7 @@ pub async fn get_relationships(
     // Without with_suspended, filter out suspended accounts (matches Mastodon default)
     if !with_suspended {
         let non_suspended: Vec<i64> = sqlx::query_scalar!(
-            "SELECT id FROM accounts WHERE id = ANY($1::bigint[]) AND suspended_at IS NULL",
+            "SELECT id FROM accounts WHERE id = ANY($1::bigint[]) AND suspended_at IS NULL AND requested_deletion_at IS NULL",
             &ids,
         )
         .fetch_all(&state.db)
@@ -80,7 +80,7 @@ pub async fn follow_account(
     // Mastodon FollowService gating (#following_not_possible? / #following_not_allowed?):
     // an unavailable target is 404; blocked/blocking, domain-blocked, and moved
     // targets are not allowed (403).
-    if target.suspended_at.is_some() {
+    if target.is_unavailable() {
         return Err(AppError::NotFound);
     }
     if target.moved_to_account_id.is_some() {
@@ -219,14 +219,15 @@ pub async fn follow_account(
             let actor_url =
                 crate::federation::tag::account_uri_of(&state.instance.domain, &requester);
             let key_id = format!("{}#main-key", actor_url);
+            // The target is remote, so it has an actor id to address.
+            let target_uri = target.uri.clone().unwrap_or_default();
             let follow_activity =
-                crate::federation::activity::follow(&follow_uri, &actor_url, &target.uri)?;
+                crate::federation::activity::follow(&follow_uri, &actor_url, &target_uri)?;
             let inbox = if !target.shared_inbox_url.is_empty() {
                 target.shared_inbox_url.clone()
             } else {
                 target.inbox_url.clone()
             };
-            let target_uri = target.uri.clone();
             let inbox = if inbox.is_empty() {
                 tracing::warn!(target_uri, "inbox URL missing; re-fetching actor profile");
                 match crate::api::ap::inbox::resolve_or_fetch_remote_account(&state, &target_uri).await {
@@ -422,7 +423,7 @@ pub async fn unfollow_account(
                 &actor_url,
                 &follow_uri,
                 &actor_url,
-                &target.uri,
+                &target.uri.clone().unwrap_or_default(),
             )?;
             let inbox = if !target.shared_inbox_url.is_empty() {
                 target.shared_inbox_url.clone()
@@ -458,7 +459,7 @@ pub async fn get_account_followers(
     viewer: Option<Extension<AuthenticatedUser>>,
 ) -> AppResult<impl IntoResponse> {
     let target = fetch_account(&state, id).await?;
-    if target.suspended_at.is_some() {
+    if target.is_unavailable() {
         return Ok((HeaderMap::new(), Json(Vec::<ApiAccount>::new())));
     }
     let viewer_id = viewer.map(|Extension(a)| a.account_id);
@@ -508,7 +509,7 @@ pub async fn get_account_followers(
              AND ($2::bigint IS NULL OR f.id < $2)
              AND ($3::bigint IS NULL OR f.id > $3)
              AND ($6::bigint IS NULL OR f.id > $6)
-             AND a.suspended_at IS NULL
+             AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
              AND ($4::bigint IS NULL OR NOT EXISTS (
                  SELECT 1 FROM blocks b
                  WHERE (b.account_id = $4 AND b.target_account_id = a.id)
@@ -572,7 +573,7 @@ pub async fn get_account_following(
     viewer: Option<Extension<AuthenticatedUser>>,
 ) -> AppResult<impl IntoResponse> {
     let target = fetch_account(&state, id).await?;
-    if target.suspended_at.is_some() {
+    if target.is_unavailable() {
         return Ok((HeaderMap::new(), Json(Vec::<ApiAccount>::new())));
     }
     let viewer_id = viewer.map(|Extension(a)| a.account_id);
@@ -622,7 +623,7 @@ pub async fn get_account_following(
              AND ($2::bigint IS NULL OR f.id < $2)
              AND ($3::bigint IS NULL OR f.id > $3)
              AND ($6::bigint IS NULL OR f.id > $6)
-             AND a.suspended_at IS NULL
+             AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
              AND ($4::bigint IS NULL OR NOT EXISTS (
                  SELECT 1 FROM blocks b
                  WHERE (b.account_id = $4 AND b.target_account_id = a.id)

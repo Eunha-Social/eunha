@@ -23,11 +23,7 @@ pub struct AppState {
 impl AppState {
     pub async fn new(db: PgPool, config: Config) -> anyhow::Result<Self> {
         let http = reqwest::Client::builder()
-            .user_agent(concat!(
-                "eunha/",
-                env!("CARGO_PKG_VERSION"),
-                " (ActivityPub)"
-            ))
+            .user_agent(crate::version::USER_AGENT)
             .timeout(std::time::Duration::from_secs(30))
             .build()
             .expect("failed to build HTTP client");

@@ -60,7 +60,7 @@ async fn validate_invite(state: &AppState, code: &str) -> Result<i64, &'static s
     let row = sqlx::query!(
         r#"SELECT i.id, i.uses, i.max_uses, i.expires_at,
                   u.confirmed_at, u.approved, u.disabled,
-                  a.suspended_at, a.memorial, a.moved_to_account_id
+                  a.suspended_at, a.requested_deletion_at, a.memorial, a.moved_to_account_id
            FROM invites i
            JOIN users u ON u.id = i.user_id
            JOIN accounts a ON a.id = u.account_id
@@ -88,6 +88,7 @@ async fn validate_invite(state: &AppState, code: &str) -> Result<i64, &'static s
         && inv.approved
         && !inv.disabled
         && inv.suspended_at.is_none()
+        && inv.requested_deletion_at.is_none()
         && !inv.memorial
         && inv.moved_to_account_id.is_none();
     if !inviter_functional {

@@ -129,7 +129,7 @@ pub async fn trending_statuses(
              AND s.visibility = 0
              AND s.reblog_of_id IS NULL
              AND s.created_at > now() - interval '2 days'
-             AND a.suspended_at IS NULL
+             AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
              AND ($3::bigint IS NULL OR NOT EXISTS (
                  SELECT 1 FROM blocks b
                  WHERE (b.account_id = $3 AND b.target_account_id = s.account_id)

@@ -5,15 +5,13 @@ use axum::{
 use serde::Deserialize;
 
 use super::{
-    accounts::{
-        batch_account_emojis, batch_account_roles, batch_accounts_to_api
-    },
+    accounts::{batch_account_emojis, batch_account_roles, batch_accounts_to_api},
+    convert::status_from_db,
     status_serialize::{
         batch_reblog_data, batch_status_cards, batch_status_emojis, batch_status_media,
         batch_status_mentions, batch_status_polls, batch_statuses_tags, build_status,
-        fetch_reblog_data, fetch_status_media, hydrate_status_stats
+        fetch_reblog_data, fetch_status_media, hydrate_status_stats,
     },
-    convert::status_from_db,
     types::{SearchResults, Status, Tag},
 };
 use crate::{
@@ -113,14 +111,19 @@ pub async fn search(
                     None
                 };
                 let status = build_status(&state, &s, &account, media, reblog, ctx).await?;
-                return Ok(Json(SearchResults { accounts: vec![], statuses: vec![status], hashtags: vec![], collections: vec![] }));
+                return Ok(Json(SearchResults {
+                    accounts: vec![],
+                    statuses: vec![status],
+                    hashtags: vec![],
+                    collections: vec![],
+                }));
             }
         }
         // Try to find an account with this URL or URI, fetching it if asked.
         if search_type.is_none() || search_type == Some("accounts") {
             let mut found = sqlx::query_as!(
                 crate::db::models::Account,
-                "SELECT * FROM accounts WHERE (uri = $1 OR url = $1) AND suspended_at IS NULL LIMIT 1",
+                "SELECT * FROM accounts WHERE (uri = $1 OR url = $1) AND suspended_at IS NULL AND requested_deletion_at IS NULL LIMIT 1",
                 url,
             )
             .fetch_optional(&state.db)
@@ -140,7 +143,12 @@ pub async fn search(
             }
             if let Some(a) = found {
                 let api_accounts = batch_accounts_to_api(&state, &[a]).await;
-                return Ok(Json(SearchResults { accounts: api_accounts, statuses: vec![], hashtags: vec![], collections: vec![] }));
+                return Ok(Json(SearchResults {
+                    accounts: api_accounts,
+                    statuses: vec![],
+                    hashtags: vec![],
+                    collections: vec![],
+                }));
             }
         }
     }
@@ -175,7 +183,7 @@ pub async fn search(
                 sqlx::query_as!(
                     crate::db::models::Account,
                     r#"SELECT * FROM accounts
-                       WHERE suspended_at IS NULL
+                       WHERE suspended_at IS NULL AND requested_deletion_at IS NULL
                          AND lower(username) = $1 AND lower(domain) = $2
                        LIMIT $3"#,
                     uname,
@@ -188,7 +196,7 @@ pub async fn search(
                 sqlx::query_as!(
                     crate::db::models::Account,
                     r#"SELECT * FROM accounts
-                       WHERE suspended_at IS NULL
+                       WHERE suspended_at IS NULL AND requested_deletion_at IS NULL
                          AND lower(username) = $1 AND domain IS NULL
                        LIMIT $2"#,
                     uname,
@@ -240,7 +248,7 @@ pub async fn search(
                         r#"SELECT a.* FROM accounts a
                            JOIN follows f ON f.target_account_id = a.id
                            LEFT JOIN account_stats ast ON ast.account_id = a.id
-                           WHERE a.suspended_at IS NULL
+                           WHERE a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
                              AND a.moved_to_account_id IS NULL
                              AND f.account_id = $3
                              AND (lower(a.username) LIKE $1 OR lower(a.display_name) LIKE $1)
@@ -257,7 +265,7 @@ pub async fn search(
                         crate::db::models::Account,
                         r#"SELECT a.* FROM accounts a
                            LEFT JOIN account_stats ast ON ast.account_id = a.id
-                           WHERE a.suspended_at IS NULL
+                           WHERE a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
                              AND a.moved_to_account_id IS NULL
                              AND (lower(a.username) LIKE $1 OR lower(a.display_name) LIKE $1)
                            ORDER BY COALESCE(ast.followers_count, 0) DESC LIMIT $2 OFFSET $3"#,
@@ -276,7 +284,7 @@ pub async fn search(
                 r#"SELECT a.* FROM accounts a
                    JOIN follows f ON f.target_account_id = a.id
                    LEFT JOIN account_stats ast ON ast.account_id = a.id
-                   WHERE a.suspended_at IS NULL
+                   WHERE a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
                      AND a.moved_to_account_id IS NULL
                      AND f.account_id = $3
                      AND (lower(a.username) LIKE $1 OR lower(a.display_name) LIKE $1)
@@ -293,7 +301,7 @@ pub async fn search(
                 crate::db::models::Account,
                 r#"SELECT a.* FROM accounts a
                    LEFT JOIN account_stats ast ON ast.account_id = a.id
-                   WHERE a.suspended_at IS NULL
+                   WHERE a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
                      AND a.moved_to_account_id IS NULL
                      AND (lower(a.username) LIKE $1 OR lower(a.display_name) LIKE $1)
                    ORDER BY COALESCE(ast.followers_count, 0) DESC LIMIT $2 OFFSET $3"#,
@@ -318,7 +326,7 @@ pub async fn search(
                JOIN accounts a ON a.id = s.account_id
                WHERE s.deleted_at IS NULL
                  AND (s.visibility IN (0, 1) OR s.account_id = $4)
-                 AND a.suspended_at IS NULL
+                 AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
                  AND (a.domain IS NULL OR NOT EXISTS (
                      SELECT 1 FROM domain_blocks db WHERE db.domain = a.domain
                  ))

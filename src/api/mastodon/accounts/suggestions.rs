@@ -18,7 +18,7 @@ pub async fn get_suggestions(
            JOIN follows f ON f.account_id = a.id
            WHERE f.target_account_id = $1
              AND a.domain IS NULL
-             AND a.suspended_at IS NULL
+             AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
              AND NOT EXISTS (
                SELECT 1 FROM follows f2
                WHERE f2.account_id = $1 AND f2.target_account_id = a.id
@@ -81,7 +81,7 @@ pub async fn get_suggestions_v2(
            JOIN follows f ON f.account_id = a.id
            WHERE f.target_account_id = $1
              AND a.domain IS NULL
-             AND a.suspended_at IS NULL
+             AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
              AND NOT EXISTS (
                SELECT 1 FROM follows f2
                WHERE f2.account_id = $1 AND f2.target_account_id = a.id

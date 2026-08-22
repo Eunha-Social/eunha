@@ -556,14 +556,15 @@ pub async fn delete_collection(
 /// Local accounts are auto-accepted; remote accounts start pending.
 async fn add_item(state: &AppState, collection_id: i64, account_id: i64) -> AppResult<Value> {
     let target = sqlx::query!(
-        "SELECT domain, suspended_at, uri, inbox_url, shared_inbox_url FROM accounts WHERE id = $1",
+        r#"SELECT domain, suspended_at, requested_deletion_at, uri, inbox_url, shared_inbox_url
+           FROM accounts WHERE id = $1"#,
         account_id,
     )
     .fetch_optional(&state.db)
     .await?
     .ok_or(AppError::NotFound)?;
 
-    if target.suspended_at.is_some() {
+    if target.suspended_at.is_some() || target.requested_deletion_at.is_some() {
         return Err(AppError::Unprocessable(
             "This account cannot be added to collections".into(),
         ));
@@ -646,7 +647,7 @@ async fn add_item(state: &AppState, collection_id: i64, account_id: i64) -> AppR
                 } else {
                     target.inbox_url.clone()
                 };
-                let account_uri = target.uri.clone();
+                let account_uri = target.uri.clone().unwrap_or_default();
                 if !inbox.is_empty() && !account_uri.is_empty() {
                     let actor_url = format!("https://{domain}/users/{}", owner.username);
                     let collection_uri = format!("https://{domain}/collections/{collection_id}");

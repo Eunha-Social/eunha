@@ -170,8 +170,12 @@ pub async fn build_note(
     // The `tag` array lists every mention regardless of audience narrowing.
     let mut mention_tags: Vec<Value> = Vec::new();
     for m in &mention_rows {
-        let href = if !m.account_uri.is_empty() {
-            m.account_uri.clone()
+        let href = if m.domain.is_none() {
+            // A local mention's actor id follows from the account's id scheme;
+            // `accounts.uri` is not where local accounts keep theirs.
+            crate::federation::tag::account_uri(domain, m.account_id, m.id_scheme, &m.username)
+        } else if let Some(uri) = m.account_uri.clone().filter(|u| !u.is_empty()) {
+            uri
         } else if let Some(u) = m.url.clone().filter(|u| !u.is_empty()) {
             u
         } else {
@@ -368,11 +372,7 @@ pub async fn build_note(
         note["quote"] = json!(q);
         note["quoteUrl"] = json!(q);
         note["_misskey_quote"] = json!(q);
-        if let Some(auth) = s
-            .quote_authorization_uri
-            .clone()
-            .filter(|u| !u.is_empty())
-        {
+        if let Some(auth) = s.quote_authorization_uri.clone().filter(|u| !u.is_empty()) {
             note["quoteAuthorization"] = json!(auth);
         }
     }

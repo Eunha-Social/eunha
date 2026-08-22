@@ -41,6 +41,11 @@ pub struct Account {
     pub noindex: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memorial: Option<bool>,
+    /// Mastodon 4.7.0: present and true when the account's handle cannot be
+    /// verified, in which case `username` and `acct` are placeholders rather
+    /// than the handle the account claims.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub invalid_handle: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mute_expires_at: Option<String>, // only on MutedAccount (GET /api/v1/mutes)
     #[serde(skip_serializing_if = "Option::is_none")]

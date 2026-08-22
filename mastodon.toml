@@ -1,0 +1,23 @@
+# The Mastodon release eunha targets.
+#
+# This file is the single source of truth for the "which Mastodon are we?"
+# question. Three things are kept in sync with it:
+#
+#   * `Cargo.toml`'s version build metadata (`0.2.0+mastodon.4.7.0`), which
+#     build.rs verifies against this file — a mismatch fails the build.
+#   * `migrations/`, which must reproduce this release's schema exactly.
+#   * The version string reported by `/api/v1/instance`, `/api/v2/instance`
+#     and NodeInfo.
+#
+# `mise run mastodon:status` reports whether a newer release exists upstream;
+# `mise run mastodon:plan` lists the Rails migrations that adopting it implies.
+
+[mastodon]
+# Upstream release tag, without the leading `v`.
+version = "4.7.0"
+released_at = "2026-08-20"
+
+# Newest migration in that release, i.e. the `define(version: ...)` in
+# upstream `db/schema.rb`. `eunha-schema check` compares this against
+# `max(version)` in a live database's `public.schema_migrations`.
+schema_version = "20260812154114"

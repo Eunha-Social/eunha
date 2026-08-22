@@ -1,6 +1,6 @@
 [package]
 name = "eunha"
-version = "0.1.0"
+version = "0.2.0+mastodon.4.7.0"
 edition = "2021"
 default-run = "eunha"
 
@@ -23,6 +23,10 @@ path = "src/bin/init_r2.rs"
 [[bin]]
 name = "eunha-send-test-push"
 path = "src/bin/send_test_push.rs"
+
+[[bin]]
+name = "eunha-schema"
+path = "src/bin/schema.rs"
 
 [dependencies]
 # Web framework

@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT domain, suspended_at, requested_deletion_at, uri, inbox_url, shared_inbox_url\n           FROM accounts WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "domain",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 1,
+        "name": "suspended_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 2,
+        "name": "requested_deletion_at",
+        "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 3,
+        "name": "uri",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "inbox_url",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 5,
+        "name": "shared_inbox_url",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "8cf91b6840a2d7dc0783d3f937f0f995a87ef3d9d7d1fce1fc222bfa5339447d"
+}

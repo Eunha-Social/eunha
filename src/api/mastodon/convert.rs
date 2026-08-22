@@ -56,7 +56,11 @@ pub fn account_header_url_for(a: &models::Account) -> String {
 }
 
 fn account_avatar_url(a: &models::Account) -> String {
-    account_avatar_url_parts(a.id, a.avatar_file_name.as_deref(), a.avatar_remote_url.as_deref())
+    account_avatar_url_parts(
+        a.id,
+        a.avatar_file_name.as_deref(),
+        a.avatar_remote_url.as_deref(),
+    )
 }
 
 /// Avatar URL from the minimal columns, for bulk queries that don't hydrate a
@@ -198,14 +202,19 @@ pub fn account_from_db(a: &models::Account) -> types::Account {
             crate::federation::tag::account_uri(local_domain(), a.id, a.id_scheme, &a.username),
         )
     } else {
-        (a.url.clone().unwrap_or_default(), a.uri.clone())
+        (
+            a.url.clone().unwrap_or_default(),
+            a.uri.clone().unwrap_or_default(),
+        )
     };
 
-    let suspended = a.suspended_at.is_some();
+    // Mastodon's `unavailable?`: a moderator suspension or the owner's own
+    // deletion request both blank the profile out.
+    let suspended = a.is_unavailable();
 
     types::Account {
         id: a.id.to_string(),
-        username: a.username.clone(),
+        username: a.pretty_username(),
         acct: a.acct(),
         display_name: if suspended {
             String::new()
@@ -284,6 +293,7 @@ pub fn account_from_db(a: &models::Account) -> types::Account {
             None
         },
         memorial: if a.memorial { Some(true) } else { None },
+        invalid_handle: a.has_invalid_handle().then_some(true),
         mute_expires_at: None,
         source: None,
         role: None,
@@ -713,7 +723,10 @@ mod tests {
         assert!(meta["original"].get("aspect").is_none());
         assert_eq!(meta["original"]["frame_rate"], json!("30/1"));
         assert_eq!(meta["original"]["bitrate"], json!(3266734));
-        assert_eq!(meta["small"], json!({ "width": 360, "height": 640, "size": "360x640", "aspect": 0.5625 }));
+        assert_eq!(
+            meta["small"],
+            json!({ "width": 360, "height": 640, "size": "360x640", "aspect": 0.5625 })
+        );
     }
 
     #[test]

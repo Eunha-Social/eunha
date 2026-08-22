@@ -79,7 +79,10 @@ pub async fn move_account(
     )
     .fetch_one(&state.db)
     .await?;
-    if !new_uri.is_empty() && mover.private_key.as_deref().is_some_and(|s| !s.is_empty()) {
+    // The Move names the new account by its actor id, which a local target does
+    // not store, and it has to be signed.
+    let can_sign = mover.private_key.as_deref().is_some_and(|s| !s.is_empty());
+    if let Some(new_uri) = new_uri.filter(|uri| !uri.is_empty() && can_sign) {
         let actor_url = crate::federation::tag::account_uri(
             &instance.domain,
             auth.account_id,

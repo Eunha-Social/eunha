@@ -33,13 +33,11 @@ pub(super) async fn handle_follow(
     // a Reject signed by the instance actor.
     if object_uri == crate::federation::instance_actor::actor_url(&instance.domain) {
         if let Ok(follower_id) = resolve_or_fetch_remote_account(state, actor_uri).await {
-            let inbox = sqlx::query_scalar!(
-                "SELECT inbox_url FROM accounts WHERE id = $1",
-                follower_id,
-            )
-            .fetch_optional(&state.db)
-            .await?
-            .filter(|s| !s.is_empty());
+            let inbox =
+                sqlx::query_scalar!("SELECT inbox_url FROM accounts WHERE id = $1", follower_id,)
+                    .fetch_optional(&state.db)
+                    .await?
+                    .filter(|s| !s.is_empty());
             if let Some(inbox) = inbox {
                 let reject_id = format!(
                     "https://{}/activities/{}",
@@ -79,24 +77,31 @@ pub(super) async fn handle_follow(
         let on_our_host = parsed
             .host_str()
             .is_some_and(|h| h.eq_ignore_ascii_case(&instance.domain));
-        let segments: Vec<&str> = parsed.path_segments().map(|s| s.collect()).unwrap_or_default();
+        let segments: Vec<&str> = parsed
+            .path_segments()
+            .map(|s| s.collect())
+            .unwrap_or_default();
         if on_our_host {
             match segments.as_slice() {
                 // https://{domain}/users/{username}
-                ["users", username] => sqlx::query_scalar!(
-                    "SELECT id FROM accounts WHERE username = $1 AND domain IS NULL",
-                    username,
-                )
-                .fetch_optional(&state.db)
-                .await?,
-                // https://{domain}/ap/users/{id}
-                ["ap", "users", id] => match id.parse::<i64>() {
-                    Ok(numeric) => sqlx::query_scalar!(
-                        "SELECT id FROM accounts WHERE id = $1 AND domain IS NULL",
-                        numeric,
+                ["users", username] => {
+                    sqlx::query_scalar!(
+                        "SELECT id FROM accounts WHERE username = $1 AND domain IS NULL",
+                        username,
                     )
                     .fetch_optional(&state.db)
-                    .await?,
+                    .await?
+                }
+                // https://{domain}/ap/users/{id}
+                ["ap", "users", id] => match id.parse::<i64>() {
+                    Ok(numeric) => {
+                        sqlx::query_scalar!(
+                            "SELECT id FROM accounts WHERE id = $1 AND domain IS NULL",
+                            numeric,
+                        )
+                        .fetch_optional(&state.db)
+                        .await?
+                    }
                     Err(_) => None,
                 },
                 _ => None,
@@ -107,7 +112,9 @@ pub(super) async fn handle_follow(
     } else {
         None
     };
-    let Some(target_id) = target_id else { return Ok(()) };
+    let Some(target_id) = target_id else {
+        return Ok(());
+    };
     let target = sqlx::query_as!(
         crate::db::models::Account,
         "SELECT * FROM accounts WHERE id = $1",
@@ -132,13 +139,11 @@ pub(super) async fn handle_follow(
     // back to the follower. `object_uri` is the target's own actor URL.
     let key_id = format!("{object_uri}#main-key");
     let can_sign = target.private_key.as_deref().is_some_and(|s| !s.is_empty());
-    let follower_inbox = sqlx::query_scalar!(
-        "SELECT inbox_url FROM accounts WHERE id = $1",
-        follower_id,
-    )
-    .fetch_optional(&state.db)
-    .await?
-    .filter(|s| !s.is_empty());
+    let follower_inbox =
+        sqlx::query_scalar!("SELECT inbox_url FROM accounts WHERE id = $1", follower_id,)
+            .fetch_optional(&state.db)
+            .await?
+            .filter(|s| !s.is_empty());
 
     // Reject the follow up front (Mastodon ActivityPub::Activity::Follow) when
     // the target blocks the follower — directly or by domain — or has moved.
@@ -645,7 +650,7 @@ pub(super) async fn handle_accept_reject(
         .await?;
         if let Some(q) = quote {
             // Only the quoted account itself may answer.
-            if q.quoted_account_uri == actor_uri {
+            if q.quoted_account_uri.as_deref() == Some(actor_uri) {
                 if activity_type == "Accept" {
                     let approval_uri = activity
                         .get("result")
@@ -685,11 +690,10 @@ pub(super) async fn handle_accept_reject(
                         .fetch_optional(&state.db)
                         .await
                         {
-                            if let Err(e) =
-                                crate::api::mastodon::statuses::federate_status_update(
-                                    state, quoting.id, &author, &quoting,
-                                )
-                                .await
+                            if let Err(e) = crate::api::mastodon::statuses::federate_status_update(
+                                state, quoting.id, &author, &quoting,
+                            )
+                            .await
                             {
                                 tracing::warn!(error = %e, "failed to federate quote acceptance Update");
                             }

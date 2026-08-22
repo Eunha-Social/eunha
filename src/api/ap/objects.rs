@@ -160,9 +160,9 @@ async fn status_bundle(
     id: i64,
 ) -> AppResult<super::note::NoteBundle> {
     let account = load_local_account(state, who).await?;
-    // A suspended account's objects are not dereferenceable, matching
+    // An unavailable account's objects are not dereferenceable, matching
     // `StatusPolicy#show?` on the REST side.
-    if account.suspended_at.is_some() {
+    if account.is_unavailable() {
         return Err(AppError::NotFound);
     }
     let owner_ok = sqlx::query_scalar!(
@@ -223,10 +223,24 @@ pub async fn actor_json(
     .fetch_all(&state.db)
     .await?;
     let moved_to: Option<String> = if let Some(moved_id) = account.moved_to_account_id {
-        sqlx::query_scalar!("SELECT uri FROM accounts WHERE id = $1", moved_id)
-            .fetch_optional(&state.db)
-            .await?
-            .filter(|u| !u.is_empty())
+        sqlx::query!(
+            "SELECT id, id_scheme, username, domain, uri FROM accounts WHERE id = $1",
+            moved_id,
+        )
+        .fetch_optional(&state.db)
+        .await?
+        .and_then(|moved| {
+            if moved.domain.is_none() {
+                Some(crate::federation::tag::account_uri(
+                    domain,
+                    moved.id,
+                    moved.id_scheme,
+                    &moved.username,
+                ))
+            } else {
+                moved.uri.filter(|u| !u.is_empty())
+            }
+        })
     } else {
         None
     };

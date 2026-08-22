@@ -23,7 +23,7 @@ pub async fn nodeinfo(
 ) -> AppResult<Json<Value>> {
     let (user_count, active_month, active_halfyear, status_count) = tokio::try_join!(
         sqlx::query_scalar!(
-            "SELECT COUNT(*) FROM accounts WHERE domain IS NULL AND suspended_at IS NULL",
+            "SELECT COUNT(*) FROM accounts WHERE domain IS NULL AND suspended_at IS NULL AND requested_deletion_at IS NULL",
         )
         .fetch_one(&state.db),
         sqlx::query_scalar!(
@@ -55,7 +55,7 @@ pub async fn nodeinfo(
         "version": "2.0",
         "software": {
             "name": "eunha",
-            "version": env!("CARGO_PKG_VERSION"),
+            "version": crate::version::EUNHA_FULL,
         },
         "protocols": ["activitypub"],
         "usage": {

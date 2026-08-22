@@ -212,7 +212,7 @@ pub async fn get_account(
     // Local accounts that are unconfirmed or pending approval are invisible (404).
     // A suspended one is not: Mastodon serves the blanked tombstone with
     // `suspended: true`, and after deletion there is no user row left to check.
-    if account.domain.is_none() && account.suspended_at.is_none() {
+    if account.domain.is_none() && !account.is_unavailable() {
         let approval_required = state.instance.approval_required;
         let ok = sqlx::query_scalar!(
             r#"SELECT u.confirmed_at IS NOT NULL
@@ -275,7 +275,7 @@ pub async fn get_account_statuses(
     auth: Option<Extension<AuthenticatedUser>>,
 ) -> AppResult<impl IntoResponse> {
     let account = fetch_account(&state, id).await?;
-    if account.suspended_at.is_some() {
+    if account.is_unavailable() {
         return Ok((HeaderMap::new(), Json(Vec::<super::types::Status>::new())));
     }
     let viewer_id = auth.as_ref().map(|Extension(a)| a.account_id);
@@ -688,7 +688,7 @@ pub async fn get_account_pins(
     auth: Option<Extension<AuthenticatedUser>>,
 ) -> AppResult<Json<Vec<super::types::Status>>> {
     let account = fetch_account(&state, id).await?;
-    if account.suspended_at.is_some() {
+    if account.is_unavailable() {
         return Ok(Json(vec![]));
     }
     let viewer_id = auth.as_ref().map(|Extension(a)| a.account_id);
@@ -1269,7 +1269,7 @@ pub async fn remove_from_followers(
                     &reject_id,
                     &actor_url,
                     &follow_uri,
-                    &follower.uri,
+                    follower.uri.as_deref().unwrap_or_default(),
                     &actor_url,
                 ) {
                     let inbox = if !follower.shared_inbox_url.is_empty() {
@@ -1380,7 +1380,7 @@ pub async fn get_familiar_followers(
                 r#"SELECT a.* FROM accounts a
                    JOIN follows f1 ON f1.account_id = a.id AND f1.target_account_id = $1
                    JOIN follows f2 ON f2.account_id = $2 AND f2.target_account_id = a.id
-                   WHERE a.suspended_at IS NULL
+                   WHERE a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
                    LIMIT 10"#,
                 target_id,
                 auth.account_id,
@@ -1422,7 +1422,7 @@ pub async fn get_directory(
             Account,
             r#"SELECT * FROM accounts
                WHERE discoverable = true
-                 AND suspended_at IS NULL
+                 AND suspended_at IS NULL AND requested_deletion_at IS NULL
                  AND silenced_at IS NULL
                  AND (NOT $1::bool OR domain IS NULL)
                  AND (domain IS NULL OR NOT EXISTS (
@@ -1441,7 +1441,7 @@ pub async fn get_directory(
             Account,
             r#"SELECT a.* FROM accounts a
                WHERE a.discoverable = true
-                 AND a.suspended_at IS NULL
+                 AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
                  AND a.silenced_at IS NULL
                  AND (NOT $1::bool OR a.domain IS NULL)
                  AND (a.domain IS NULL OR NOT EXISTS (
@@ -1876,7 +1876,7 @@ pub async fn delete_account(
     };
 
     let user = sqlx::query!(
-        r#"SELECT u.encrypted_password, a.username, a.suspended_at
+        r#"SELECT u.encrypted_password, a.username, a.suspended_at, a.requested_deletion_at
            FROM users u JOIN accounts a ON a.id = u.account_id
            WHERE u.account_id = $1"#,
         auth.account_id,
@@ -1886,7 +1886,7 @@ pub async fn delete_account(
     .ok_or(AppError::Unauthorized)?;
 
     // `require_not_suspended!`
-    if user.suspended_at.is_some() {
+    if user.suspended_at.is_some() || user.requested_deletion_at.is_some() {
         return Err(AppError::Forbidden);
     }
 

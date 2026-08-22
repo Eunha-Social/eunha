@@ -15,10 +15,13 @@ pub mod media;
 pub mod middleware;
 pub mod preview_card;
 pub mod push;
+pub mod schema_check;
 pub mod snowflake;
 pub mod state;
 pub mod streaming;
 pub mod templates;
+pub mod upstream;
+pub mod version;
 pub mod web;
 pub mod well_known;
 

@@ -147,7 +147,9 @@ pub async fn block_account(
     .fetch_optional(&state.db)
     .await?
     {
-        if target.domain.is_some() {
+        // A remote target without an actor id cannot be addressed.
+        let target_uri = target.uri.clone().unwrap_or_default();
+        if target.domain.is_some() && !target_uri.is_empty() {
             if let Some(actor_row) = sqlx::query!(
                 "SELECT username, private_key, id_scheme FROM accounts WHERE id = $1 AND domain IS NULL",
                 auth.account_id,
@@ -166,14 +168,14 @@ pub async fn block_account(
                         if f.account_id == auth.account_id {
                             // Our follow of the remote target -> Undo(Follow).
                             if let Ok(a) = crate::federation::activity::undo_follow(
-                                &activity_id(), &actor_url, &uri, &actor_url, &target.uri,
+                                &activity_id(), &actor_url, &uri, &actor_url, &target_uri,
                             ) {
                                 activities.push(a);
                             }
                         } else {
                             // The remote target's follow of us -> Reject(Follow).
                             if let Ok(a) = crate::federation::activity::reject_follow(
-                                &activity_id(), &actor_url, &uri, &target.uri, &actor_url,
+                                &activity_id(), &actor_url, &uri, &target_uri, &actor_url,
                             ) {
                                 activities.push(a);
                             }
@@ -184,7 +186,7 @@ pub async fn block_account(
                         if r.account_id == target_id {
                             if let Some(uri) = r.uri.clone().filter(|s| !s.is_empty()) {
                                 if let Ok(a) = crate::federation::activity::reject_follow(
-                                    &activity_id(), &actor_url, &uri, &target.uri, &actor_url,
+                                    &activity_id(), &actor_url, &uri, &target_uri, &actor_url,
                                 ) {
                                     activities.push(a);
                                 }
@@ -194,7 +196,7 @@ pub async fn block_account(
 
                     // The Block activity itself.
                     let block_id = format!("https://{}/users/{}/blocks/{}", domain, actor_row.username, target_id);
-                    if let Ok(b) = crate::federation::activity::block(&block_id, &actor_url, &target.uri) {
+                    if let Ok(b) = crate::federation::activity::block(&block_id, &actor_url, &target_uri) {
                         activities.push(b);
                     }
 
@@ -248,7 +250,9 @@ pub async fn unblock_account(
     .fetch_optional(&state.db)
     .await?
     {
-        if target.domain.is_some() {
+        // A remote target without an actor id cannot be addressed.
+        let target_uri = target.uri.clone().unwrap_or_default();
+        if target.domain.is_some() && !target_uri.is_empty() {
             if let Some(actor_row) = sqlx::query!(
                 "SELECT username, private_key, id_scheme FROM accounts WHERE id = $1 AND domain IS NULL",
                 auth.account_id,
@@ -257,7 +261,6 @@ pub async fn unblock_account(
                     let domain = state.instance.domain.clone();
                     let actor_url = crate::federation::tag::account_uri(&domain, auth.account_id, actor_row.id_scheme, &actor_row.username);
                     let block_id = format!("https://{}/users/{}/blocks/{}", domain, actor_row.username, target_id);
-                    let target_uri = target.uri.clone();
                     let undo_id = format!("{}#undo", block_id);
                     let undo = crate::federation::activity::undo_block(
                         &undo_id, &actor_url, &block_id, &target_uri,
@@ -303,7 +306,7 @@ pub async fn get_blocks(
     // Paginate by block.id (matching Mastodon's Block.paginate_by_max_id)
     let rows = sqlx::query!(
         r#"SELECT b.id AS block_id, b.target_account_id FROM blocks b
-           JOIN accounts a ON a.id = b.target_account_id AND a.suspended_at IS NULL
+           JOIN accounts a ON a.id = b.target_account_id AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
            WHERE b.account_id = $1
              AND ($2::bigint IS NULL OR b.id < $2)
              AND ($3::bigint IS NULL OR b.id > $3)
@@ -363,7 +366,7 @@ pub async fn get_mutes(
     // Paginate by mute.id (matching Mastodon's Mute.paginate_by_max_id)
     let rows = sqlx::query!(
         r#"SELECT m.id AS mute_id, m.target_account_id, m.expires_at FROM mutes m
-           JOIN accounts a ON a.id = m.target_account_id AND a.suspended_at IS NULL
+           JOIN accounts a ON a.id = m.target_account_id AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
            WHERE m.account_id = $1
              AND (m.expires_at IS NULL OR m.expires_at > now())
              AND ($2::bigint IS NULL OR m.id < $2)
@@ -412,7 +415,8 @@ pub async fn get_mutes(
             api.emojis = mute_emojis_map.get(&a.id).cloned().unwrap_or_default();
             api.roles = mute_roles_map.get(&a.id).cloned().unwrap_or_default();
             if let Some(expires_at) = mute_expiries.get(&a.id).and_then(|e| *e) {
-                api.mute_expires_at = Some(crate::api::mastodon::convert::mastodon_date(expires_at));
+                api.mute_expires_at =
+                    Some(crate::api::mastodon::convert::mastodon_date(expires_at));
             }
             api
         })

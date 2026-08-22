@@ -9,7 +9,10 @@ pub struct Account {
     pub display_name: String,
     pub note: String,
     pub url: Option<String>,
-    pub uri: String,
+    /// Nullable since Mastodon 4.7.0: an account whose URI is not known, which
+    /// for a local account means one whose actor id is derived rather than
+    /// stored. Was the empty string before.
+    pub uri: Option<String>,
     pub private_key: Option<String>,
     pub public_key: String,
     pub locked: bool,
@@ -61,6 +64,10 @@ pub struct Account {
     pub show_media_replies: bool,
     pub feature_approval_policy: i32,
     pub collections_url: Option<String>,
+    // Added in Mastodon v4.7.0
+    /// When the account's owner asked for it to be deleted. Distinct from
+    /// `suspended_at`, which now only means a moderator suspension.
+    pub requested_deletion_at: Option<NaiveDateTime>,
 }
 
 impl Account {
@@ -70,8 +77,50 @@ impl Account {
 
     pub fn acct(&self) -> String {
         match &self.domain {
-            None => self.username.clone(),
-            Some(d) => format!("{}@{}", self.username, d),
+            None => self.pretty_username(),
+            Some(d) => format!("{}@{}", self.pretty_username(), d),
+        }
+    }
+
+    /// The account's stored ActivityPub actor id, if it has one.
+    ///
+    /// Local accounts generally do not: Mastodon derives theirs from the id
+    /// scheme rather than storing it. Absence was the empty string before
+    /// Mastodon 4.7.0 and is NULL after it, so both are treated as absent.
+    pub fn stored_uri(&self) -> Option<&str> {
+        self.uri.as_deref().filter(|uri| !uri.is_empty())
+    }
+
+    /// Mastodon's `Account#unavailable?`: hidden from everyone, whether because
+    /// a moderator suspended it or because its owner asked for it to be deleted.
+    ///
+    /// Before 4.7.0 a self-deleted account was recorded as suspended, so this
+    /// was just `suspended_at`.
+    pub fn is_unavailable(&self) -> bool {
+        self.suspended_at.is_some() || self.requested_deletion_at.is_some()
+    }
+
+    /// Mastodon's `Account#deleted?`.
+    pub fn is_deleted(&self) -> bool {
+        self.requested_deletion_at.is_some()
+    }
+
+    /// Mastodon's `Account#invalidated_username?`.
+    ///
+    /// Since 4.7.0 an account whose handle cannot be verified keeps its actor
+    /// id but has its username replaced with a marker no server could issue.
+    /// Eunha never writes one, but a database imported from Mastodon can
+    /// contain them, and they must not be shown as if they were real handles.
+    pub fn has_invalid_handle(&self) -> bool {
+        self.username.starts_with("! ")
+    }
+
+    /// Mastodon's `Account#pretty_username`.
+    pub fn pretty_username(&self) -> String {
+        if self.has_invalid_handle() {
+            self.id.to_string()
+        } else {
+            self.username.clone()
         }
     }
 }

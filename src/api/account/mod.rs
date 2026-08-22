@@ -58,7 +58,7 @@ async fn get_session(headers: &HeaderMap, state: &AppState) -> Option<AccountSes
              AND t.revoked_at IS NULL
              AND (t.expires_in IS NULL OR t.created_at + t.expires_in * interval '1 second' > now())
              AND u.disabled = false
-             AND a.suspended_at IS NULL
+             AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
              AND a.domain IS NULL"#,
         token,
     )
@@ -204,7 +204,7 @@ pub async fn login_post(
            WHERE lower(u.email) = lower($1)
              AND u.confirmed_at IS NOT NULL
              AND u.disabled = false
-             AND a.suspended_at IS NULL
+             AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
              AND a.domain IS NULL"#,
         form.email.trim(),
     )
@@ -534,7 +534,8 @@ struct DeletionSubject {
 
 async fn load_deletion_subject(state: &AppState, user_id: i64) -> Option<DeletionSubject> {
     let row = sqlx::query!(
-        r#"SELECT u.account_id, u.encrypted_password, a.username, a.suspended_at
+        r#"SELECT u.account_id, u.encrypted_password, a.username,
+                  a.suspended_at, a.requested_deletion_at
            FROM users u JOIN accounts a ON a.id = u.account_id
            WHERE u.id = $1"#,
         user_id,
@@ -546,7 +547,7 @@ async fn load_deletion_subject(state: &AppState, user_id: i64) -> Option<Deletio
         account_id: row.account_id,
         username: row.username,
         encrypted_password: row.encrypted_password,
-        suspended: row.suspended_at.is_some(),
+        suspended: row.suspended_at.is_some() || row.requested_deletion_at.is_some(),
     })
 }
 

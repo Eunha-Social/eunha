@@ -40,7 +40,7 @@ async fn simple_account_search(
          LEFT JOIN users ON accounts.id = users.account_id \
          LEFT JOIN account_stats AS s ON accounts.id = s.account_id \
          WHERE to_tsquery('simple', $1) @@ {ranks} \
-           AND accounts.suspended_at IS NULL \
+           AND accounts.suspended_at IS NULL AND accounts.requested_deletion_at IS NULL \
            AND accounts.moved_to_account_id IS NULL \
            AND (accounts.domain IS NOT NULL OR (users.approved = TRUE AND users.confirmed_at IS NOT NULL)) \
          ORDER BY ({boost} * ts_rank_cd({ranks}, to_tsquery('simple', $1), 32)) DESC \
@@ -79,7 +79,7 @@ async fn advanced_account_search(
              LEFT JOIN account_stats AS s ON accounts.id = s.account_id \
              WHERE accounts.id IN (SELECT * FROM first_degree) \
                AND to_tsquery('simple', $1) @@ {ranks} \
-               AND accounts.suspended_at IS NULL \
+               AND accounts.suspended_at IS NULL AND accounts.requested_deletion_at IS NULL \
                AND accounts.moved_to_account_id IS NULL \
              GROUP BY accounts.id, s.id \
              ORDER BY ((count(f.id) + 1) * {rank_expr}) DESC \
@@ -93,7 +93,7 @@ async fn advanced_account_search(
              LEFT JOIN users ON accounts.id = users.account_id \
              LEFT JOIN account_stats AS s ON accounts.id = s.account_id \
              WHERE to_tsquery('simple', $1) @@ {ranks} \
-               AND accounts.suspended_at IS NULL \
+               AND accounts.suspended_at IS NULL AND accounts.requested_deletion_at IS NULL \
                AND accounts.moved_to_account_id IS NULL \
                AND (accounts.domain IS NOT NULL OR (users.approved = TRUE AND users.confirmed_at IS NOT NULL)) \
              GROUP BY accounts.id, s.id \
@@ -112,7 +112,7 @@ async fn advanced_account_search(
 
 async fn find_local_account(state: &AppState, username: &str) -> AppResult<Option<Account>> {
     Ok(sqlx::query_as::<_, Account>(
-        "SELECT * FROM accounts WHERE lower(username) = lower($1) AND domain IS NULL AND suspended_at IS NULL LIMIT 1",
+        "SELECT * FROM accounts WHERE lower(username) = lower($1) AND domain IS NULL AND suspended_at IS NULL AND requested_deletion_at IS NULL LIMIT 1",
     )
     .bind(username)
     .fetch_optional(&state.db)
@@ -125,7 +125,7 @@ async fn find_remote_account(
     domain: &str,
 ) -> AppResult<Option<Account>> {
     Ok(sqlx::query_as::<_, Account>(
-        "SELECT * FROM accounts WHERE lower(username) = lower($1) AND lower(domain) = lower($2) AND suspended_at IS NULL LIMIT 1",
+        "SELECT * FROM accounts WHERE lower(username) = lower($1) AND lower(domain) = lower($2) AND suspended_at IS NULL AND requested_deletion_at IS NULL LIMIT 1",
     )
     .bind(username)
     .bind(domain)

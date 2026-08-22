@@ -60,7 +60,7 @@ fn actor_uri(domain: &str, username: &str) -> String {
 /// accounts use their stored `uri`.
 fn resolve_actor_uri(
     domain: &str,
-    stored: String,
+    stored: Option<String>,
     is_local: bool,
     id: i64,
     id_scheme: Option<i32>,
@@ -69,7 +69,7 @@ fn resolve_actor_uri(
     if is_local {
         crate::federation::tag::account_uri(domain, id, id_scheme, username)
     } else {
-        stored
+        stored.unwrap_or_default()
     }
 }
 
@@ -331,7 +331,7 @@ pub async fn get_quote_authorization(
 ) -> AppResult<Response> {
     let row = sqlx::query!(
         r#"SELECT qs.uri AS "quoted_status_uri?", ss.uri AS "quoting_status_uri?",
-                  qa.uri AS quoted_account_uri
+                  qa.id AS quoted_account_id, qa.id_scheme AS quoted_account_id_scheme
            FROM quotes q
            JOIN statuses qs ON qs.id = q.quoted_status_id
            JOIN statuses ss ON ss.id = q.status_id
@@ -353,9 +353,16 @@ pub async fn get_quote_authorization(
 
     let domain = &instance.domain;
     let auth_id = format!("https://{domain}/users/{username}/quote_authorizations/{id}");
+    // The quoted account is local, so its actor id follows from its id scheme.
+    let quoted_account_uri = crate::federation::tag::account_uri(
+        domain,
+        row.quoted_account_id,
+        row.quoted_account_id_scheme,
+        &username,
+    );
     let mut body = crate::federation::consent::quote_authorization(
         &auth_id,
-        &row.quoted_account_uri,
+        &quoted_account_uri,
         &quoting_status_uri,
         &quoted_status_uri,
     )

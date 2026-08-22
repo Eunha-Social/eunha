@@ -39,9 +39,9 @@ function DeleteAccount({ token }: { token: string }) {
     setDeleting(true)
     try {
       await deleteAccount(token, { password })
-      // The account is suspended the moment that returns, so this token is
-      // already dead — drop the local session rather than let the next request
-      // fail on its own.
+      // The account is marked deleted the moment that returns, so this token
+      // is already dead — drop the local session rather than let the next
+      // request fail on its own.
       logout()
       clearMe()
       setConfirming(false)

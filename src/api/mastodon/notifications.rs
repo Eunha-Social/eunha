@@ -173,7 +173,7 @@ pub async fn get_notifications(
     let notifications: Vec<DbNotification> = if min_id.is_some() {
         sqlx::query_as(
             r#"SELECT n.* FROM notifications n
-               JOIN accounts a ON a.id = n.from_account_id AND a.suspended_at IS NULL
+               JOIN accounts a ON a.id = n.from_account_id AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
                WHERE n.account_id = $1
                  AND ($2::bigint IS NULL OR n.id > $2)
                  AND ($5::text[] IS NULL OR n.type = ANY($5))
@@ -196,7 +196,7 @@ pub async fn get_notifications(
     } else {
         sqlx::query_as(
             r#"SELECT n.* FROM notifications n
-               JOIN accounts a ON a.id = n.from_account_id AND a.suspended_at IS NULL
+               JOIN accounts a ON a.id = n.from_account_id AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
                WHERE n.account_id = $1
                  AND ($2::bigint IS NULL OR n.id < $2)
                  AND ($3::bigint IS NULL OR n.id > $3)
@@ -643,7 +643,7 @@ pub async fn get_notifications_v2(
 
     let notifications: Vec<DbNotification> = sqlx::query_as(
         r#"SELECT n.* FROM notifications n
-           JOIN accounts a ON a.id = n.from_account_id AND a.suspended_at IS NULL
+           JOIN accounts a ON a.id = n.from_account_id AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
            WHERE n.account_id = $1
              AND ($2::bigint IS NULL OR n.id < $2)
              AND ($3::bigint IS NULL OR n.id > $3)
@@ -1136,7 +1136,7 @@ pub async fn get_notifications_unread_count(
         sqlx::query_scalar!(
             r#"SELECT COUNT(*) FROM (
                SELECT 1 FROM notifications n
-               JOIN accounts a ON a.id = n.from_account_id AND a.suspended_at IS NULL
+               JOIN accounts a ON a.id = n.from_account_id AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
                WHERE n.account_id = $1 AND n.id > $2 AND NOT n.filtered LIMIT $3) sub"#,
             auth.account_id,
             last_id,
@@ -1149,7 +1149,7 @@ pub async fn get_notifications_unread_count(
         sqlx::query_scalar!(
             r#"SELECT COUNT(*) FROM (
                SELECT 1 FROM notifications n
-               JOIN accounts a ON a.id = n.from_account_id AND a.suspended_at IS NULL
+               JOIN accounts a ON a.id = n.from_account_id AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
                WHERE n.account_id = $1 AND NOT n.filtered LIMIT $2) sub"#,
             auth.account_id,
             limit,

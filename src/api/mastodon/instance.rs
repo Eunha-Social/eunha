@@ -123,7 +123,7 @@ pub async fn get_instance_v1(
         short_description: instance.short_description.clone(),
         description: instance.description.clone(),
         email: instance.contact_email.clone().unwrap_or_default(),
-        version: "0.0.1 (compatible; Mastodon 4.3.0)".to_string(),
+        version: crate::version::compatible_string(),
         urls: InstanceV1Urls {
             streaming_api: streaming_url,
         },
@@ -285,7 +285,7 @@ pub async fn get_instance_v2(
     Ok(Json(InstanceV2 {
         domain: instance.domain.clone(),
         title: instance.title.clone(),
-        version: "0.0.1 (compatible; Mastodon 4.3.0)".to_string(),
+        version: crate::version::compatible_string(),
         source_url: "https://github.com/limeburst/eunha".to_string(),
         description: instance.description.clone(),
         usage: InstanceUsage {
@@ -483,7 +483,7 @@ pub async fn get_instance_activity(
 
 async fn fetch_stats(state: &AppState) -> (i64, i64, i64) {
     let user_count = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM accounts WHERE domain IS NULL AND suspended_at IS NULL",
+        "SELECT COUNT(*) FROM accounts WHERE domain IS NULL AND suspended_at IS NULL AND requested_deletion_at IS NULL",
     )
     .fetch_one(&state.db)
     .await

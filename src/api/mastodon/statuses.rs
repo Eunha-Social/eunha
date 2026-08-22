@@ -59,7 +59,10 @@ fn inline_quote_instrument(request: &mut serde_json::Value, note: serde_json::Va
             .and_then(serde_json::Value::as_array_mut)
             .and_then(|ctx| ctx.get_mut(1))
             .and_then(serde_json::Value::as_object_mut),
-        note_ctx.as_array().and_then(|ctx| ctx.get(1)).and_then(serde_json::Value::as_object),
+        note_ctx
+            .as_array()
+            .and_then(|ctx| ctx.get(1))
+            .and_then(serde_json::Value::as_object),
     ) {
         for (key, value) in note_terms {
             req_terms
@@ -1041,14 +1044,20 @@ pub async fn reblog_status(
         );
         let original_uri = original.uri.clone().unwrap_or_default();
         let original_account = sqlx::query!(
-            "SELECT uri, inbox_url, shared_inbox_url, domain FROM accounts WHERE id = $1",
+            "SELECT id, id_scheme, username, uri, inbox_url, shared_inbox_url, domain FROM accounts WHERE id = $1",
             original.account_id,
         )
         .fetch_optional(&state.db)
         .await?;
         let original_author_url = original_account
             .as_ref()
-            .map(|a| a.uri.clone())
+            .map(|a| {
+                if a.domain.is_none() {
+                    crate::federation::tag::account_uri(&domain, a.id, a.id_scheme, &a.username)
+                } else {
+                    a.uri.clone().unwrap_or_default()
+                }
+            })
             .unwrap_or_default();
         // Address the Announce by the boost's visibility (Mastodon TagManager),
         // always cc'ing the original author.
@@ -1431,7 +1440,7 @@ pub async fn favourited_by(
         r#"SELECT f.id AS fav_id, f.account_id FROM favourites f
            JOIN accounts a ON a.id = f.account_id
            WHERE f.status_id = $1
-             AND a.suspended_at IS NULL
+             AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
              AND ($2::bigint IS NULL OR NOT EXISTS (
                  SELECT 1 FROM blocks
                  WHERE (account_id = $2 AND target_account_id = a.id)
@@ -1527,7 +1536,7 @@ pub async fn reblogged_by(
            JOIN accounts a ON a.id = s.account_id
            WHERE s.reblog_of_id = $1 AND s.deleted_at IS NULL
              AND s.visibility IN (0, 1)
-             AND a.suspended_at IS NULL
+             AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
              AND ($2::bigint IS NULL OR NOT EXISTS (
                  SELECT 1 FROM blocks
                  WHERE (account_id = $2 AND target_account_id = a.id)
@@ -1775,7 +1784,7 @@ async fn fetch_status_with_account(state: &AppState, id: i64) -> AppResult<(DbSt
     // suspension lasts, rather than being deleted when it is applied.
     let account = sqlx::query_as!(
         Account,
-        "SELECT * FROM accounts WHERE id = $1 AND suspended_at IS NULL",
+        "SELECT * FROM accounts WHERE id = $1 AND suspended_at IS NULL AND requested_deletion_at IS NULL",
         status.account_id
     )
     .fetch_optional(&state.db)
@@ -2282,13 +2291,22 @@ mod inline_quote_tests {
 
         // The instrument is now the embedded Note object, not a URI.
         assert_eq!(request["instrument"], note);
-        assert_eq!(request["instrument"]["quote"], "https://hackers.pub/ap/notes/abc");
+        assert_eq!(
+            request["instrument"]["quote"],
+            "https://hackers.pub/ap/notes/abc"
+        );
 
         // The request context keeps the QuoteRequest term and gains the Note's
         // JSON-LD terms so the embedded fields resolve.
         let terms = &request["@context"][1];
-        assert_eq!(terms["QuoteRequest"], "https://w3id.org/fep/044f#QuoteRequest");
-        assert_eq!(terms["quote"], json!({ "@id": "fep:quote", "@type": "@id" }));
+        assert_eq!(
+            terms["QuoteRequest"],
+            "https://w3id.org/fep/044f#QuoteRequest"
+        );
+        assert_eq!(
+            terms["quote"],
+            json!({ "@id": "fep:quote", "@type": "@id" })
+        );
         assert_eq!(terms["Hashtag"], "as:Hashtag");
         assert_eq!(terms["sensitive"], "as:sensitive");
     }

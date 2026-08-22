@@ -76,7 +76,7 @@ pub async fn public_timeline(
                  AND (NOT s.reply OR s.in_reply_to_account_id = s.account_id)
                  AND (NOT $1::bool OR a.domain IS NULL)
                  AND (NOT $4::bool OR a.domain IS NOT NULL)
-                 AND a.suspended_at IS NULL
+                 AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
                  AND a.silenced_at IS NULL
                  AND (a.domain IS NULL OR NOT EXISTS (
                      SELECT 1 FROM domain_blocks db WHERE db.domain = a.domain
@@ -122,7 +122,7 @@ pub async fn public_timeline(
                  AND (NOT s.reply OR s.in_reply_to_account_id = s.account_id)
                  AND (NOT $1::bool OR a.domain IS NULL)
                  AND (NOT $5::bool OR a.domain IS NOT NULL)
-                 AND a.suspended_at IS NULL
+                 AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
                  AND a.silenced_at IS NULL
                  AND (a.domain IS NULL OR NOT EXISTS (
                      SELECT 1 FROM domain_blocks db WHERE db.domain = a.domain
@@ -237,7 +237,7 @@ async fn hydrate_home_statuses(
            JOIN accounts a ON a.id = s.account_id
            WHERE s.id = ANY($2::bigint[])
            AND s.deleted_at IS NULL
-           AND a.suspended_at IS NULL
+           AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
            AND (a.domain IS NULL OR NOT EXISTS (
                SELECT 1 FROM domain_blocks db WHERE db.domain = a.domain
            ))
@@ -347,7 +347,7 @@ async fn home_timeline_from_db(
                JOIN accounts a ON a.id = s.account_id
                WHERE s.id IN (SELECT id FROM candidate_ids)
                AND s.deleted_at IS NULL
-               AND a.suspended_at IS NULL
+               AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
                AND (a.domain IS NULL OR NOT EXISTS (
                    SELECT 1 FROM domain_blocks db WHERE db.domain = a.domain
                ))
@@ -465,7 +465,7 @@ async fn home_timeline_from_db(
                JOIN accounts a ON a.id = s.account_id
                WHERE s.id IN (SELECT id FROM candidate_ids)
                AND s.deleted_at IS NULL
-               AND a.suspended_at IS NULL
+               AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
                AND (a.domain IS NULL OR NOT EXISTS (
                    SELECT 1 FROM domain_blocks db WHERE db.domain = a.domain
                ))
@@ -651,7 +651,7 @@ async fn hydrate_list_statuses(
            JOIN accounts a ON a.id = s.account_id
            WHERE s.id = ANY($2::bigint[])
            AND s.deleted_at IS NULL
-           AND a.suspended_at IS NULL
+           AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
            AND NOT EXISTS (
                SELECT 1 FROM mutes m
                WHERE m.account_id = $1 AND m.target_account_id = s.account_id
@@ -736,7 +736,8 @@ async fn list_timeline_from_db(
     // domain-blocked reblog authors are filtered here too, matching the warm
     // hydrate path and Mastodon's list filter. $5 is the viewer (list owner).
     let moderation_filter = r#"
-                 AND NOT EXISTS (SELECT 1 FROM accounts sa WHERE sa.id = s.account_id AND sa.suspended_at IS NOT NULL)
+                 AND NOT EXISTS (SELECT 1 FROM accounts sa WHERE sa.id = s.account_id
+                                  AND (sa.suspended_at IS NOT NULL OR sa.requested_deletion_at IS NOT NULL))
                  AND (s.account_id = $5 OR NOT EXISTS (
                      SELECT 1 FROM blocks b
                      WHERE (b.account_id = $5 AND b.target_account_id = s.account_id)
@@ -884,7 +885,7 @@ pub async fn tag_timeline(
                WHERE lower(t.name) = $1
                  AND s.visibility = 0
                  AND s.deleted_at IS NULL
-                 AND a.suspended_at IS NULL
+                 AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
                  AND a.silenced_at IS NULL
                  AND (a.domain IS NULL OR NOT EXISTS (
                      SELECT 1 FROM domain_blocks db WHERE db.domain = a.domain
