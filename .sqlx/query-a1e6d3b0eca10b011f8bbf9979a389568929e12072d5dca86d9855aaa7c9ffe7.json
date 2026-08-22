@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE accounts\n           SET username = '! ' || id::text, updated_at = now()\n           WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a1e6d3b0eca10b011f8bbf9979a389568929e12072d5dca86d9855aaa7c9ffe7"
+}

@@ -117,6 +117,39 @@ impl ApiClient {
     /// server would. `key_id` is the signing actor's key (e.g.
     /// `https://host/users/alice#main-key`) whose public key the receiving
     /// instance must already know; `private_key_pem` is its private key.
+    /// POST an activity signed with RFC 9421 HTTP Message Signatures, as a
+    /// peer that has moved on from the cavage draft would.
+    pub async fn post_signed_rfc9421(
+        &self,
+        path: &str,
+        body: &serde_json::Value,
+        key_id: &str,
+        private_key_pem: &str,
+    ) -> reqwest::Response {
+        let body_bytes = serde_json::to_vec(body).unwrap();
+        // Signed against the public host, which is what the sender addressed.
+        let signing_url = format!("https://{}{}", self.host, path);
+        let signed = feder_runtime::rfc9421::sign_request(
+            "post",
+            &signing_url,
+            Some(&body_bytes),
+            key_id,
+            private_key_pem,
+        )
+        .expect("sign request");
+        let mut request = self
+            .http
+            .post(self.url(path))
+            .header("host", &self.host)
+            .header("signature-input", signed.signature_input)
+            .header("signature", signed.signature)
+            .header("content-type", "application/activity+json");
+        if let Some(digest) = signed.content_digest {
+            request = request.header("content-digest", digest);
+        }
+        request.body(body_bytes).send().await.unwrap()
+    }
+
     pub async fn post_signed(
         &self,
         path: &str,

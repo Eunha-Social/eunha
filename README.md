@@ -96,20 +96,27 @@ Without them, keys stay in `accounts.private_key`, which upstream still reads
 (`Keypair.from_legacy_account`) — but a database whose keys have already moved
 cannot be signed with, and eunha says so loudly at startup.
 
+### HTTP signatures
+
+Outgoing requests are signed with the draft-cavage signatures the network still
+runs on, and double-knocked with [RFC 9421] HTTP Message Signatures when a peer
+answers 400 or 401 — the order Mastodon 4.7 uses. Inbound requests are verified
+either way: a `Signature-Input` alongside the `Signature` selects RFC 9421,
+where the covered components must include the body's `content-digest` and the
+signature must be fresh, just as the draft path requires a covered `digest` and
+a recent `Date`. Both live in [feder].
+
+[RFC 9421]: https://www.rfc-editor.org/rfc/rfc9421.html
+[feder]: https://github.com/limeburst/feder
+
 ### Outstanding from 4.7.0
 
-Everything in the schema, and the behaviour that goes with it, is implemented.
-What is not:
-
-* **RFC9421 HTTP Message Signatures**, and Ed25519 keys for them. 4.7 sends
-  RFC9421 as a fallback alongside the earlier draft everyone still accepts, so
-  its absence costs nothing yet. This belongs in feder.
 * **`mldsa44-jcs-2024` integrity proofs.** feder verifies FEP-8b32 proofs, but
-  only `eddsa-jcs-2022`; the post-quantum suite needs an ML-DSA implementation.
-* **Marking handles invalid.** Eunha renders the `invalid_handle` accounts a
-  database may already contain, and renames a remote account whose new handle
-  webfinger confirms, but it never invents the `! ` marker upstream uses for
-  handles it cannot resolve at all.
+  only `eddsa-jcs-2022`; the post-quantum suite needs an ML-DSA implementation,
+  and upstream needs OpenSSL 3.5 for it too.
+* **Ed25519 HTTP Message Signatures.** The RFC 9421 support here signs and
+  verifies `rsa-v1_5-sha256`, which is what Mastodon uses for the keys it has;
+  Ed25519 keys wait on the key types that would carry them.
 * **Out-of-support version notifications.** `software_deprecations` and
   `software_updates.end_of_support` exist in the schema and stay empty: they
   describe Mastodon's release branches, which say nothing about whether the

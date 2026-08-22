@@ -54,6 +54,22 @@ pub(super) async fn verify_inbound_signature(
         .and_then(|h| h.to_str().ok())
         .ok_or_else(|| "missing Signature header".to_string())?;
 
+    // A `Signature-Input` alongside it means RFC 9421 rather than the cavage
+    // draft: the two use the same `Signature` field name but nothing else in
+    // common, so they are verified apart.
+    if let Some(signature_input) = headers.get("signature-input").and_then(|h| h.to_str().ok()) {
+        return verify_rfc9421_signature(
+            state,
+            headers,
+            signature_input,
+            sig_val,
+            path,
+            body,
+            actor_uri,
+        )
+        .await;
+    }
+
     let kid = crate::federation::signature::key_id_from_header(sig_val)
         .ok_or_else(|| "no keyId in Signature header".to_string())?;
     let key_actor = kid.split('#').next().unwrap_or(kid);
@@ -124,6 +140,87 @@ pub(super) async fn verify_inbound_signature(
     }
 }
 
+/// Verify an inbound [RFC 9421] signature.
+///
+/// Same obligations as the draft path: the key must belong to the actor's
+/// host, the signature must cover the body, and it must not be old enough to
+/// replay. What differs is where those come from — the covered component list
+/// rather than a header list, `content-digest` rather than `Digest`, and the
+/// signature's own `created` parameter rather than a `Date` header.
+///
+/// [RFC 9421]: https://www.rfc-editor.org/rfc/rfc9421.html
+#[allow(clippy::too_many_arguments)]
+async fn verify_rfc9421_signature(
+    state: &AppState,
+    headers: &axum::http::HeaderMap,
+    signature_input: &str,
+    signature: &str,
+    path: &str,
+    body: &[u8],
+    actor_uri: &str,
+) -> Result<(), String> {
+    let kid = feder_runtime::rfc9421::key_id(signature_input)
+        .ok_or_else(|| "no keyid in Signature-Input".to_string())?;
+    let key_actor = kid.split('#').next().unwrap_or(&kid).to_string();
+
+    if !actor_uri.is_empty() && !same_host(&key_actor, actor_uri) {
+        return Err(format!(
+            "signing key host does not match actor ({key_actor} vs {actor_uri})"
+        ));
+    }
+
+    // Without a covered digest the signature says nothing about the body, and
+    // the activity is the body.
+    let covered = feder_runtime::rfc9421::covered_components(signature_input)
+        .ok_or_else(|| "malformed Signature-Input".to_string())?;
+    for required in ["@method", "@target-uri", "content-digest"] {
+        if !covered.iter().any(|c| c == required) {
+            return Err(format!("signature does not cover {required:?}"));
+        }
+    }
+
+    let created = feder_runtime::rfc9421::created_at(signature_input)
+        .ok_or_else(|| "Signature-Input has no `created` parameter".to_string())?;
+    let age = chrono::Utc::now().timestamp() - created;
+    if age.abs() > chrono::Duration::hours(1).num_seconds() {
+        return Err(format!("signature created {age}s away from now"));
+    }
+
+    // The sender signed the URL it addressed, which federation always reaches
+    // over https however this process is fronted.
+    let host = headers
+        .get("host")
+        .and_then(|h| h.to_str().ok())
+        .ok_or_else(|| "missing Host header".to_string())?;
+    let target_uri = format!("https://{host}{path}");
+    let content_digest = headers.get("content-digest").and_then(|h| h.to_str().ok());
+
+    let verify = |pem: &str| {
+        feder_runtime::rfc9421::verify_request(
+            "post",
+            &target_uri,
+            signature_input,
+            signature,
+            content_digest,
+            body,
+            pem,
+        )
+    };
+
+    let pem = fetch_public_key(state, &key_actor)
+        .await
+        .map_err(|e| format!("could not fetch public key: {e}"))?;
+    match verify(&pem) {
+        Ok(()) => Ok(()),
+        Err(first_err) => {
+            let refreshed = refresh_public_key(state, &key_actor)
+                .await
+                .map_err(|e| format!("could not refresh public key: {e}"))?;
+            verify(&refreshed).map_err(|e| format!("{first_err}; after key refresh: {e}"))
+        }
+    }
+}
+
 /// Authenticate an inbound activity via its FEP-8b32 Object Integrity Proof.
 ///
 /// Used as a fallback when the HTTP Signature can't be verified. The proof's
@@ -135,9 +232,8 @@ pub(super) async fn verify_object_integrity(
     activity: &serde_json::Value,
     actor_uri: &str,
 ) -> Result<(), String> {
-    let (proof, verification_method) =
-        feder_runtime::integrity::extract_integrity_proof(activity)
-            .ok_or_else(|| "no eddsa-jcs-2022 integrity proof".to_string())?;
+    let (proof, verification_method) = feder_runtime::integrity::extract_integrity_proof(activity)
+        .ok_or_else(|| "no eddsa-jcs-2022 integrity proof".to_string())?;
 
     // The signing key must belong to the same host as the actor.
     if actor_uri.is_empty() || !same_host(&verification_method, actor_uri) {

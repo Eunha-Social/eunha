@@ -8,3 +8,4 @@ mod keypairs;
 mod objects;
 mod quote;
 mod signature;
+mod signature_rfc9421;

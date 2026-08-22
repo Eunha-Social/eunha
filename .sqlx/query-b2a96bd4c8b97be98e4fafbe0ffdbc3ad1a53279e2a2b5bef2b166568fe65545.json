@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id FROM accounts\n           WHERE lower(username) = lower($1)\n             AND lower(domain) = lower($2)\n             AND domain IS NOT NULL\n             AND id <> $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b2a96bd4c8b97be98e4fafbe0ffdbc3ad1a53279e2a2b5bef2b166568fe65545"
+}

@@ -75,10 +75,18 @@ impl Account {
         self.domain.is_none()
     }
 
+    /// Mastodon's `Account#pretty_acct`.
+    ///
+    /// An account whose handle cannot be verified shows neither the handle it
+    /// claims nor the domain it claims it on: both are what could not be
+    /// verified.
     pub fn acct(&self) -> String {
+        if self.has_invalid_handle() {
+            return format!("{}@handle.invalid", self.id);
+        }
         match &self.domain {
-            None => self.pretty_username(),
-            Some(d) => format!("{}@{}", self.pretty_username(), d),
+            None => self.username.clone(),
+            Some(d) => format!("{}@{}", self.username, d),
         }
     }
 

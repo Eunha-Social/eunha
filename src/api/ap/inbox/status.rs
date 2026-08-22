@@ -492,7 +492,8 @@ pub(super) async fn handle_update(
                 .get("preferredUsername")
                 .and_then(|u| u.as_str())
                 .unwrap_or_default();
-            super::fetch::rename_if_handle_changed(state, actor_uri, claimed_username).await?;
+            crate::federation::handle::rename_if_handle_changed(state, actor_uri, claimed_username)
+                .await?;
         }
         "Note" => {
             let note_uri = object.get("id").and_then(|i| i.as_str()).unwrap_or("");

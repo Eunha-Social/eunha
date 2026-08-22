@@ -125,6 +125,7 @@ emojis = "0.9"
 
 [dev-dependencies]
 axum-test = "17"
+feder-runtime = { git = "https://github.com/limeburst/feder.git" }
 reqwest = { version = "0.12", features = ["json", "multipart"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net"] }
 tokio-tungstenite = "0.26"

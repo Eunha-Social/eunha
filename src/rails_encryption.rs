@@ -57,9 +57,15 @@ struct Headers {
 /// Encrypts and decrypts values for Rails-encrypted columns.
 #[derive(Clone)]
 pub struct Encryptor {
+    primary_key: String,
+    key_derivation_salt: String,
     /// Derived keys, newest scheme first. Decryption tries each in turn;
     /// encryption always uses the first.
-    keys: Vec<[u8; KEY_LEN]>,
+    ///
+    /// Derived on first use and shared across clones: PBKDF2 at Rails' 2^16
+    /// iterations is deliberately expensive, and an instance that never reads
+    /// an encrypted column should never pay for it.
+    keys: std::sync::Arc<std::sync::OnceLock<Vec<[u8; KEY_LEN]>>>,
 }
 
 impl std::fmt::Debug for Encryptor {
@@ -70,28 +76,39 @@ impl std::fmt::Debug for Encryptor {
 }
 
 impl Encryptor {
-    /// Derive the keys from Mastodon's `ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY`
-    /// and `ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT`.
+    /// Take Mastodon's `ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY` and
+    /// `ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT`. The keys themselves are
+    /// derived when something is first encrypted or decrypted.
     pub fn new(primary_key: &str, key_derivation_salt: &str) -> Self {
-        let mut sha256 = [0u8; KEY_LEN];
-        pbkdf2::pbkdf2_hmac::<sha2::Sha256>(
-            primary_key.as_bytes(),
-            key_derivation_salt.as_bytes(),
-            ITERATIONS,
-            &mut sha256,
-        );
-
-        let mut sha1 = [0u8; KEY_LEN];
-        pbkdf2::pbkdf2_hmac::<sha1::Sha1>(
-            primary_key.as_bytes(),
-            key_derivation_salt.as_bytes(),
-            ITERATIONS,
-            &mut sha1,
-        );
-
         Self {
-            keys: vec![sha256, sha1],
+            primary_key: primary_key.to_string(),
+            key_derivation_salt: key_derivation_salt.to_string(),
+            keys: std::sync::Arc::new(std::sync::OnceLock::new()),
         }
+    }
+
+    /// The derived keys: the SHA-256 scheme Rails 7.1 onwards writes with, and
+    /// the SHA-1 one Mastodon keeps enabled to read what came before it.
+    fn keys(&self) -> &[[u8; KEY_LEN]] {
+        self.keys.get_or_init(|| {
+            let mut sha256 = [0u8; KEY_LEN];
+            pbkdf2::pbkdf2_hmac::<sha2::Sha256>(
+                self.primary_key.as_bytes(),
+                self.key_derivation_salt.as_bytes(),
+                ITERATIONS,
+                &mut sha256,
+            );
+
+            let mut sha1 = [0u8; KEY_LEN];
+            pbkdf2::pbkdf2_hmac::<sha1::Sha1>(
+                self.primary_key.as_bytes(),
+                self.key_derivation_salt.as_bytes(),
+                ITERATIONS,
+                &mut sha1,
+            );
+
+            vec![sha256, sha1]
+        })
     }
 
     /// Encrypt `plaintext` into the envelope Rails expects.
@@ -112,7 +129,7 @@ impl Encryptor {
             .try_fill_bytes(&mut iv)
             .map_err(|e| anyhow!("could not generate an IV: {e}"))?;
 
-        let key = self.keys.first().context("no encryption key")?;
+        let key = self.keys().first().context("no encryption key")?;
         let cipher = Aes256Gcm::new(key.into());
         let sealed = cipher
             .encrypt(
@@ -163,7 +180,7 @@ impl Encryptor {
 
         // Which scheme wrote this is not recorded, so try each derived key.
         let plaintext = self
-            .keys
+            .keys()
             .iter()
             .find_map(|key| {
                 Aes256Gcm::new(key.into())
@@ -247,7 +264,9 @@ mod tests {
         // encrypting with only the SHA-1 key available.
         let full = encryptor();
         let sha1_only = Encryptor {
-            keys: vec![full.keys[1]],
+            primary_key: String::new(),
+            key_derivation_salt: String::new(),
+            keys: std::sync::Arc::new(std::sync::OnceLock::from(vec![full.keys()[1]])),
         };
         let sealed = sha1_only.encrypt("legacy value").unwrap();
         assert_eq!(full.decrypt(&sealed).unwrap(), "legacy value");
