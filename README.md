@@ -133,18 +133,22 @@ empty string to turn the check off, or to another server to ask it instead.
 
 Two things here go further than Mastodon 4.7 rather than catching up to it.
 Both are additive: what Mastodon sends is still sent, and a peer that ignores
-them is unaffected.
+them is unaffected. The one that changes what goes out on the wire is off until
+it is turned on.
 
-**Integrity proofs on outgoing activities.** Mastodon 4.7 verifies FEP-8b32
-proofs but does not produce them; eunha produces them. An HTTP Signature
+**Integrity proofs on outgoing activities**, off by default. An HTTP Signature
 authenticates the connection an activity arrived over, which says nothing about
-a copy that was relayed or forwarded — a proof authenticates the activity
-itself, so it stays attributable however it travelled. Each local account gets
-an Ed25519 key on first use, published as a FEP-521a `Multikey` under
-`assertionMethod`, and the key is stored the way Mastodon stores its own:
-encrypted, in `keypairs`, as a PKCS#8 PEM something else could read.
+a copy that was relayed or forwarded — a FEP-8b32 proof authenticates the
+activity itself, so it stays attributable however it travelled. Mastodon 4.7
+verifies these but does not produce them, so eunha does not either unless asked:
+what an instance sends should look like what Mastodon sends until its
+administrator decides otherwise.
 
-Set `sign_integrity_proofs = false` to send exactly what Mastodon sends.
+Set `sign_integrity_proofs = true` to send them. Each local account then gets an
+Ed25519 key on first use, published as a FEP-521a `Multikey` under
+`assertionMethod` and stored the way Mastodon stores its own: encrypted, in
+`keypairs`, as a PKCS#8 PEM something else could read. The HTTP Signature is
+unchanged either way.
 
 **Update notices by email.** Administrators — users whose role carries
 `view_devops`, or who are administrators — are mailed when newer Mastodon

@@ -1993,6 +1993,7 @@ dependencies = [
 [[package]]
 name = "feder-core"
 version = "0.1.0"
+source = "git+https://github.com/limeburst/feder.git#cf3a749cdedca27cfdf38a5585fc3be5d21194a6"
 dependencies = [
  "feder-vocab",
 ]
@@ -2000,6 +2001,7 @@ dependencies = [
 [[package]]
 name = "feder-runtime"
 version = "0.1.0"
+source = "git+https://github.com/limeburst/feder.git#cf3a749cdedca27cfdf38a5585fc3be5d21194a6"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -2019,6 +2021,7 @@ dependencies = [
 [[package]]
 name = "feder-vocab"
 version = "0.1.0"
+source = "git+https://github.com/limeburst/feder.git#cf3a749cdedca27cfdf38a5585fc3be5d21194a6"
 dependencies = [
  "iri-string",
  "serde",

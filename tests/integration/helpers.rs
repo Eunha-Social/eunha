@@ -423,7 +423,14 @@ impl Drop for TestContext {
 }
 
 impl TestContext {
+    /// A context configured the way a real instance is out of the box.
     pub async fn new(label: &str) -> Self {
+        Self::with_integrity_proofs(label, eunha::config::default_sign_integrity_proofs()).await
+    }
+
+    /// A context that signs (or does not sign) FEP-8b32 integrity proofs,
+    /// whatever the shipped default happens to be.
+    pub async fn with_integrity_proofs(label: &str, sign_integrity_proofs: bool) -> Self {
         // Make fanout/populate/backfill run inline so tests don't race with background tasks.
         eunha::feed::enable_sync_fanout();
         // Likewise for inbound activities: handle them in the request rather
@@ -525,7 +532,7 @@ impl TestContext {
             }),
             // Never reach for a third party's update server in tests.
             software_update_url: None,
-            sign_integrity_proofs: true,
+            sign_integrity_proofs,
             workers: Default::default(),
         };
         let state = eunha::state::AppState::new(db, config)

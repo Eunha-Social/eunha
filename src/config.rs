@@ -20,9 +20,12 @@ pub struct Config {
     #[serde(default = "default_software_update_url")]
     pub software_update_url: Option<String>,
     /// Attach FEP-8b32 integrity proofs to outgoing activities, so that a
-    /// relayed or forwarded copy can still be attributed. Mastodon verifies
-    /// these but does not produce them; turn it off to send exactly what
-    /// Mastodon sends.
+    /// relayed or forwarded copy can still be attributed.
+    ///
+    /// Off by default: Mastodon verifies these but does not produce them, and
+    /// what eunha sends should look like what Mastodon sends unless an
+    /// administrator decides otherwise. Turning it on is additive — the HTTP
+    /// Signature is unchanged, and a peer that ignores the proof is unaffected.
     #[serde(default = "default_sign_integrity_proofs")]
     pub sign_integrity_proofs: bool,
     #[serde(default)]
@@ -66,8 +69,11 @@ pub struct WorkersConfig {
     pub inbox_concurrency: usize,
 }
 
-fn default_sign_integrity_proofs() -> bool {
-    true
+/// Whether integrity proofs are signed when a config says nothing about it.
+///
+/// Public so a test can assert the default rather than restate it.
+pub fn default_sign_integrity_proofs() -> bool {
+    false
 }
 
 fn default_software_update_url() -> Option<String> {
