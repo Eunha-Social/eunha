@@ -21,4 +21,7 @@ git pull
 psql "$DATABASE_URL" -c "CREATE SCHEMA IF NOT EXISTS eunha"
 DATABASE_URL="${DATABASE_URL}?options=-c%20search_path%3Deunha,public" sqlx migrate run
 
+# The server refuses to start against a database behind its binary, so a failure
+# here stops the deploy with the old version still serving.
+
 docker compose up -d --build
