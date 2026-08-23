@@ -135,6 +135,23 @@ pub(super) async fn handle_quote_request(
     .fetch_one(&state.db)
     .await?;
 
+    // Mastodon's `Quote#increment_counter_caches!` is `return unless
+    // accepted?`, so accepting is when the quoted post's count rises. The
+    // upsert above marks it accepted; without this a post quoted from other
+    // instances shows none of those quotes.
+    if let Err(e) = sqlx::query!(
+        r#"INSERT INTO status_stats (status_id, quotes_count, created_at, updated_at)
+           VALUES ($1, 1, now(), now())
+           ON CONFLICT (status_id) DO UPDATE
+             SET quotes_count = status_stats.quotes_count + 1, updated_at = now()"#,
+        status.id,
+    )
+    .execute(&state.db)
+    .await
+    {
+        tracing::error!(status_id = status.id, error = %e, "failed to count a federated quote");
+    }
+
     let authorization_uri = format!(
         "https://{domain}/users/{}/quote_authorizations/{quote_id}",
         status.username

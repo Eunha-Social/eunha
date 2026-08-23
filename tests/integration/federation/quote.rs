@@ -200,6 +200,25 @@ async fn test_quote_consent_handshake_between_instances() {
         "approval should point at a QuoteAuthorization: {approval_uri}",
     );
 
+    // And it counts. Mastodon's `Quote#increment_counter_caches!` runs
+    // `return unless accepted?`, so accepting is exactly when the quoted post's
+    // count should rise — whether the quote came from a local client or, as
+    // here, from another instance.
+    let quotes_count: Option<i64> = sqlx::query_scalar!(
+        r#"SELECT ss.quotes_count FROM status_stats ss
+           JOIN statuses s ON s.id = ss.status_id
+           WHERE s.uri = $1"#,
+        s_uri,
+    )
+    .fetch_optional(&b.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        quotes_count,
+        Some(1),
+        "accepting a federated quote must count it on the quoted post"
+    );
+
     // The QuoteAuthorization stamp is fetchable on B and well-formed.
     let auth_path = approval_uri
         .strip_prefix(&format!("https://{}", b.domain))

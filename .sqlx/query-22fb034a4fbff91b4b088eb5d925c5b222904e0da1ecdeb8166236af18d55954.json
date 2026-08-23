@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT ss.quotes_count FROM status_stats ss\n           JOIN statuses s ON s.id = ss.status_id\n           WHERE s.uri = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "quotes_count",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "22fb034a4fbff91b4b088eb5d925c5b222904e0da1ecdeb8166236af18d55954"
+}

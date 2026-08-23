@@ -668,13 +668,34 @@ pub(super) async fn handle_accept_reject(
                         })
                         .filter(|s| !s.is_empty())
                         .map(|s| s.to_string());
-                    sqlx::query!(
-                        "UPDATE quotes SET state = 1, approval_uri = $2, updated_at = now() WHERE id = $1",
+                    // Mastodon's `Quote#update_counter_caches!` moves the count
+                    // when the state changes, so a quote that was pending and is
+                    // now accepted starts counting here. Guarded on the state
+                    // actually changing, or a repeated Accept counts twice.
+                    let newly_accepted = sqlx::query_scalar!(
+                        r#"UPDATE quotes SET state = 1, approval_uri = $2, updated_at = now()
+                           WHERE id = $1 AND state <> 1
+                           RETURNING quoted_status_id"#,
                         q.id,
                         approval_uri.as_deref(),
                     )
-                    .execute(&state.db)
+                    .fetch_optional(&state.db)
                     .await?;
+                    if let Some(quoted_status_id) = newly_accepted.flatten() {
+                        if let Err(e) = sqlx::query!(
+                            r#"INSERT INTO status_stats (status_id, quotes_count, created_at, updated_at)
+                               VALUES ($1, 1, now(), now())
+                               ON CONFLICT (status_id) DO UPDATE
+                                 SET quotes_count = status_stats.quotes_count + 1,
+                                     updated_at = now()"#,
+                            quoted_status_id,
+                        )
+                        .execute(&state.db)
+                        .await
+                        {
+                            tracing::error!(error = %e, "failed to count an accepted quote");
+                        }
+                    }
                     // Re-federate the now-approved quote so recipients receive
                     // the `quoteAuthorization` stamp (Mastodon sends an Update
                     // on acceptance). Best-effort; a failure here must not fail
@@ -705,8 +726,32 @@ pub(super) async fn handle_accept_reject(
                         }
                     }
                 } else {
+                    // A quote that had been accepted stops counting when it is
+                    // rejected; one that was only pending never counted, so the
+                    // update reports whether there is anything to subtract.
+                    let was_accepted = sqlx::query_scalar!(
+                        r#"UPDATE quotes SET state = 2, updated_at = now()
+                           WHERE id = $1 AND state = 1
+                           RETURNING quoted_status_id"#,
+                        q.id,
+                    )
+                    .fetch_optional(&state.db)
+                    .await?;
+                    if let Some(quoted_status_id) = was_accepted.flatten() {
+                        if let Err(e) = sqlx::query!(
+                            r#"UPDATE status_stats
+                               SET quotes_count = GREATEST(quotes_count - 1, 0), updated_at = now()
+                               WHERE status_id = $1"#,
+                            quoted_status_id,
+                        )
+                        .execute(&state.db)
+                        .await
+                        {
+                            tracing::error!(error = %e, "failed to uncount a rejected quote");
+                        }
+                    }
                     sqlx::query!(
-                        "UPDATE quotes SET state = 2, updated_at = now() WHERE id = $1",
+                        "UPDATE quotes SET state = 2, updated_at = now() WHERE id = $1 AND state <> 2",
                         q.id,
                     )
                     .execute(&state.db)
