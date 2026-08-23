@@ -109,6 +109,8 @@ pub struct Role {
     pub color: String,
     pub permissions: String,
     pub highlighted: bool,
+    /// How many collections an account with this role may create.
+    pub collection_limit: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -262,7 +264,7 @@ pub struct InstanceThumbnail {
     pub blurhash: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub versions: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// The thumbnail's alt text. Sent even when unset, as Mastodon does.
     pub description: Option<String>,
 }
 
@@ -309,6 +311,10 @@ pub struct InstanceUrls {
 #[derive(Debug, Serialize)]
 pub struct AccountsConfiguration {
     pub max_featured_tags: u32,
+    /// How long the alt text on an avatar or header may be. Mastodon serves
+    /// both, and a client that lets someone write one needs to know the limit.
+    pub max_avatar_description_length: u32,
+    pub max_header_description_length: u32,
     pub max_pinned_statuses: u32,
     pub max_profile_fields: u32,
     pub max_display_name_length: u32,
@@ -355,7 +361,8 @@ pub struct InstanceRegistrations {
     pub reason_required: bool,
     pub min_age: Option<u32>,
     pub message: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Serialized even when absent: Mastodon sends `null`, and a client testing
+    /// for the key finds it either way.
     pub url: Option<String>,
 }
 
@@ -863,6 +870,7 @@ pub struct NotificationPolicyV1 {
     pub filter_not_followers: bool,
     pub filter_new_accounts: bool,
     pub filter_private_mentions: bool,
+    pub filter_bots: bool,
     pub summary: NotificationPolicySummary,
 }
 

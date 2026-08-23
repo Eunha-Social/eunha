@@ -334,8 +334,13 @@ pub async fn get_instance_v2(
                 max_featured_tags: 10,
                 max_pinned_statuses: 5,
                 max_profile_fields: 4,
-                max_display_name_length: 30,
+                // Mastodon's `Account::DISPLAY_NAME_LENGTH_LIMIT`, which is 40;
+                // eunha advertised 30, so a client would have refused a name
+                // this server would have accepted.
+                max_display_name_length: 40,
                 max_note_length: 500,
+                max_avatar_description_length: 150,
+                max_header_description_length: 150,
                 profile_field_name_limit: 255,
                 profile_field_value_limit: 255,
             },

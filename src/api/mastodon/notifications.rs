@@ -1317,7 +1317,8 @@ pub async fn get_notification_policy_v1(
 ) -> AppResult<Json<NotificationPolicyV1>> {
     auth.require_scope("read:notifications")?;
     let policy = sqlx::query!(
-        r#"SELECT for_not_following, for_not_followers, for_new_accounts, for_private_mentions
+        r#"SELECT for_not_following, for_not_followers, for_new_accounts,
+                  for_private_mentions, for_bots
            FROM notification_policies WHERE account_id = $1"#,
         auth.account_id,
     )
@@ -1325,20 +1326,27 @@ pub async fn get_notification_policy_v1(
     .await?;
 
     // Mastodon's NotificationPolicy defaults for_private_mentions to :filter.
-    let (filter_not_following, filter_not_followers, filter_new_accounts, filter_private_mentions) =
-        policy.map_or((false, false, false, true), |p| {
-            (
-                p.for_not_following != 0,
-                p.for_not_followers != 0,
-                p.for_new_accounts != 0,
-                p.for_private_mentions != 0,
-            )
-        });
+    let (
+        filter_not_following,
+        filter_not_followers,
+        filter_new_accounts,
+        filter_private_mentions,
+        filter_bots,
+    ) = policy.map_or((false, false, false, true, false), |p| {
+        (
+            p.for_not_following != 0,
+            p.for_not_followers != 0,
+            p.for_new_accounts != 0,
+            p.for_private_mentions != 0,
+            p.for_bots != 0,
+        )
+    });
 
     let any_filter = filter_not_following
         || filter_not_followers
         || filter_new_accounts
-        || filter_private_mentions;
+        || filter_private_mentions
+        || filter_bots;
 
     let (pending_requests, pending_notifs) = if any_filter {
         let pending_requests: i64 = sqlx::query_scalar!(
@@ -1365,6 +1373,7 @@ pub async fn get_notification_policy_v1(
         filter_not_followers,
         filter_new_accounts,
         filter_private_mentions,
+        filter_bots,
         summary: NotificationPolicySummary {
             pending_requests_count: pending_requests,
             pending_notifications_count: pending_notifs,

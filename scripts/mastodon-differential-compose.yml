@@ -1,0 +1,54 @@
+# Mastodon 4.7.0 for differential testing against eunha.
+#
+# The official image, so none of the native dependencies that have to be built
+# by hand on macOS — libidn, OpenSSL headers, libvips, and a `pg` gem that
+# segfaults against Postgres 18 — are our problem. Everything lives in this
+# stack: its own Postgres and Redis, nothing shared with the host.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: mastodon
+      POSTGRES_PASSWORD: mastodon
+      POSTGRES_DB: mastodon
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mastodon"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  web:
+    image: ghcr.io/mastodon/mastodon:v4.7.0
+    command: bash -c "bin/rails db:prepare && bin/rails server -b 0.0.0.0 -p 3000"
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    environment:
+      RAILS_ENV: production
+      # A real key set, fixed so tokens minted in one step survive a restart.
+      SECRET_KEY_BASE: "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a"
+      OTP_SECRET: "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000b"
+      ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT: "cccccccccccccccccccccccccccccccc"
+      DB_HOST: db
+      DB_USER: mastodon
+      DB_PASS: mastodon
+      DB_NAME: mastodon
+      REDIS_HOST: redis
+      LOCAL_DOMAIN: localhost:3000
+      RAILS_SERVE_STATIC_FILES: "true"
+      # No mail, no search, no S3 — this instance only has to answer the API.
+      ES_ENABLED: "false"
+      SMTP_DELIVERY_METHOD: test
+      RAILS_LOG_LEVEL: warn
+    ports:
+      - "3000:3000"

@@ -201,6 +201,29 @@ missing. Mastodon is not a submodule: 424MB of history for 468KB of files that
 only matter when adopting a release, and a submodule bump's diff is a SHA,
 whereas the diff of what is recorded here *is* the change being adopted.
 
+### Differential testing against a live Mastodon
+
+The entity check compares eunha to what upstream's serializers *say*. This one
+asks upstream directly: the same request goes to both servers and the responses
+are compared.
+
+    scripts/differential_test.sh http://localhost:3001 SOME_TOKEN
+
+That brings up Mastodon in Docker — the official image, because building it from
+source on macOS means libidn, OpenSSL headers for `hiredis-client`, libvips, and
+a `pg` gem that segfaults against Postgres 18, all of which the image has already
+solved — mints a token, and compares 31 endpoints a client actually uses.
+
+Nothing in it encodes what the answer should be, which is the point: a rule
+misread while writing a test would be misread in the test too. It found seven
+differences the source-reading had missed, all of them fields nested inside
+objects the entity extraction never descended into.
+
+Its limit is worth stating, because it bit: **it compares shape and status, not
+values.** `max_display_name_length` was 30 where Mastodon says 40, and both are
+integers, so it passed. That one was found by eye. Values are what reading the
+callbacks is for.
+
 ### Deliberate divergences
 
 Eunha aims for behavioural parity, so a difference from Mastodon is either a bug

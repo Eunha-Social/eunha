@@ -86,7 +86,7 @@ const EVERYONE_ROLE_ID: i64 = -99;
 /// client can read its permissions without special-casing its absence.
 pub async fn fetch_account_role(state: &AppState, account_id: i64) -> Option<super::types::Role> {
     let row = sqlx::query!(
-        r#"SELECT ur.id, ur.name, ur.color, ur.permissions, ur.highlighted
+        r#"SELECT ur.id, ur.name, ur.color, ur.permissions, ur.highlighted, ur.collection_limit
            FROM users u
            JOIN user_roles ur ON ur.id = COALESCE(u.role_id, $2)
            WHERE u.account_id = $1"#,
@@ -104,6 +104,7 @@ pub async fn fetch_account_role(state: &AppState, account_id: i64) -> Option<sup
         color: row.color,
         permissions: row.permissions.to_string(),
         highlighted: row.highlighted,
+        collection_limit: row.collection_limit,
     })
 }
 

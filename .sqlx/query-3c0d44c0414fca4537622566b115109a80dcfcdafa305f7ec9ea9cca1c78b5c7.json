@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT for_not_following, for_not_followers, for_new_accounts, for_private_mentions\n           FROM notification_policies WHERE account_id = $1",
+  "query": "SELECT for_not_following, for_not_followers, for_new_accounts,\n                  for_private_mentions, for_bots\n           FROM notification_policies WHERE account_id = $1",
   "describe": {
     "columns": [
       {
@@ -22,6 +22,11 @@
         "ordinal": 3,
         "name": "for_private_mentions",
         "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "for_bots",
+        "type_info": "Int4"
       }
     ],
     "parameters": {
@@ -33,8 +38,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "f60cf8f3d69484ab3095cc558def114e05e7f12a1b0ec6f2044d42028e7b129c"
+  "hash": "3c0d44c0414fca4537622566b115109a80dcfcdafa305f7ec9ea9cca1c78b5c7"
 }
