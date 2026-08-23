@@ -494,6 +494,11 @@ pub(super) async fn handle_create(
     .await
     .ok()
     .flatten();
+    // Store every mention before notifying anyone. Mastodon writes the whole
+    // set as part of creating the status and notifies afterwards, and the order
+    // matters: a mention is dropped when the status also mentions someone the
+    // recipient blocks, which cannot be seen while the rest are still unwritten.
+    let mut mentioned: Vec<(i64, bool)> = Vec::new();
     for href in &mention_hrefs {
         let mentioned_id = match resolve_or_fetch_remote_account(state, href).await {
             Ok(id) => id,
@@ -516,24 +521,29 @@ pub(super) async fn handle_create(
         .ok()
         .flatten()
         .unwrap_or(false);
-        if is_local {
-            if let Some(ref info) = actor_info {
-                let acct = match &info.domain {
-                    Some(d) => format!("{}@{}", info.username, d),
-                    None => info.username.clone(),
-                };
-                crate::push::create_and_push(
-                    state,
-                    mentioned_id,
-                    account_id,
-                    "mention",
-                    Some(inserted_id),
-                    format!("New mention from {}", info.display_name),
-                    acct,
-                    info.avatar_remote_url.clone().unwrap_or_default(),
-                )
-                .await;
-            }
+        mentioned.push((mentioned_id, is_local));
+    }
+
+    for (mentioned_id, is_local) in mentioned {
+        if !is_local {
+            continue;
+        }
+        if let Some(ref info) = actor_info {
+            let acct = match &info.domain {
+                Some(d) => format!("{}@{}", info.username, d),
+                None => info.username.clone(),
+            };
+            crate::push::create_and_push(
+                state,
+                mentioned_id,
+                account_id,
+                "mention",
+                Some(inserted_id),
+                format!("New mention from {}", info.display_name),
+                acct,
+                info.avatar_remote_url.clone().unwrap_or_default(),
+            )
+            .await;
         }
     }
 

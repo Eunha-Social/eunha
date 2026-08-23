@@ -368,6 +368,48 @@ pub async fn create_and_push(
         return;
     }
 
+    // Mastodon's `blocked_mention?` — `FeedManager#filter_from_mentions?`. A
+    // mention is dropped when the status mentions, or replies to, an account the
+    // recipient blocks or mutes, even though the sender does not. The point is
+    // not to be pulled into a conversation with someone deliberately shut out.
+    if notification_type == "mention" {
+        if let Some(sid) = status_id {
+            let drags_in_blocked = sqlx::query_scalar!(
+                r#"SELECT 1 FROM statuses s
+                   WHERE s.id = $2
+                     AND EXISTS (
+                       SELECT 1 FROM (
+                         SELECT m.account_id FROM mentions m WHERE m.status_id = s.id
+                         UNION
+                         SELECT s.in_reply_to_account_id WHERE s.in_reply_to_account_id IS NOT NULL
+                       ) AS involved(account_id)
+                       WHERE involved.account_id <> $1
+                         AND (
+                           EXISTS (
+                             SELECT 1 FROM blocks b
+                             WHERE b.account_id = $1 AND b.target_account_id = involved.account_id
+                           )
+                           OR EXISTS (
+                             SELECT 1 FROM mutes mu
+                             WHERE mu.account_id = $1 AND mu.target_account_id = involved.account_id
+                               AND (mu.expires_at IS NULL OR mu.expires_at > now())
+                           )
+                         )
+                     )"#,
+                recipient_id,
+                sid,
+            )
+            .fetch_optional(&db)
+            .await
+            .ok()
+            .flatten()
+            .is_some();
+            if drags_in_blocked {
+                return;
+            }
+        }
+    }
+
     // Don't notify if the recipient has muted the conversation
     if let Some(sid) = status_id {
         let conversation_muted = sqlx::query_scalar!(

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO blocks (id, account_id, target_account_id, created_at, updated_at)\n           VALUES ($1, $2, $3, now(), now())",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "16f0fea0fbc6194e2fa4bb5b6715479de7edf851c772752f9deeb52edeadd360"
+}

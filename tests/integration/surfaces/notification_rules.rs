@@ -177,3 +177,133 @@ async fn test_following_through_a_domain_block_still_notifies() {
         "an account followed through a domain block should still notify"
     );
 }
+
+/// A mention that also mentions someone the recipient blocked is not delivered.
+///
+/// `FeedManager#filter_from_mentions?` gathers the status's mentions and, for a
+/// reply, the account replied to, and drops the notification if the recipient
+/// blocks or mutes any of them. The sender need not be blocked: the point is
+/// not to be pulled into a conversation with someone deliberately shut out.
+#[tokio::test]
+async fn test_a_mention_alongside_a_blocked_account_is_not_delivered() {
+    let ctx = TestContext::new("notify-blocked-co-mention").await;
+    let alice_id: i64 = ctx.alice_id.parse().unwrap();
+    let bob_id: i64 = ctx.bob_id.parse().unwrap();
+
+    // Alice blocks Bob. A third account then mentions them both.
+    sqlx::query!(
+        r#"INSERT INTO blocks (id, account_id, target_account_id, created_at, updated_at)
+           VALUES ($1, $2, $3, now(), now())"#,
+        eunha::snowflake::next_id(),
+        alice_id,
+        bob_id,
+    )
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+
+    let domain = "notify-comention.invalid";
+    let (_id, actor_uri) = remote_actor(&ctx, "stranger", domain).await;
+
+    let before = notification_count(&ctx, alice_id).await;
+
+    let alice_uri = format!("https://{}/users/alice", ctx.domain);
+    let bob_uri = format!("https://{}/users/bob", ctx.domain);
+    let create = serde_json::json!({
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "id": format!("https://{domain}/activities/comention-1"),
+        "type": "Create",
+        "actor": actor_uri,
+        "to": [alice_uri, bob_uri],
+        "object": {
+            "id": format!("https://{domain}/notes/comention-1"),
+            "type": "Note",
+            "attributedTo": actor_uri,
+            "content": "<p>you two should talk</p>",
+            "to": [alice_uri, bob_uri],
+            "tag": [
+                {"type": "Mention", "href": alice_uri, "name": "@alice"},
+                {"type": "Mention", "href": bob_uri, "name": "@bob"},
+            ],
+            "published": "2026-01-01T00:00:00Z",
+        },
+    });
+    sqlx::query!(
+        r#"INSERT INTO eunha.inbox_jobs (activity, activity_type, actor_uri, created_at, updated_at)
+           VALUES ($1, 'Create', $2, now(), now())"#,
+        create,
+        actor_uri,
+    )
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+    eunha::api::ap::inbox::drain_inbox_queue(&ctx.state)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        notification_count(&ctx, alice_id).await,
+        before,
+        "a mention that drags in a blocked account must not notify"
+    );
+}
+
+/// A mention alongside someone the recipient has no quarrel with still arrives.
+///
+/// The guard against being dragged into a thread with a blocked account must
+/// not swallow ordinary group conversations, which are the common case.
+#[tokio::test]
+async fn test_an_ordinary_co_mention_still_notifies() {
+    let ctx = TestContext::new("notify-comention-ok").await;
+    let alice_id: i64 = ctx.alice_id.parse().unwrap();
+
+    let domain = "notify-comention-ok.invalid";
+    let (_id, actor_uri) = remote_actor(&ctx, "stranger", domain).await;
+
+    let before = notification_count(&ctx, alice_id).await;
+
+    let alice_uri = format!("https://{}/users/alice", ctx.domain);
+    let bob_uri = format!("https://{}/users/bob", ctx.domain);
+    let create = serde_json::json!({
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "id": format!("https://{domain}/activities/comention-ok"),
+        "type": "Create",
+        "actor": actor_uri,
+        "to": [alice_uri, bob_uri],
+        "object": {
+            "id": format!("https://{domain}/notes/comention-ok"),
+            "type": "Note",
+            "attributedTo": actor_uri,
+            "content": "<p>you two should meet</p>",
+            "to": [alice_uri, bob_uri],
+            "tag": [
+                {"type": "Mention", "href": alice_uri, "name": "@alice"},
+                {"type": "Mention", "href": bob_uri, "name": "@bob"},
+            ],
+            "published": "2026-01-01T00:00:00Z",
+        },
+    });
+    sqlx::query!(
+        r#"INSERT INTO eunha.inbox_jobs (activity, activity_type, actor_uri, created_at, updated_at)
+           VALUES ($1, 'Create', $2, now(), now())"#,
+        create,
+        actor_uri,
+    )
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+    eunha::api::ap::inbox::drain_inbox_queue(&ctx.state)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        notification_count(&ctx, alice_id).await,
+        before + 1,
+        "a group mention with nobody blocked should notify as usual"
+    );
+    let bob_id: i64 = ctx.bob_id.parse().unwrap();
+    assert!(
+        notification_count(&ctx, bob_id).await > 0,
+        "and everyone else mentioned should hear about it too"
+    );
+}
