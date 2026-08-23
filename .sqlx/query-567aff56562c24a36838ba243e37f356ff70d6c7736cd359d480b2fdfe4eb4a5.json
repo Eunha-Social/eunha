@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO mutes (id, account_id, target_account_id, hide_notifications, created_at, updated_at)\n           VALUES ($1, $2, $3, false, now(), now())",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "567aff56562c24a36838ba243e37f356ff70d6c7736cd359d480b2fdfe4eb4a5"
+}

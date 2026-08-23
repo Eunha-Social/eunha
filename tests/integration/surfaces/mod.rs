@@ -11,4 +11,5 @@ mod oembed;
 mod schema_compatibility;
 mod software_updates;
 mod streaming;
+mod timeline_exclusions;
 mod trends_pagination;
