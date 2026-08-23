@@ -25,7 +25,33 @@ pub async fn get_poll(
 
 #[derive(Debug, Deserialize)]
 pub struct PollVoteForm {
+    /// Option indices. Accepted as numbers or as strings, because Mastodon
+    /// accepts both — Rails coerces `"1"` to `1` without comment, and a client
+    /// that sends form-encoded parameters has only strings to send. Requiring
+    /// numbers turned a vote a Mastodon server would have counted into a 422.
+    #[serde(deserialize_with = "deserialize_choices")]
     pub choices: Vec<i32>,
+}
+
+fn deserialize_choices<'de, D>(deserializer: D) -> Result<Vec<i32>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error as _;
+
+    let raw = Vec::<serde_json::Value>::deserialize(deserializer)?;
+    raw.into_iter()
+        .map(|value| match value {
+            serde_json::Value::Number(n) => n
+                .as_i64()
+                .and_then(|i| i32::try_from(i).ok())
+                .ok_or_else(|| D::Error::custom("choice out of range")),
+            serde_json::Value::String(s) => s
+                .parse::<i32>()
+                .map_err(|_| D::Error::custom("choice is not a number")),
+            _ => Err(D::Error::custom("choice is not a number")),
+        })
+        .collect()
 }
 
 pub async fn vote_poll(
@@ -372,16 +398,12 @@ async fn poll_from_db(
         )
         .fetch_all(&state.db)
         .await?;
-        if votes.is_empty() {
-            // Poll owner counts as having voted (matches Mastodon's voted? logic)
-            (
-                Some(viewer_is_owner),
-                if viewer_is_owner { Some(vec![]) } else { None },
-            )
-        } else {
-            let choices: Vec<i32> = votes.iter().map(|v| v.choice).collect();
-            (Some(true), Some(choices))
-        }
+        let choices: Vec<i32> = votes.iter().map(|v| v.choice).collect();
+        // `voted` and `own_votes` are both `if: :current_user?`, so they appear
+        // together for any authenticated request — an empty list when nothing
+        // was voted for, rather than nothing at all. The author counts as
+        // having voted, matching `Poll#voted?`.
+        (Some(viewer_is_owner || !choices.is_empty()), Some(choices))
     } else {
         (None, None)
     };

@@ -400,7 +400,7 @@ pub async fn fetch_status_poll(
     viewer_id: Option<i64>,
 ) -> AppResult<Option<super::types::Poll>> {
     let row = sqlx::query!(
-        "SELECT id, options, multiple, expires_at FROM polls WHERE status_id = $1",
+        "SELECT id, options, multiple, expires_at, account_id FROM polls WHERE status_id = $1",
         status_id,
     )
     .fetch_optional(&state.db)
@@ -447,12 +447,14 @@ pub async fn fetch_status_poll(
     .map(|r| (r.votes, r.voters))
     .unwrap_or((0, 0));
 
-    let voters_count = if row.multiple {
-        Some(voters_count)
-    } else {
-        None
-    };
+    // Mastodon initialises `voters_count` to 0 for every poll and serializes the
+    // column as it stands, so the field is a number whether or not the poll is
+    // multiple-choice. Its documentation says otherwise; the implementation is
+    // what clients are written against.
+    let voters_count = Some(voters_count);
 
+    // `voted` and `own_votes` are both `if: :current_user?` — present together
+    // for any authenticated request, absent together otherwise.
     let (voted, own_votes) = if let Some(vid) = viewer_id {
         let votes = sqlx::query!(
             "SELECT choice FROM poll_votes WHERE poll_id = $1 AND account_id = $2 ORDER BY choice",
@@ -461,12 +463,12 @@ pub async fn fetch_status_poll(
         )
         .fetch_all(&state.db)
         .await?;
-        if votes.is_empty() {
-            (Some(false), None)
-        } else {
-            let choices: Vec<i32> = votes.iter().map(|v| v.choice).collect();
-            (Some(true), Some(choices))
-        }
+        let choices: Vec<i32> = votes.iter().map(|v| v.choice).collect();
+        // Mastodon's `Poll#voted?` is `account.id == account_id ||
+        // votes.exists?`: an author has, in effect, already answered their own
+        // poll, and a client uses this to decide whether to offer the choices.
+        let voted = row.account_id == vid || !choices.is_empty();
+        (Some(voted), Some(choices))
     } else {
         (None, None)
     };
@@ -778,7 +780,7 @@ pub async fn batch_status_polls(
     }
 
     let rows = sqlx::query!(
-        r#"SELECT id, status_id, options, multiple, expires_at
+        r#"SELECT id, status_id, options, multiple, expires_at, account_id
            FROM polls WHERE status_id = ANY($1::bigint[])"#,
         status_ids,
     )
@@ -867,19 +869,14 @@ pub async fn batch_status_polls(
             .get(&row.id)
             .map(|&(v, u)| (v, u))
             .unwrap_or((0, 0));
-        let voters_count = if row.multiple {
-            Some(voters_count)
-        } else {
-            None
-        };
+        // As in the single-status path: always a number, and both viewer fields
+        // present together for an authenticated request.
+        let voters_count = Some(voters_count);
 
-        let (voted, own_votes) = if viewer_id.is_some() {
+        let (voted, own_votes) = if let Some(vid) = viewer_id {
             let votes = votes_by_poll.get(&row.id).cloned().unwrap_or_default();
-            if votes.is_empty() {
-                (Some(false), None)
-            } else {
-                (Some(true), Some(votes))
-            }
+            let voted = row.account_id == vid || !votes.is_empty();
+            (Some(voted), Some(votes))
         } else {
             (None, None)
         };
@@ -987,6 +984,29 @@ pub async fn build_status_with_app(
     application: Option<super::types::Application>,
 ) -> AppResult<super::types::Status> {
     let viewer_account_id = viewer_ctx.as_ref().map(|c| c.account_id);
+
+    // Mastodon shows which app posted a status — `show_application?` — and it
+    // shows it to everyone, since the setting behind it defaults to on. eunha
+    // recorded `application_id` and served it only from the POST that created
+    // the status, so a status read back from a timeline lost the attribution it
+    // had a second earlier. Fetched here rather than at each call site, so a
+    // caller that does not already have it still gets it.
+    let application = match (application, s.application_id) {
+        (Some(app), _) => Some(app),
+        (None, Some(app_id)) => sqlx::query!(
+            "SELECT name, website FROM oauth_applications WHERE id = $1",
+            app_id,
+        )
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .map(|r| super::types::Application {
+            name: r.name,
+            website: r.website,
+        }),
+        (None, None) => None,
+    };
 
     // Pre-fetch mentions and emojis for content rendering and API fields
     let mentions = fetch_status_mentions(state, s.id).await?;
@@ -1262,4 +1282,41 @@ pub fn spawn_card_fetch(state: &AppState, status_id: i64, content: String) {
         .execute(&state.db)
         .await;
     });
+}
+
+/// Which application posted each of these statuses.
+///
+/// Mastodon's `show_application?` is `user_shows_application? || viewer is the
+/// author`, and the setting behind it defaults to on, so in practice a status
+/// carries its application for everyone. The sync serializer cannot query, so
+/// list endpoints fetch the set in one go and fill it in, as they do for emojis
+/// and counts.
+pub async fn fetch_status_applications(
+    state: &AppState,
+    status_ids: &[i64],
+) -> std::collections::HashMap<i64, super::types::Application> {
+    if status_ids.is_empty() {
+        return std::collections::HashMap::new();
+    }
+    sqlx::query!(
+        r#"SELECT s.id AS "status_id!", a.name, a.website
+           FROM statuses s
+           JOIN oauth_applications a ON a.id = s.application_id
+           WHERE s.id = ANY($1::bigint[])"#,
+        status_ids,
+    )
+    .fetch_all(&state.db)
+    .await
+    .unwrap_or_default()
+    .into_iter()
+    .map(|r| {
+        (
+            r.status_id,
+            super::types::Application {
+                name: r.name,
+                website: r.website,
+            },
+        )
+    })
+    .collect()
 }

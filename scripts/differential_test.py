@@ -67,9 +67,14 @@ ENDPOINTS = [
 ]
 
 
-def request(base, path, token, method="GET"):
+def request(base, path, token, method="GET", body=None):
     """Returns (status, parsed_body_or_None, header_names)."""
-    req = urllib.request.Request(f"{base}{path}", method=method)
+    data = None
+    if body is not None:
+        data = json.dumps(body).encode()
+    req = urllib.request.Request(f"{base}{path}", method=method, data=data)
+    if data is not None:
+        req.add_header("Content-Type", "application/json")
     if token:
         req.add_header("Authorization", f"Bearer {token}")
     req.add_header("Accept", "application/json")
@@ -161,6 +166,73 @@ def compare(path, left, right, findings, where=""):
             findings.append(f"{path}: `{where}` is {left} on eunha, {right} on Mastodon")
 
 
+# Things a client does, rather than reads. Each is (method, path, body, name);
+# the response entity is compared like any other, and the status code with it.
+#
+# These matter more than the reads: a GET returns what the server already holds,
+# while a POST is the server deciding what to make of a request. eunha and
+# Mastodon can agree on every timeline and still disagree on what posting a
+# status with a poll produces.
+WRITES = [
+    ("POST", "/api/v1/statuses", {"status": "a plain status"}, "post a status"),
+    (
+        "POST",
+        "/api/v1/statuses",
+        {"status": "with a spoiler", "spoiler_text": "cw", "sensitive": True},
+        "post behind a content warning",
+    ),
+    (
+        "POST",
+        "/api/v1/statuses",
+        {"status": "unlisted please", "visibility": "unlisted"},
+        "post unlisted",
+    ),
+    (
+        "POST",
+        "/api/v1/statuses",
+        {"status": "which?", "poll": {"options": ["a", "b"], "expires_in": 3600}},
+        "post a poll",
+    ),
+    ("POST", "/api/v1/lists", {"title": "a list"}, "create a list"),
+    (
+        "POST",
+        "/api/v2/filters",
+        {"title": "a filter", "context": ["home"], "filter_action": "warn"},
+        "create a filter",
+    ),
+    # Rejections are part of the contract too, and are where two servers most
+    # easily differ: the same bad request should fail the same way.
+    ("POST", "/api/v1/statuses", {"status": ""}, "reject an empty status"),
+    (
+        "POST",
+        "/api/v1/statuses",
+        {"status": "x", "visibility": "nonsense"},
+        "reject an unknown visibility",
+    ),
+    ("POST", "/api/v1/lists", {}, "reject a list with no title"),
+]
+
+
+def compare_writes(args, findings):
+    """Send each write to both servers and compare what comes back."""
+    compared = 0
+    for method, path, body, name in WRITES:
+        e_status, e_body, _ = request(args.eunha, path, args.eunha_token, method, body)
+        m_status, m_body, _ = request(args.mastodon, path, args.mastodon_token, method, body)
+
+        if e_status is None or m_status is None:
+            continue
+        compared += 1
+        if e_status != m_status:
+            findings.append(f"{name}: eunha {e_status}, Mastodon {m_status}")
+            continue
+        # A rejection's body is a message, and two servers word those
+        # differently; the status code is the part a client acts on.
+        if m_status < 400:
+            compare(name, shape(e_body), shape(m_body), findings)
+    return compared
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--eunha", required=True)
@@ -205,6 +277,9 @@ def main():
                     f"{path}: `{field}` is {e_values[field]!r} on eunha, "
                     f"{m_values[field]!r} on Mastodon"
                 )
+
+    if not args.only:
+        compared += compare_writes(args, findings)
 
     print(f"compared {compared} endpoint(s)")
     for s in skipped:

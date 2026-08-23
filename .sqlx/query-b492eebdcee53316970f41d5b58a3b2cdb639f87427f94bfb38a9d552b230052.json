@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, status_id, options, multiple, expires_at\n           FROM polls WHERE status_id = ANY($1::bigint[])",
+  "query": "SELECT id, status_id, options, multiple, expires_at, account_id\n           FROM polls WHERE status_id = ANY($1::bigint[])",
   "describe": {
     "columns": [
       {
@@ -27,6 +27,11 @@
         "ordinal": 4,
         "name": "expires_at",
         "type_info": "Timestamp"
+      },
+      {
+        "ordinal": 5,
+        "name": "account_id",
+        "type_info": "Int8"
       }
     ],
     "parameters": {
@@ -39,8 +44,9 @@
       false,
       false,
       false,
-      true
+      true,
+      false
     ]
   },
-  "hash": "4bbd5dc9e28c0bd267e7e0b50381e413d5021bcdd817bd2f5e2ef08bce3a307a"
+  "hash": "b492eebdcee53316970f41d5b58a3b2cdb639f87427f94bfb38a9d552b230052"
 }

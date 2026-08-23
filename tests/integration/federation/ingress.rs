@@ -274,3 +274,111 @@ async fn test_a_delete_that_arrives_first_suppresses_a_late_create() {
         "an ordinary Create from this actor must be stored, or the test above proves nothing"
     );
 }
+
+/// The Redis note answers a Delete-before-Create when no tombstone can.
+///
+/// The other test covers the tombstone, which needs an `accounts` row to hang
+/// itself on. When the Delete is the first thing this instance has ever heard
+/// about an actor there is no such row, and the Delete is remembered in Redis
+/// instead. Only that mechanism can suppress the late Create, so the tombstone
+/// is removed here to leave it holding the question alone — without which this
+/// test would pass on the tombstone's account and prove nothing, as an earlier
+/// version of the test above in fact did.
+#[tokio::test]
+async fn test_a_remembered_delete_suppresses_a_create_without_a_tombstone() {
+    let ctx = TestContext::new("ingress-delete-redis").await;
+    // The suite shares one Redis, and the key this exercises is
+    // `delete_upon_arrival:{actor}:{uri}` — both fixed strings would mean a key
+    // written by the previous run answers this one, and the test passes whether
+    // or not the code still writes it. A unique domain per run avoids that.
+    let domain = format!("ingress-redis-{}.invalid", eunha::snowflake::next_id());
+    let actor_uri = seed_remote_actor(&ctx, "mallory", &domain).await;
+    let note_uri = format!("https://{domain}/notes/remembered");
+    let note_uri = note_uri.as_str();
+
+    let actor_id: i64 = sqlx::query_scalar!("SELECT id FROM accounts WHERE uri = $1", actor_uri)
+        .fetch_one(&ctx.db)
+        .await
+        .unwrap();
+    sqlx::query!(
+        r#"INSERT INTO follows (id, account_id, target_account_id, created_at, updated_at)
+           VALUES ($1, $2, $3, now(), now())"#,
+        eunha::snowflake::next_id(),
+        ctx.alice_id.parse::<i64>().unwrap(),
+        actor_id,
+    )
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+
+    let delete = json!({
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "id": format!("https://{domain}/activities/delete-1"),
+        "type": "Delete",
+        "actor": actor_uri,
+        "object": {"id": note_uri, "type": "Tombstone"},
+    });
+    sqlx::query!(
+        r#"INSERT INTO eunha.inbox_jobs (activity, activity_type, actor_uri, created_at, updated_at)
+           VALUES ($1, 'Delete', $2, now(), now())"#,
+        delete,
+        actor_uri,
+    )
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+    eunha::api::ap::inbox::drain_inbox_queue(&ctx.state)
+        .await
+        .unwrap();
+
+    // Take away the persistent answer, leaving only the remembered one.
+    let removed = sqlx::query!("DELETE FROM tombstones WHERE uri = $1", note_uri)
+        .execute(&ctx.db)
+        .await
+        .unwrap();
+    assert_eq!(
+        removed.rows_affected(),
+        1,
+        "the Delete should have written a tombstone for this known actor"
+    );
+
+    let create = json!({
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "id": format!("https://{domain}/activities/create-1"),
+        "type": "Create",
+        "actor": actor_uri,
+        "to": ["https://www.w3.org/ns/activitystreams#Public"],
+        "object": {
+            "id": note_uri,
+            "type": "Note",
+            "attributedTo": actor_uri,
+            "content": "<p>already withdrawn</p>",
+            "to": ["https://www.w3.org/ns/activitystreams#Public"],
+            "published": "2026-01-01T00:00:00Z",
+        },
+    });
+    sqlx::query!(
+        r#"INSERT INTO eunha.inbox_jobs (activity, activity_type, actor_uri, created_at, updated_at)
+           VALUES ($1, 'Create', $2, now(), now())"#,
+        create,
+        actor_uri,
+    )
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+    eunha::api::ap::inbox::drain_inbox_queue(&ctx.state)
+        .await
+        .unwrap();
+
+    let live: i64 = sqlx::query_scalar!(
+        r#"SELECT count(*) AS "c!" FROM statuses WHERE uri = $1 AND deleted_at IS NULL"#,
+        note_uri,
+    )
+    .fetch_one(&ctx.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        live, 0,
+        "the remembered Delete must suppress the Create with no tombstone to help"
+    );
+}

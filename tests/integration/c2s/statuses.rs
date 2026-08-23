@@ -2763,7 +2763,13 @@ async fn test_vote_poll() {
     assert_eq!(poll["own_votes"].as_array().unwrap(), &[json!(1)]);
 }
 
-/// A viewer who has NOT voted sees own_votes: null (not an empty array).
+/// A viewer who has not voted sees `own_votes: []`.
+///
+/// This asserted `null` until a running Mastodon 4.7.0 was asked and answered
+/// `[]`. Both `voted` and `own_votes` are `if: :current_user?` in
+/// `REST::PollSerializer`, so an authenticated request gets both, and
+/// `Poll#own_votes` returns the choices — an empty list when there are none.
+/// A client reading `own_votes.length` found nothing to read.
 #[tokio::test]
 async fn test_poll_own_votes_null_when_not_voted() {
     let ctx = TestContext::new("poll-own-votes-null").await;
@@ -2799,12 +2805,15 @@ async fn test_poll_own_votes_null_when_not_voted() {
         Some(false),
         "voted should be false before voting"
     );
-    assert!(
-        poll["own_votes"].is_null(),
-        "own_votes should be null when viewer has not voted"
+    assert_eq!(
+        poll["own_votes"].as_array().map(Vec::len),
+        Some(0),
+        "own_votes should be an empty list when the viewer has not voted"
     );
 
-    // Also verify via GET /api/v1/statuses/:id — uses fetch_status_poll, not poll_from_db.
+    // And through GET /api/v1/statuses/:id, which builds the poll by a
+    // different route — the two agreed on the wrong answer, so both needed
+    // fixing.
     let status_id = status["id"].as_str().unwrap();
     let status_resp: Value = ctx
         .api
@@ -2816,9 +2825,10 @@ async fn test_poll_own_votes_null_when_not_voted() {
         .json()
         .await
         .unwrap();
-    assert!(
-        status_resp["poll"]["own_votes"].is_null(),
-        "own_votes must be null (not []) in status response when viewer has not voted",
+    assert_eq!(
+        status_resp["poll"]["own_votes"].as_array().map(Vec::len),
+        Some(0),
+        "own_votes should be an empty list here too",
     );
 }
 

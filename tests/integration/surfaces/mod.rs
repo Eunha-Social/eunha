@@ -8,6 +8,7 @@ mod error_contract;
 mod invite_tree;
 mod notification_rules;
 mod oembed;
+mod poll_semantics;
 mod schema_compatibility;
 mod software_updates;
 mod streaming;

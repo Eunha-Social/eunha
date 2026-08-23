@@ -488,8 +488,16 @@ impl TestContext {
             .await
             .expect("failed to connect to test database (test_db)");
 
+        // A database of its own, so a run cannot read or overwrite whatever a
+        // development Redis holds. Isolation between *tests* still depends on
+        // the keys themselves: eunha derives them from actor and object URIs,
+        // and `TestContext` gives each test a unique domain, so a test that
+        // builds its URIs from `ctx.domain` gets unique keys. One that hardcodes
+        // a domain does not, and will read the key its previous run left behind
+        // — which is how a test here once passed with the code it covers
+        // deleted.
         let redis_url =
-            std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".into());
+            std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379/15".into());
         let fake_s3 = spawn_fake_s3().await;
         let (vapid_private_key, vapid_public_key) =
             eunha::push::generate_vapid_keypair().expect("generate test VAPID keypair");

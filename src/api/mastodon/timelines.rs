@@ -1208,6 +1208,8 @@ async fn build_status_list(
     enrich_ids.extend_from_slice(&reblog_ids);
     let tags_map = batch_statuses_tags(state, &enrich_ids).await?;
     let mentions_map = batch_status_mentions(state, &enrich_ids).await?;
+    let applications_map =
+        super::status_serialize::fetch_status_applications(state, &enrich_ids).await;
     let all_statuses_for_emoji: Vec<DbStatus> = statuses
         .iter()
         .cloned()
@@ -1244,6 +1246,8 @@ async fn build_status_list(
             .cloned()
             .unwrap_or_default();
         let mut api = status_from_db(s, account, media, reblog, ctx, &mentions, &rb_mentions);
+        // A status keeps the attribution it was posted with when read back.
+        api.application = applications_map.get(&s.id).cloned();
         api.account.emojis = account_emojis_map
             .get(&account.id)
             .cloned()
