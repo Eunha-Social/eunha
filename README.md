@@ -219,10 +219,15 @@ misread while writing a test would be misread in the test too. It found seven
 differences the source-reading had missed, all of them fields nested inside
 objects the entity extraction never descended into.
 
-Its limit is worth stating, because it bit: **it compares shape and status, not
-values.** `max_display_name_length` was 30 where Mastodon says 40, and both are
-integers, so it passed. That one was found by eye. Values are what reading the
-callbacks is for.
+It compares values too, but only under `configuration.*` — the limits an
+instance states about itself, where two servers genuinely should agree. That
+came second, after a shape-only comparison passed `max_display_name_length: 30`
+against Mastodon's 40, both being integers. Comparing values found the media
+description limit still advertised at Mastodon's older 1500 rather than 10,000.
+
+Everything else stays shape-only on purpose. `followers_count`, ids and
+timestamps depend on each instance's data, and comparing them would bury real
+findings under differences that mean nothing.
 
 ### Deliberate divergences
 

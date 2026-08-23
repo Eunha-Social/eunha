@@ -7,11 +7,17 @@ request goes to both servers, and the two responses are compared field by field.
 A rule misread while writing a test is a rule wrong in the test too; this cannot
 make that mistake, because nothing here encodes what the answer should be.
 
-What is compared is shape and kind, not content: ids, hostnames, timestamps and
-tokens necessarily differ between two servers, so a field present on both with
-the same JSON type agrees. What it catches is a field one server sends and the
-other does not, a field whose type differs, and a status code that differs —
-which is where every entity-level bug found this session lived.
+Two things are compared. **Shape** — which fields exist and what kind each holds
+— everywhere, because ids, hostnames, timestamps and tokens necessarily differ
+between two servers and asking them to agree would drown the signal. And
+**values**, but only for fields where two servers genuinely should agree: the
+constants and limits an instance advertises about itself, listed in
+`COMPARED_VALUES` below.
+
+That second part exists because the first was not enough. eunha advertised
+`max_display_name_length: 30` where Mastodon says 40 — so a client would have
+refused a display name this server accepts — and a shape comparison passed it,
+both being integers.
 
 Usage:
     scripts/differential_test.py --eunha http://localhost:3001 \
@@ -83,6 +89,36 @@ def request(base, path, token, method="GET"):
         return status, json.loads(raw), headers
     except json.JSONDecodeError:
         return status, {"__not_json__": raw[:200].decode("utf-8", "replace")}, headers
+
+
+# Fields whose value two servers should agree on: limits and constants an
+# instance states about itself, rather than anything derived from its data.
+# Matched against the dotted path a field sits at, so `configuration.accounts.
+# max_note_length` is compared and `accounts.note` is not.
+COMPARED_VALUES = (
+    "configuration.accounts.",
+    "configuration.statuses.",
+    "configuration.polls.",
+    "configuration.media_attachments.",
+    "configuration.translation.",
+    "configuration.reactions.",
+)
+
+
+def compares_value(path):
+    return any(path.startswith(prefix) for prefix in COMPARED_VALUES)
+
+
+def values_at(value, prefix="", out=None):
+    """Flatten a response to {dotted.path: scalar} for the fields we compare."""
+    out = {} if out is None else out
+    if isinstance(value, dict):
+        for k, v in value.items():
+            values_at(v, f"{prefix}.{k}" if prefix else k, out)
+    elif not isinstance(value, list):
+        if compares_value(prefix):
+            out[prefix] = value
+    return out
 
 
 def shape(value, depth=0):
@@ -160,6 +196,15 @@ def main():
 
         compared += 1
         compare(path, shape(e_body), shape(m_body), findings)
+
+        # And the values that are not a matter of instance data.
+        e_values, m_values = values_at(e_body), values_at(m_body)
+        for field in sorted(set(e_values) & set(m_values)):
+            if e_values[field] != m_values[field]:
+                findings.append(
+                    f"{path}: `{field}` is {e_values[field]!r} on eunha, "
+                    f"{m_values[field]!r} on Mastodon"
+                )
 
     print(f"compared {compared} endpoint(s)")
     for s in skipped:

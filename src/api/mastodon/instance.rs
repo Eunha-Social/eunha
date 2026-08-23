@@ -380,7 +380,11 @@ pub async fn get_instance_v2(
                     "audio/3gpp".into(),
                     "video/x-ms-asf".into(),
                 ],
-                description_limit: 1500,
+                // Mastodon's `MediaAttachment::MAX_DESCRIPTION_LENGTH`, raised
+                // to 10,000 upstream; 1500 was the older limit. eunha does not
+                // enforce a limit of its own, so advertising the smaller number
+                // only made clients refuse alt text this server would accept.
+                description_limit: 10_000,
                 image_size_limit: 16 * 1024 * 1024,
                 image_matrix_limit: 33_177_600,
                 video_size_limit: 99 * 1024 * 1024,
