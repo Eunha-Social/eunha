@@ -325,6 +325,32 @@ pub async fn create_and_push(
         return;
     }
 
+    // Mastodon's `domain_blocking?`: blocking a domain says you want nothing
+    // from it, and a notification is the most direct way it would reach you.
+    // Following someone there is the exception — a deliberate choice to keep
+    // hearing from that account despite the domain block.
+    let domain_blocked = sqlx::query_scalar!(
+        r#"SELECT 1 FROM account_domain_blocks adb
+           JOIN accounts sender ON sender.id = $2
+           WHERE adb.account_id = $1
+             AND sender.domain IS NOT NULL
+             AND adb.domain = sender.domain
+             AND NOT EXISTS (
+               SELECT 1 FROM follows
+               WHERE account_id = $1 AND target_account_id = $2
+             )"#,
+        recipient_id,
+        from_account_id,
+    )
+    .fetch_optional(&db)
+    .await
+    .ok()
+    .flatten()
+    .is_some();
+    if domain_blocked {
+        return;
+    }
+
     // Don't notify if the recipient mutes the sender with hide_notifications.
     let notifications_hidden = sqlx::query_scalar!(
         r#"SELECT 1 FROM mutes

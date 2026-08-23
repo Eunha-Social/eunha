@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO account_domain_blocks (account_id, domain, created_at, updated_at)\n           VALUES ($1, $2, now(), now())",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Varchar"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0cbace0479139dad69a517f65a7b5acded8e6f4857040cf0fb3414aed3ecd8d0"
+}
