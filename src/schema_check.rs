@@ -4,14 +4,14 @@
 //! if the two schemas are the same object, so this reads the database back out
 //! of Postgres and diffs it against upstream's `db/schema.rb`.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeSet;
 
 use anyhow::{Context, Result};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use sqlx::PgPool;
 
-use crate::upstream::{Column, ForeignKey, Index, Schema, Table};
+use crate::upstream::{Column, Constraint, Index, Schema, Sequence, Table, View};
 
 /// Migration ledgers, which `schema.rb` never describes: Rails' two, which
 /// eunha maintains for compatibility, and sqlx's own, which it insists on
@@ -76,11 +76,19 @@ pub enum Finding {
         live: Option<String>,
         expected: Option<String>,
     },
-    MissingForeignKey(ForeignKey),
-    ExtraForeignKey(ForeignKey),
-    OnDeleteMismatch {
-        key: ForeignKey,
+    MissingConstraint(Constraint),
+    ExtraConstraint(Constraint),
+    MissingSequence(String),
+    ExtraSequence(String),
+    SequenceMismatch {
+        name: String,
         live: String,
+        expected: String,
+    },
+    MissingView(String),
+    ExtraView(String),
+    ViewDefinitionMismatch {
+        name: String,
     },
 }
 
@@ -170,21 +178,34 @@ impl std::fmt::Display for Finding {
                     "non-unique"
                 }
             ),
-            Finding::MissingForeignKey(k) => write!(
+            Finding::MissingConstraint(c) => write!(
                 f,
-                "missing foreign key {}.{} -> {} (on delete {})",
-                k.table, k.column, k.target, k.on_delete
+                "missing {} constraint {} on {}: {}",
+                constraint_kind(&c.kind),
+                c.name,
+                c.table,
+                c.definition
             ),
-            Finding::ExtraForeignKey(k) => write!(
+            Finding::ExtraConstraint(c) => write!(
                 f,
-                "unexpected foreign key {}.{} -> {}",
-                k.table, k.column, k.target
+                "unexpected {} constraint {} on {}: {}",
+                constraint_kind(&c.kind),
+                c.name,
+                c.table,
+                c.definition
             ),
-            Finding::OnDeleteMismatch { key, live } => write!(
-                f,
-                "foreign key {}.{} -> {} is on delete {live}, expected {}",
-                key.table, key.column, key.target, key.on_delete
-            ),
+            Finding::MissingSequence(name) => write!(f, "missing sequence {name}"),
+            Finding::ExtraSequence(name) => write!(f, "unexpected sequence {name}"),
+            Finding::SequenceMismatch {
+                name,
+                live,
+                expected,
+            } => write!(f, "sequence {name} is {live}, expected {expected}"),
+            Finding::MissingView(name) => write!(f, "missing view {name}"),
+            Finding::ExtraView(name) => write!(f, "unexpected view {name}"),
+            Finding::ViewDefinitionMismatch { name } => {
+                write!(f, "view {name} is defined differently")
+            }
         }
     }
 }
@@ -275,32 +296,119 @@ pub async fn introspect(pool: &PgPool) -> Result<Schema> {
             );
     }
 
-    let foreign_keys: Vec<(String, String, String, String)> = sqlx::query_as(
+    let constraints: Vec<(String, String, String, String)> = sqlx::query_as(
         r#"
-        SELECT t.relname::text, a.attname::text, ft.relname::text, c.confdeltype::text
-        FROM pg_constraint c
-        JOIN pg_class t ON t.oid = c.conrelid
-        JOIN pg_class ft ON ft.oid = c.confrelid
-        JOIN pg_namespace n ON n.oid = t.relnamespace
-        JOIN LATERAL unnest(c.conkey) AS k(attnum) ON true
-        JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = k.attnum
-        WHERE c.contype = 'f' AND n.nspname = 'public'
+        SELECT c.relname::text, con.conname::text, con.contype::text,
+               replace(pg_get_constraintdef(con.oid), 'public.', '')::text
+        FROM pg_constraint con
+        JOIN pg_class c ON c.oid = con.conrelid
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public'
         "#,
     )
     .fetch_all(pool)
     .await
-    .context("reading foreign keys")?;
+    .context("reading constraints")?;
 
-    for (table, column, target, confdeltype) in foreign_keys {
-        schema.foreign_keys.insert(ForeignKey {
+    for (table, name, kind, definition) in constraints {
+        schema.constraints.insert(Constraint {
             table,
-            column,
-            target,
-            on_delete: on_delete(&confdeltype).to_string(),
+            name,
+            kind,
+            definition,
         });
     }
 
+    let sequences: Vec<(String, String, i64)> = sqlx::query_as(
+        r#"
+        SELECT s.relname::text, q.seqtypid::regtype::text, q.seqincrement
+        FROM pg_class s
+        JOIN pg_namespace n ON n.oid = s.relnamespace AND n.nspname = 'public'
+        JOIN pg_sequence q ON q.seqrelid = s.oid
+        WHERE s.relkind = 'S'
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .context("reading sequences")?;
+
+    for (name, data_type, increment) in sequences {
+        schema.sequences.insert(
+            name.clone(),
+            Sequence {
+                name,
+                data_type,
+                increment,
+            },
+        );
+    }
+
+    let views: Vec<(String, bool, String)> = sqlx::query_as(
+        r#"
+        SELECT c.relname::text, (c.relkind = 'm'), pg_get_viewdef(c.oid, true)::text
+        FROM pg_class c
+        JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE n.nspname = 'public' AND c.relkind IN ('v', 'm')
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .context("reading views")?;
+
+    for (name, materialized, definition) in views {
+        schema.views.insert(
+            name.clone(),
+            View {
+                name,
+                materialized,
+                definition,
+            },
+        );
+    }
+
     Ok(schema)
+}
+
+/// A sequence left behind by a table that no longer exists.
+///
+/// Mastodon creates a sequence per snowflake-id table by hand rather than as a
+/// serial column's, so nothing owns it and dropping the table leaves it behind.
+/// `encrypted_messages_id_seq` is one: the table was added in 2020 and later
+/// removed, and every Mastodon that ran migrations through that period still
+/// has the sequence.
+///
+/// The reference is built by loading `schema.rb`, which describes the schema
+/// rather than the history that produced it, so it has no such leftovers.
+/// Neither database is wrong — a Mastodon installed fresh today differs from one
+/// upgraded since 2020 in exactly this way — and eunha matches the upgraded one,
+/// because that is the thing it stands in for.
+///
+/// Narrow on purpose: a sequence whose table *does* exist, or one the reference
+/// has and the database lacks, is still reported.
+fn is_orphaned_sequence(sequence: &Sequence, live: &Schema, expected: &Schema) -> bool {
+    let Some(table) = sequence.name.strip_suffix("_id_seq") else {
+        return false;
+    };
+    !live.tables.contains_key(table) && !expected.tables.contains_key(table)
+}
+
+/// A constraint kind, spelled the way a person would say it.
+fn constraint_kind(contype: &str) -> &'static str {
+    match contype {
+        "f" => "foreign key",
+        "p" => "primary key",
+        "u" => "unique",
+        "c" => "check",
+        "n" => "not-null",
+        _ => "unknown",
+    }
+}
+
+fn describe_sequence(sequence: &Sequence) -> String {
+    format!(
+        "{} incrementing by {}",
+        sequence.data_type, sequence.increment
+    )
 }
 
 /// Render a column's type the way `schema.rb` parsing does, so the two are
@@ -321,16 +429,6 @@ fn sql_type(data_type: &str, udt: &str) -> String {
         other => other,
     };
     format!("{element}[]")
-}
-
-fn on_delete(confdeltype: &str) -> &'static str {
-    match confdeltype {
-        "c" => "cascade",
-        "n" => "nullify",
-        "r" => "restrict",
-        "d" => "default",
-        _ => "none",
-    }
 }
 
 /// Diff a live schema against upstream's, most structural findings first.
@@ -436,47 +534,48 @@ pub fn diff(live: &Schema, upstream: &Schema) -> Vec<Finding> {
         }
     }
 
-    // Foreign keys are identified by (table, column, target); `on_delete` is
-    // the part that drifts, so report that separately from a missing key.
-    let by_identity = |keys: &BTreeSet<ForeignKey>| -> BTreeMap<(String, String, String), String> {
-        keys.iter()
-            .map(|k| {
-                (
-                    (k.table.clone(), k.column.clone(), k.target.clone()),
-                    k.on_delete.clone(),
-                )
-            })
-            .collect()
-    };
-    let live_keys = by_identity(&live.foreign_keys);
-    let upstream_keys = by_identity(&upstream.foreign_keys);
+    for constraint in upstream.constraints.difference(&live.constraints) {
+        findings.push(Finding::MissingConstraint(constraint.clone()));
+    }
+    for constraint in live.constraints.difference(&upstream.constraints) {
+        if BOOKKEEPING.contains(&constraint.table.as_str()) {
+            continue;
+        }
+        findings.push(Finding::ExtraConstraint(constraint.clone()));
+    }
 
-    for (identity, expected_on_delete) in &upstream_keys {
-        let key = ForeignKey {
-            table: identity.0.clone(),
-            column: identity.1.clone(),
-            target: identity.2.clone(),
-            on_delete: expected_on_delete.clone(),
-        };
-        match live_keys.get(identity) {
-            None => findings.push(Finding::MissingForeignKey(key)),
-            Some(live_on_delete) if live_on_delete != expected_on_delete => {
-                findings.push(Finding::OnDeleteMismatch {
-                    key,
-                    live: live_on_delete.clone(),
+    for (name, expected_sequence) in &upstream.sequences {
+        match live.sequences.get(name) {
+            None => findings.push(Finding::MissingSequence(name.clone())),
+            Some(actual) if actual != expected_sequence => {
+                findings.push(Finding::SequenceMismatch {
+                    name: name.clone(),
+                    live: describe_sequence(actual),
+                    expected: describe_sequence(expected_sequence),
                 })
             }
             Some(_) => {}
         }
     }
-    for (identity, on_delete) in &live_keys {
-        if !upstream_keys.contains_key(identity) && !BOOKKEEPING.contains(&identity.0.as_str()) {
-            findings.push(Finding::ExtraForeignKey(ForeignKey {
-                table: identity.0.clone(),
-                column: identity.1.clone(),
-                target: identity.2.clone(),
-                on_delete: on_delete.clone(),
-            }));
+    for (name, sequence) in &live.sequences {
+        if upstream.sequences.contains_key(name) || is_orphaned_sequence(sequence, live, upstream) {
+            continue;
+        }
+        findings.push(Finding::ExtraSequence(name.clone()));
+    }
+
+    for (name, expected_view) in &upstream.views {
+        match live.views.get(name) {
+            None => findings.push(Finding::MissingView(name.clone())),
+            Some(actual) if actual.definition != expected_view.definition => {
+                findings.push(Finding::ViewDefinitionMismatch { name: name.clone() })
+            }
+            Some(_) => {}
+        }
+    }
+    for name in live.views.keys() {
+        if !upstream.views.contains_key(name) {
+            findings.push(Finding::ExtraView(name.clone()));
         }
     }
 
@@ -537,14 +636,16 @@ mod tests {
         }
     }
 
-    fn schema(tables: Vec<(&str, Table)>, foreign_keys: Vec<ForeignKey>) -> Schema {
+    fn schema(tables: Vec<(&str, Table)>, constraints: Vec<Constraint>) -> Schema {
         Schema {
             version: "20260812154114".to_string(),
             tables: tables
                 .into_iter()
                 .map(|(name, t)| (name.to_string(), t))
                 .collect(),
-            foreign_keys: foreign_keys.into_iter().collect(),
+            constraints: constraints.into_iter().collect(),
+            sequences: Default::default(),
+            views: Default::default(),
         }
     }
 
@@ -564,11 +665,12 @@ mod tests {
                     )],
                 ),
             )],
-            vec![ForeignKey {
+            vec![Constraint {
                 table: "statuses".into(),
-                column: "account_id".into(),
-                target: "accounts".into(),
-                on_delete: "cascade".into(),
+                name: "fk_rails_9bda1543f7".into(),
+                kind: "f".into(),
+                definition: "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+                    .into(),
             }],
         )
     }
@@ -600,7 +702,7 @@ mod tests {
             .insert("leftover".to_string(), column("leftover", "text", true));
         live.tables
             .insert("gone_missing".to_string(), Table::default());
-        live.foreign_keys.clear();
+        live.constraints.clear();
 
         let findings = diff(&live, &expected);
 
@@ -632,7 +734,22 @@ mod tests {
             .any(|f| matches!(f, Finding::ExtraTable(name) if name == "gone_missing")));
         assert!(findings
             .iter()
-            .any(|f| matches!(f, Finding::MissingForeignKey(k) if k.table == "statuses")));
+            .any(|f| matches!(f, Finding::MissingConstraint(c) if c.table == "statuses")));
+
+        // A constraint renamed but otherwise identical is still drift: Rails
+        // drops constraints by name.
+        let mut renamed = reference();
+        let mut constraint = renamed.constraints.iter().next().unwrap().clone();
+        renamed.constraints.clear();
+        constraint.name = "fk_descriptively_named".to_string();
+        renamed.constraints.insert(constraint);
+        let renames = diff(&renamed, &expected);
+        assert!(renames.iter().any(
+            |f| matches!(f, Finding::MissingConstraint(c) if c.name == "fk_rails_9bda1543f7")
+        ));
+        assert!(renames.iter().any(
+            |f| matches!(f, Finding::ExtraConstraint(c) if c.name == "fk_descriptively_named")
+        ));
     }
 
     /// Migration ledgers are not part of Mastodon's schema and are never drift.
@@ -648,6 +765,54 @@ mod tests {
             live.tables.insert(ledger.to_string(), Table::default());
         }
         assert!(diff(&live, &expected).is_empty());
+    }
+
+    /// A sequence left over from a dropped table is not drift: `schema.rb`
+    /// describes the schema, not the history that produced it, so the reference
+    /// never has one — but every Mastodon that migrated through the table's
+    /// lifetime does.
+    #[test]
+    fn a_sequence_left_by_a_dropped_table_is_not_drift() {
+        let expected = reference();
+        let mut live = reference();
+        live.sequences.insert(
+            "encrypted_messages_id_seq".to_string(),
+            Sequence {
+                name: "encrypted_messages_id_seq".into(),
+                data_type: "bigint".into(),
+                increment: 1,
+            },
+        );
+        assert!(diff(&live, &expected).is_empty());
+
+        // But one whose table *does* exist is unexplained, and reported.
+        live.sequences.insert(
+            "accounts_id_seq".to_string(),
+            Sequence {
+                name: "accounts_id_seq".into(),
+                data_type: "bigint".into(),
+                increment: 1,
+            },
+        );
+        assert!(diff(&live, &expected)
+            .iter()
+            .any(|f| matches!(f, Finding::ExtraSequence(n) if n == "accounts_id_seq")));
+
+        // And a sequence the reference has but the database lacks is drift.
+        let mut missing = reference();
+        missing.sequences.clear();
+        let mut with_seq = reference();
+        with_seq.sequences.insert(
+            "accounts_id_seq".to_string(),
+            Sequence {
+                name: "accounts_id_seq".into(),
+                data_type: "bigint".into(),
+                increment: 1,
+            },
+        );
+        assert!(diff(&missing, &with_seq)
+            .iter()
+            .any(|f| matches!(f, Finding::MissingSequence(n) if n == "accounts_id_seq")));
     }
 
     #[test]

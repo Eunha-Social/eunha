@@ -81,30 +81,53 @@ pub struct Column {
     pub default: Option<String>,
 }
 
-/// A foreign key, keyed the way both sides can agree on: the constraint's
-/// auto-generated Rails name is not derivable from `schema.rb`, so identity is
-/// (table, column, target table) and the interesting part is `on_delete`.
+/// A constraint, compared by name as well as by definition.
+///
+/// Names matter rather than being incidental: Rails derives a foreign key's
+/// name from a hash of the table and column and its own migrations drop
+/// constraints by that name, so a constraint that describes the same rule under
+/// a different name is still drift.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct ForeignKey {
+pub struct Constraint {
     pub table: String,
-    pub column: String,
-    pub target: String,
-    /// `cascade`, `nullify`, or `none` — Postgres' `NO ACTION`.
-    pub on_delete: String,
+    pub name: String,
+    /// `pg_constraint.contype`: `f` foreign key, `p` primary key, `n` not null,
+    /// `c` check, `u` unique.
+    pub kind: String,
+    /// `pg_get_constraintdef`, with `public.` elided.
+    pub definition: String,
 }
 
-/// An index, compared by name and uniqueness.
+/// A sequence.
 ///
-/// The indexed expression is deliberately not compared: `schema.rb` writes
-/// column lists while Postgres writes a normalised expression, and reconciling
-/// the two produces more noise than signal. Name and uniqueness catch what
-/// upstream actually churns between releases.
+/// Ownership — whether a column owns the sequence, as a serial column's does —
+/// is deliberately not recorded. It depends on how a table came to be rather
+/// than on what it is: `quotes` was created with a serial id and later switched
+/// to `timestamp_id`, so a Mastodon that migrated owns that sequence while one
+/// built from `schema.rb` does not. Neither is wrong, and comparing it would
+/// report a difference on every check.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct Sequence {
+    pub name: String,
+    pub data_type: String,
+    pub increment: i64,
+}
+
+/// An index, compared by name, uniqueness and the definition Postgres reports.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Index {
     pub name: String,
     pub unique: bool,
     /// `pg_get_indexdef`, with the table name elided: the columns or expression
     /// the index covers, its method, and any partial predicate.
+    pub definition: String,
+}
+
+/// A view or materialized view, compared by the SQL it is defined as.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct View {
+    pub name: String,
+    pub materialized: bool,
     pub definition: String,
 }
 
@@ -117,11 +140,16 @@ pub struct Table {
 /// The full picture of a schema, from either upstream or a live database.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Schema {
-    /// `define(version:)` from `schema.rb`, or `max(version)` from a live
-    /// `public.schema_migrations`.
+    /// `max(version)` from a live `public.schema_migrations`.
     pub version: String,
     pub tables: BTreeMap<String, Table>,
-    pub foreign_keys: BTreeSet<ForeignKey>,
+    /// Every constraint, of every kind, keyed by table and name.
+    #[serde(default)]
+    pub constraints: BTreeSet<Constraint>,
+    #[serde(default)]
+    pub sequences: BTreeMap<String, Sequence>,
+    #[serde(default)]
+    pub views: BTreeMap<String, View>,
 }
 
 fn client() -> Result<reqwest::Client> {

@@ -48,12 +48,26 @@ does the tracking:
 
 `schema:check` reads the live database back out of Postgres and compares it
 against a **reference**: the structure of a database that Mastodon's own
-ActiveRecord built from its `db/schema.rb`. Comparing Postgres to Postgres
-means comparing everything Postgres knows — column types, nullability,
-defaults, the columns an index actually covers, constraint names, foreign keys
-and their `ON DELETE` — rather than what a parser of ours believes a Ruby file
-means. It is the test for the 100%-compatibility claim, and it runs on every
-`cargo test`.
+ActiveRecord built from its `db/schema.rb`. Comparing Postgres to Postgres means
+comparing everything Postgres knows — tables, column types, nullability and
+defaults, the columns an index actually covers, every constraint *by name* as
+well as by definition, sequences, and view definitions — rather than what a
+parser of ours believes a Ruby file means. It is the test for the
+100%-compatibility claim, and it runs on every `cargo test`.
+
+Two things are deliberately not compared, because they record how a database
+came to be rather than what it is, and `schema.rb` cannot express either:
+
+* **Sequences left behind by dropped tables.** Mastodon creates one sequence per
+  snowflake-id table by hand, so nothing owns it and dropping the table leaves it
+  behind — `encrypted_messages_id_seq` has outlived its table since 2022. Every
+  Mastodon that migrated through that period has it; one installed fresh today
+  does not. Eunha matches the former, because that is what it stands in for. A
+  sequence whose table *does* exist, or one the reference has and the database
+  lacks, is still reported.
+* **Sequence ownership.** `quotes` was created with a serial id and later moved
+  to `timestamp_id`, so a migrated Mastodon owns that sequence and a freshly
+  loaded one does not.
 
 Three files under `mastodon/` support it, all regenerated together by
 `mise run schema:build-reference`:

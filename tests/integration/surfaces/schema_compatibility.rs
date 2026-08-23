@@ -49,9 +49,21 @@ async fn test_the_reference_is_a_whole_schema() {
         reference.tables.len()
     );
     assert!(
-        reference.foreign_keys.len() > 100,
-        "the recorded reference has only {} foreign keys",
-        reference.foreign_keys.len()
+        reference.constraints.len() > 500,
+        "the recorded reference has only {} constraints",
+        reference.constraints.len()
+    );
+    assert!(
+        reference.constraints.iter().any(|c| c.kind == "f"),
+        "no foreign keys were recorded"
+    );
+    assert!(
+        reference.constraints.iter().any(|c| c.kind == "n"),
+        "no not-null constraints were recorded"
+    );
+    assert!(
+        !reference.views.is_empty(),
+        "Mastodon's views were not recorded"
     );
     // Recorded from a real database, so defaults and index definitions came
     // with it; a reference missing those would compare on less than it claims.

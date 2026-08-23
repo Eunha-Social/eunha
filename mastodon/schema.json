@@ -7895,942 +7895,6429 @@
       }
     }
   },
-  "foreign_keys": [
+  "constraints": [
     {
       "table": "account_aliases",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "account_aliases_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "account_aliases",
+      "name": "account_aliases_acct_not_null",
+      "kind": "n",
+      "definition": "NOT NULL acct"
+    },
+    {
+      "table": "account_aliases",
+      "name": "account_aliases_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "account_aliases",
+      "name": "account_aliases_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "account_aliases",
+      "name": "account_aliases_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "account_aliases",
+      "name": "account_aliases_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "account_aliases",
+      "name": "account_aliases_uri_not_null",
+      "kind": "n",
+      "definition": "NOT NULL uri"
+    },
+    {
+      "table": "account_aliases",
+      "name": "fk_rails_fc91575d08",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "account_conversations",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "account_conversations_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
     },
     {
       "table": "account_conversations",
-      "column": "conversation_id",
-      "target": "conversations",
-      "on_delete": "cascade"
+      "name": "account_conversations_conversation_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL conversation_id"
+    },
+    {
+      "table": "account_conversations",
+      "name": "account_conversations_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "account_conversations",
+      "name": "account_conversations_lock_version_not_null",
+      "kind": "n",
+      "definition": "NOT NULL lock_version"
+    },
+    {
+      "table": "account_conversations",
+      "name": "account_conversations_participant_account_ids_not_null",
+      "kind": "n",
+      "definition": "NOT NULL participant_account_ids"
+    },
+    {
+      "table": "account_conversations",
+      "name": "account_conversations_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "account_conversations",
+      "name": "account_conversations_status_ids_not_null",
+      "kind": "n",
+      "definition": "NOT NULL status_ids"
+    },
+    {
+      "table": "account_conversations",
+      "name": "account_conversations_unread_not_null",
+      "kind": "n",
+      "definition": "NOT NULL unread"
+    },
+    {
+      "table": "account_conversations",
+      "name": "fk_rails_1491654f9f",
+      "kind": "f",
+      "definition": "FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "account_conversations",
+      "name": "fk_rails_6f5278b6e9",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "account_deletion_requests",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "account_deletion_requests_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "account_deletion_requests",
+      "name": "account_deletion_requests_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "account_deletion_requests",
+      "name": "account_deletion_requests_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "account_deletion_requests",
+      "name": "account_deletion_requests_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "account_deletion_requests",
+      "name": "account_deletion_requests_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "account_deletion_requests",
+      "name": "fk_rails_45bf2626b9",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "account_domain_blocks",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "account_domain_blocks_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "account_domain_blocks",
+      "name": "account_domain_blocks_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "account_domain_blocks",
+      "name": "account_domain_blocks_domain_not_null",
+      "kind": "n",
+      "definition": "NOT NULL domain"
+    },
+    {
+      "table": "account_domain_blocks",
+      "name": "account_domain_blocks_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "account_domain_blocks",
+      "name": "account_domain_blocks_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "account_domain_blocks",
+      "name": "account_domain_blocks_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "account_domain_blocks",
+      "name": "fk_206c6029bd",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "account_migrations",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "account_migrations_acct_not_null",
+      "kind": "n",
+      "definition": "NOT NULL acct"
     },
     {
       "table": "account_migrations",
-      "column": "target_account_id",
-      "target": "accounts",
-      "on_delete": "nullify"
+      "name": "account_migrations_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "account_migrations",
+      "name": "account_migrations_followers_count_not_null",
+      "kind": "n",
+      "definition": "NOT NULL followers_count"
+    },
+    {
+      "table": "account_migrations",
+      "name": "account_migrations_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "account_migrations",
+      "name": "account_migrations_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "account_migrations",
+      "name": "account_migrations_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "account_migrations",
+      "name": "fk_rails_c9f701caaf",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "account_migrations",
+      "name": "fk_rails_d9a8dad070",
+      "kind": "f",
+      "definition": "FOREIGN KEY (target_account_id) REFERENCES accounts(id) ON DELETE SET NULL"
     },
     {
       "table": "account_moderation_notes",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "account_moderation_notes_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
     },
     {
       "table": "account_moderation_notes",
-      "column": "target_account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "account_moderation_notes_content_not_null",
+      "kind": "n",
+      "definition": "NOT NULL content"
+    },
+    {
+      "table": "account_moderation_notes",
+      "name": "account_moderation_notes_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "account_moderation_notes",
+      "name": "account_moderation_notes_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "account_moderation_notes",
+      "name": "account_moderation_notes_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "account_moderation_notes",
+      "name": "account_moderation_notes_target_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL target_account_id"
+    },
+    {
+      "table": "account_moderation_notes",
+      "name": "account_moderation_notes_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "account_moderation_notes",
+      "name": "fk_rails_3f8b75089b",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "account_moderation_notes",
+      "name": "fk_rails_dd62ed5ac3",
+      "kind": "f",
+      "definition": "FOREIGN KEY (target_account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "account_notes",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "account_notes_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
     },
     {
       "table": "account_notes",
-      "column": "target_account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "account_notes_comment_not_null",
+      "kind": "n",
+      "definition": "NOT NULL comment"
+    },
+    {
+      "table": "account_notes",
+      "name": "account_notes_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "account_notes",
+      "name": "account_notes_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "account_notes",
+      "name": "account_notes_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "account_notes",
+      "name": "account_notes_target_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL target_account_id"
+    },
+    {
+      "table": "account_notes",
+      "name": "account_notes_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "account_notes",
+      "name": "fk_rails_2801b48f1a",
+      "kind": "f",
+      "definition": "FOREIGN KEY (target_account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "account_notes",
+      "name": "fk_rails_4ee4503c69",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "account_pins",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "account_pins_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
     },
     {
       "table": "account_pins",
-      "column": "target_account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "account_pins_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "account_pins",
+      "name": "account_pins_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "account_pins",
+      "name": "account_pins_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "account_pins",
+      "name": "account_pins_target_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL target_account_id"
+    },
+    {
+      "table": "account_pins",
+      "name": "account_pins_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "account_pins",
+      "name": "fk_rails_a176e26c37",
+      "kind": "f",
+      "definition": "FOREIGN KEY (target_account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "account_pins",
+      "name": "fk_rails_d44979e5dd",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "account_relationship_severance_events",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "account_relationship_severa_relationship_severance_eve_not_null",
+      "kind": "n",
+      "definition": "NOT NULL relationship_severance_event_id"
     },
     {
       "table": "account_relationship_severance_events",
-      "column": "relationship_severance_event_id",
-      "target": "relationship_severance_events",
-      "on_delete": "cascade"
+      "name": "account_relationship_severance_events_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "account_relationship_severance_events",
+      "name": "account_relationship_severance_events_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "account_relationship_severance_events",
+      "name": "account_relationship_severance_events_followers_count_not_null",
+      "kind": "n",
+      "definition": "NOT NULL followers_count"
+    },
+    {
+      "table": "account_relationship_severance_events",
+      "name": "account_relationship_severance_events_following_count_not_null",
+      "kind": "n",
+      "definition": "NOT NULL following_count"
+    },
+    {
+      "table": "account_relationship_severance_events",
+      "name": "account_relationship_severance_events_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "account_relationship_severance_events",
+      "name": "account_relationship_severance_events_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "account_relationship_severance_events",
+      "name": "account_relationship_severance_events_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "account_relationship_severance_events",
+      "name": "fk_rails_030c916965",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "account_relationship_severance_events",
+      "name": "fk_rails_8a34c3a361",
+      "kind": "f",
+      "definition": "FOREIGN KEY (relationship_severance_event_id) REFERENCES relationship_severance_events(id) ON DELETE CASCADE"
     },
     {
       "table": "account_stats",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "account_stats_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "account_stats",
+      "name": "account_stats_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "account_stats",
+      "name": "account_stats_followers_count_not_null",
+      "kind": "n",
+      "definition": "NOT NULL followers_count"
+    },
+    {
+      "table": "account_stats",
+      "name": "account_stats_following_count_not_null",
+      "kind": "n",
+      "definition": "NOT NULL following_count"
+    },
+    {
+      "table": "account_stats",
+      "name": "account_stats_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "account_stats",
+      "name": "account_stats_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "account_stats",
+      "name": "account_stats_statuses_count_not_null",
+      "kind": "n",
+      "definition": "NOT NULL statuses_count"
+    },
+    {
+      "table": "account_stats",
+      "name": "account_stats_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "account_stats",
+      "name": "fk_rails_215bb31ff1",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "account_statuses_cleanup_policies",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "account_statuses_cleanup_policies_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "account_statuses_cleanup_policies",
+      "name": "account_statuses_cleanup_policies_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "account_statuses_cleanup_policies",
+      "name": "account_statuses_cleanup_policies_enabled_not_null",
+      "kind": "n",
+      "definition": "NOT NULL enabled"
+    },
+    {
+      "table": "account_statuses_cleanup_policies",
+      "name": "account_statuses_cleanup_policies_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "account_statuses_cleanup_policies",
+      "name": "account_statuses_cleanup_policies_keep_direct_not_null",
+      "kind": "n",
+      "definition": "NOT NULL keep_direct"
+    },
+    {
+      "table": "account_statuses_cleanup_policies",
+      "name": "account_statuses_cleanup_policies_keep_media_not_null",
+      "kind": "n",
+      "definition": "NOT NULL keep_media"
+    },
+    {
+      "table": "account_statuses_cleanup_policies",
+      "name": "account_statuses_cleanup_policies_keep_pinned_not_null",
+      "kind": "n",
+      "definition": "NOT NULL keep_pinned"
+    },
+    {
+      "table": "account_statuses_cleanup_policies",
+      "name": "account_statuses_cleanup_policies_keep_polls_not_null",
+      "kind": "n",
+      "definition": "NOT NULL keep_polls"
+    },
+    {
+      "table": "account_statuses_cleanup_policies",
+      "name": "account_statuses_cleanup_policies_keep_self_bookmark_not_null",
+      "kind": "n",
+      "definition": "NOT NULL keep_self_bookmark"
+    },
+    {
+      "table": "account_statuses_cleanup_policies",
+      "name": "account_statuses_cleanup_policies_keep_self_fav_not_null",
+      "kind": "n",
+      "definition": "NOT NULL keep_self_fav"
+    },
+    {
+      "table": "account_statuses_cleanup_policies",
+      "name": "account_statuses_cleanup_policies_min_status_age_not_null",
+      "kind": "n",
+      "definition": "NOT NULL min_status_age"
+    },
+    {
+      "table": "account_statuses_cleanup_policies",
+      "name": "account_statuses_cleanup_policies_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "account_statuses_cleanup_policies",
+      "name": "account_statuses_cleanup_policies_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "account_statuses_cleanup_policies",
+      "name": "fk_rails_23d5f73cfe",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "account_summaries",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "account_summaries_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "account_summaries",
+      "name": "account_summaries_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (account_id)"
+    },
+    {
+      "table": "account_summaries",
+      "name": "account_summaries_sensitive_not_null",
+      "kind": "n",
+      "definition": "NOT NULL sensitive"
+    },
+    {
+      "table": "account_summaries",
+      "name": "fk_rails_4ea43ef304",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "account_warning_presets",
+      "name": "account_warning_presets_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "account_warning_presets",
+      "name": "account_warning_presets_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "account_warning_presets",
+      "name": "account_warning_presets_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "account_warning_presets",
+      "name": "account_warning_presets_text_not_null",
+      "kind": "n",
+      "definition": "NOT NULL text"
+    },
+    {
+      "table": "account_warning_presets",
+      "name": "account_warning_presets_title_not_null",
+      "kind": "n",
+      "definition": "NOT NULL title"
+    },
+    {
+      "table": "account_warning_presets",
+      "name": "account_warning_presets_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "account_warnings",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "nullify"
+      "name": "account_warnings_action_not_null",
+      "kind": "n",
+      "definition": "NOT NULL action"
     },
     {
       "table": "account_warnings",
-      "column": "report_id",
-      "target": "reports",
-      "on_delete": "cascade"
+      "name": "account_warnings_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
     },
     {
       "table": "account_warnings",
-      "column": "target_account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "account_warnings_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "account_warnings",
+      "name": "account_warnings_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "account_warnings",
+      "name": "account_warnings_text_not_null",
+      "kind": "n",
+      "definition": "NOT NULL text"
+    },
+    {
+      "table": "account_warnings",
+      "name": "account_warnings_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "account_warnings",
+      "name": "fk_rails_8f2bab4b16",
+      "kind": "f",
+      "definition": "FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "account_warnings",
+      "name": "fk_rails_a65a1bf71b",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE SET NULL"
+    },
+    {
+      "table": "account_warnings",
+      "name": "fk_rails_a7ebbb1e37",
+      "kind": "f",
+      "definition": "FOREIGN KEY (target_account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "accounts",
-      "column": "moved_to_account_id",
-      "target": "accounts",
-      "on_delete": "nullify"
+      "name": "accounts_avatar_description_not_null",
+      "kind": "n",
+      "definition": "NOT NULL avatar_description"
+    },
+    {
+      "table": "accounts",
+      "name": "accounts_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "accounts",
+      "name": "accounts_display_name_not_null",
+      "kind": "n",
+      "definition": "NOT NULL display_name"
+    },
+    {
+      "table": "accounts",
+      "name": "accounts_feature_approval_policy_not_null",
+      "kind": "n",
+      "definition": "NOT NULL feature_approval_policy"
+    },
+    {
+      "table": "accounts",
+      "name": "accounts_followers_url_not_null",
+      "kind": "n",
+      "definition": "NOT NULL followers_url"
+    },
+    {
+      "table": "accounts",
+      "name": "accounts_following_url_not_null",
+      "kind": "n",
+      "definition": "NOT NULL following_url"
+    },
+    {
+      "table": "accounts",
+      "name": "accounts_header_description_not_null",
+      "kind": "n",
+      "definition": "NOT NULL header_description"
+    },
+    {
+      "table": "accounts",
+      "name": "accounts_header_remote_url_not_null",
+      "kind": "n",
+      "definition": "NOT NULL header_remote_url"
+    },
+    {
+      "table": "accounts",
+      "name": "accounts_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "accounts",
+      "name": "accounts_inbox_url_not_null",
+      "kind": "n",
+      "definition": "NOT NULL inbox_url"
+    },
+    {
+      "table": "accounts",
+      "name": "accounts_indexable_not_null",
+      "kind": "n",
+      "definition": "NOT NULL indexable"
+    },
+    {
+      "table": "accounts",
+      "name": "accounts_locked_not_null",
+      "kind": "n",
+      "definition": "NOT NULL locked"
+    },
+    {
+      "table": "accounts",
+      "name": "accounts_memorial_not_null",
+      "kind": "n",
+      "definition": "NOT NULL memorial"
+    },
+    {
+      "table": "accounts",
+      "name": "accounts_note_not_null",
+      "kind": "n",
+      "definition": "NOT NULL note"
+    },
+    {
+      "table": "accounts",
+      "name": "accounts_outbox_url_not_null",
+      "kind": "n",
+      "definition": "NOT NULL outbox_url"
+    },
+    {
+      "table": "accounts",
+      "name": "accounts_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "accounts",
+      "name": "accounts_protocol_not_null",
+      "kind": "n",
+      "definition": "NOT NULL protocol"
+    },
+    {
+      "table": "accounts",
+      "name": "accounts_public_key_not_null",
+      "kind": "n",
+      "definition": "NOT NULL public_key"
+    },
+    {
+      "table": "accounts",
+      "name": "accounts_shared_inbox_url_not_null",
+      "kind": "n",
+      "definition": "NOT NULL shared_inbox_url"
+    },
+    {
+      "table": "accounts",
+      "name": "accounts_show_featured_not_null",
+      "kind": "n",
+      "definition": "NOT NULL show_featured"
+    },
+    {
+      "table": "accounts",
+      "name": "accounts_show_media_not_null",
+      "kind": "n",
+      "definition": "NOT NULL show_media"
+    },
+    {
+      "table": "accounts",
+      "name": "accounts_show_media_replies_not_null",
+      "kind": "n",
+      "definition": "NOT NULL show_media_replies"
+    },
+    {
+      "table": "accounts",
+      "name": "accounts_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "accounts",
+      "name": "accounts_username_not_null",
+      "kind": "n",
+      "definition": "NOT NULL username"
+    },
+    {
+      "table": "accounts",
+      "name": "fk_rails_2320833084",
+      "kind": "f",
+      "definition": "FOREIGN KEY (moved_to_account_id) REFERENCES accounts(id) ON DELETE SET NULL"
+    },
+    {
+      "table": "accounts_tags",
+      "name": "accounts_tags_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "accounts_tags",
+      "name": "accounts_tags_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (tag_id, account_id)"
+    },
+    {
+      "table": "accounts_tags",
+      "name": "accounts_tags_tag_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL tag_id"
     },
     {
       "table": "admin_action_logs",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "admin_action_logs_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "admin_action_logs",
+      "name": "admin_action_logs_action_not_null",
+      "kind": "n",
+      "definition": "NOT NULL action"
+    },
+    {
+      "table": "admin_action_logs",
+      "name": "admin_action_logs_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "admin_action_logs",
+      "name": "admin_action_logs_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "admin_action_logs",
+      "name": "admin_action_logs_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "admin_action_logs",
+      "name": "admin_action_logs_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "admin_action_logs",
+      "name": "fk_rails_a7667297fa",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "announcement_mutes",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "announcement_mutes_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
     },
     {
       "table": "announcement_mutes",
-      "column": "announcement_id",
-      "target": "announcements",
-      "on_delete": "cascade"
+      "name": "announcement_mutes_announcement_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL announcement_id"
+    },
+    {
+      "table": "announcement_mutes",
+      "name": "announcement_mutes_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "announcement_mutes",
+      "name": "announcement_mutes_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "announcement_mutes",
+      "name": "announcement_mutes_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "announcement_mutes",
+      "name": "announcement_mutes_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "announcement_mutes",
+      "name": "fk_rails_9c99f8e835",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "announcement_mutes",
+      "name": "fk_rails_e35401adf1",
+      "kind": "f",
+      "definition": "FOREIGN KEY (announcement_id) REFERENCES announcements(id) ON DELETE CASCADE"
     },
     {
       "table": "announcement_reactions",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "announcement_reactions_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
     },
     {
       "table": "announcement_reactions",
-      "column": "announcement_id",
-      "target": "announcements",
-      "on_delete": "cascade"
+      "name": "announcement_reactions_announcement_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL announcement_id"
     },
     {
       "table": "announcement_reactions",
-      "column": "custom_emoji_id",
-      "target": "custom_emojis",
-      "on_delete": "cascade"
+      "name": "announcement_reactions_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "announcement_reactions",
+      "name": "announcement_reactions_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "announcement_reactions",
+      "name": "announcement_reactions_name_not_null",
+      "kind": "n",
+      "definition": "NOT NULL name"
+    },
+    {
+      "table": "announcement_reactions",
+      "name": "announcement_reactions_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "announcement_reactions",
+      "name": "announcement_reactions_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "announcement_reactions",
+      "name": "fk_rails_7444ad831f",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "announcement_reactions",
+      "name": "fk_rails_a1226eaa5c",
+      "kind": "f",
+      "definition": "FOREIGN KEY (announcement_id) REFERENCES announcements(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "announcement_reactions",
+      "name": "fk_rails_b742c91c0e",
+      "kind": "f",
+      "definition": "FOREIGN KEY (custom_emoji_id) REFERENCES custom_emojis(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "announcements",
+      "name": "announcements_all_day_not_null",
+      "kind": "n",
+      "definition": "NOT NULL all_day"
+    },
+    {
+      "table": "announcements",
+      "name": "announcements_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "announcements",
+      "name": "announcements_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "announcements",
+      "name": "announcements_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "announcements",
+      "name": "announcements_published_not_null",
+      "kind": "n",
+      "definition": "NOT NULL published"
+    },
+    {
+      "table": "announcements",
+      "name": "announcements_text_not_null",
+      "kind": "n",
+      "definition": "NOT NULL text"
+    },
+    {
+      "table": "announcements",
+      "name": "announcements_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "annual_report_statuses_per_account_counts",
+      "name": "annual_report_statuses_per_account_coun_statuses_count_not_null",
+      "kind": "n",
+      "definition": "NOT NULL statuses_count"
+    },
+    {
+      "table": "annual_report_statuses_per_account_counts",
+      "name": "annual_report_statuses_per_account_counts_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "annual_report_statuses_per_account_counts",
+      "name": "annual_report_statuses_per_account_counts_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "annual_report_statuses_per_account_counts",
+      "name": "annual_report_statuses_per_account_counts_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "annual_report_statuses_per_account_counts",
+      "name": "annual_report_statuses_per_account_counts_year_not_null",
+      "kind": "n",
+      "definition": "NOT NULL year"
     },
     {
       "table": "appeals",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "appeals_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
     },
     {
       "table": "appeals",
-      "column": "account_warning_id",
-      "target": "account_warnings",
-      "on_delete": "cascade"
+      "name": "appeals_account_warning_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_warning_id"
     },
     {
       "table": "appeals",
-      "column": "approved_by_account_id",
-      "target": "accounts",
-      "on_delete": "nullify"
+      "name": "appeals_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
     },
     {
       "table": "appeals",
-      "column": "rejected_by_account_id",
-      "target": "accounts",
-      "on_delete": "nullify"
+      "name": "appeals_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "appeals",
+      "name": "appeals_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "appeals",
+      "name": "appeals_text_not_null",
+      "kind": "n",
+      "definition": "NOT NULL text"
+    },
+    {
+      "table": "appeals",
+      "name": "appeals_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "appeals",
+      "name": "fk_rails_501c3a6e13",
+      "kind": "f",
+      "definition": "FOREIGN KEY (rejected_by_account_id) REFERENCES accounts(id) ON DELETE SET NULL"
+    },
+    {
+      "table": "appeals",
+      "name": "fk_rails_9deb2f63ad",
+      "kind": "f",
+      "definition": "FOREIGN KEY (approved_by_account_id) REFERENCES accounts(id) ON DELETE SET NULL"
+    },
+    {
+      "table": "appeals",
+      "name": "fk_rails_a99f14546e",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_warning_id) REFERENCES account_warnings(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "appeals",
+      "name": "fk_rails_ea84881569",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "ar_internal_metadata",
+      "name": "ar_internal_metadata_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "ar_internal_metadata",
+      "name": "ar_internal_metadata_key_not_null",
+      "kind": "n",
+      "definition": "NOT NULL key"
+    },
+    {
+      "table": "ar_internal_metadata",
+      "name": "ar_internal_metadata_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (key)"
+    },
+    {
+      "table": "ar_internal_metadata",
+      "name": "ar_internal_metadata_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "backups",
-      "column": "user_id",
-      "target": "users",
-      "on_delete": "nullify"
+      "name": "backups_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "backups",
+      "name": "backups_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "backups",
+      "name": "backups_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "backups",
+      "name": "backups_processed_not_null",
+      "kind": "n",
+      "definition": "NOT NULL processed"
+    },
+    {
+      "table": "backups",
+      "name": "backups_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "backups",
+      "name": "fk_rails_096669d221",
+      "kind": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL"
     },
     {
       "table": "blocks",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "blocks_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
     },
     {
       "table": "blocks",
-      "column": "target_account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "blocks_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "blocks",
+      "name": "blocks_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "blocks",
+      "name": "blocks_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "blocks",
+      "name": "blocks_target_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL target_account_id"
+    },
+    {
+      "table": "blocks",
+      "name": "blocks_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "blocks",
+      "name": "fk_4269e03e65",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "blocks",
+      "name": "fk_9571bfabc1",
+      "kind": "f",
+      "definition": "FOREIGN KEY (target_account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "bookmarks",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "bookmarks_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
     },
     {
       "table": "bookmarks",
-      "column": "status_id",
-      "target": "statuses",
-      "on_delete": "cascade"
+      "name": "bookmarks_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "bookmarks",
+      "name": "bookmarks_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "bookmarks",
+      "name": "bookmarks_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "bookmarks",
+      "name": "bookmarks_status_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL status_id"
+    },
+    {
+      "table": "bookmarks",
+      "name": "bookmarks_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "bookmarks",
+      "name": "fk_rails_11207ffcfd",
+      "kind": "f",
+      "definition": "FOREIGN KEY (status_id) REFERENCES statuses(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "bookmarks",
+      "name": "fk_rails_9f6ac182a6",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "bulk_import_rows",
-      "column": "bulk_import_id",
-      "target": "bulk_imports",
-      "on_delete": "cascade"
+      "name": "bulk_import_rows_bulk_import_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL bulk_import_id"
+    },
+    {
+      "table": "bulk_import_rows",
+      "name": "bulk_import_rows_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "bulk_import_rows",
+      "name": "bulk_import_rows_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "bulk_import_rows",
+      "name": "bulk_import_rows_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "bulk_import_rows",
+      "name": "bulk_import_rows_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "bulk_import_rows",
+      "name": "fk_rails_d39af34335",
+      "kind": "f",
+      "definition": "FOREIGN KEY (bulk_import_id) REFERENCES bulk_imports(id) ON DELETE CASCADE"
     },
     {
       "table": "bulk_imports",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "bulk_imports_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "bulk_imports",
+      "name": "bulk_imports_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "bulk_imports",
+      "name": "bulk_imports_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "bulk_imports",
+      "name": "bulk_imports_imported_items_not_null",
+      "kind": "n",
+      "definition": "NOT NULL imported_items"
+    },
+    {
+      "table": "bulk_imports",
+      "name": "bulk_imports_likely_mismatched_not_null",
+      "kind": "n",
+      "definition": "NOT NULL likely_mismatched"
+    },
+    {
+      "table": "bulk_imports",
+      "name": "bulk_imports_missing_status_not_null",
+      "kind": "n",
+      "definition": "NOT NULL missing_status"
+    },
+    {
+      "table": "bulk_imports",
+      "name": "bulk_imports_original_filename_not_null",
+      "kind": "n",
+      "definition": "NOT NULL original_filename"
+    },
+    {
+      "table": "bulk_imports",
+      "name": "bulk_imports_overwrite_not_null",
+      "kind": "n",
+      "definition": "NOT NULL overwrite"
+    },
+    {
+      "table": "bulk_imports",
+      "name": "bulk_imports_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "bulk_imports",
+      "name": "bulk_imports_processed_items_not_null",
+      "kind": "n",
+      "definition": "NOT NULL processed_items"
+    },
+    {
+      "table": "bulk_imports",
+      "name": "bulk_imports_state_not_null",
+      "kind": "n",
+      "definition": "NOT NULL state"
+    },
+    {
+      "table": "bulk_imports",
+      "name": "bulk_imports_total_items_not_null",
+      "kind": "n",
+      "definition": "NOT NULL total_items"
+    },
+    {
+      "table": "bulk_imports",
+      "name": "bulk_imports_type_not_null",
+      "kind": "n",
+      "definition": "NOT NULL type"
+    },
+    {
+      "table": "bulk_imports",
+      "name": "bulk_imports_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "bulk_imports",
+      "name": "fk_rails_1d89c0f8b2",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "canonical_email_blocks",
-      "column": "reference_account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "canonical_email_blocks_canonical_email_hash_not_null",
+      "kind": "n",
+      "definition": "NOT NULL canonical_email_hash"
+    },
+    {
+      "table": "canonical_email_blocks",
+      "name": "canonical_email_blocks_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "canonical_email_blocks",
+      "name": "canonical_email_blocks_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "canonical_email_blocks",
+      "name": "canonical_email_blocks_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "canonical_email_blocks",
+      "name": "canonical_email_blocks_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "canonical_email_blocks",
+      "name": "fk_rails_1ecb262096",
+      "kind": "f",
+      "definition": "FOREIGN KEY (reference_account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "collection_items",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "none"
+      "name": "collection_items_collection_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL collection_id"
     },
     {
       "table": "collection_items",
-      "column": "collection_id",
-      "target": "collections",
-      "on_delete": "cascade"
+      "name": "collection_items_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "collection_items",
+      "name": "collection_items_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "collection_items",
+      "name": "collection_items_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "collection_items",
+      "name": "collection_items_position_not_null",
+      "kind": "n",
+      "definition": "NOT NULL \"position\""
+    },
+    {
+      "table": "collection_items",
+      "name": "collection_items_state_not_null",
+      "kind": "n",
+      "definition": "NOT NULL state"
+    },
+    {
+      "table": "collection_items",
+      "name": "collection_items_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "collection_items",
+      "name": "fk_rails_2eb992658d",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id)"
+    },
+    {
+      "table": "collection_items",
+      "name": "fk_rails_b1a778644b",
+      "kind": "f",
+      "definition": "FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE"
     },
     {
       "table": "collection_reports",
-      "column": "collection_id",
-      "target": "collections",
-      "on_delete": "cascade"
+      "name": "collection_reports_collection_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL collection_id"
     },
     {
       "table": "collection_reports",
-      "column": "report_id",
-      "target": "reports",
-      "on_delete": "cascade"
+      "name": "collection_reports_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "collection_reports",
+      "name": "collection_reports_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "collection_reports",
+      "name": "collection_reports_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "collection_reports",
+      "name": "collection_reports_report_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL report_id"
+    },
+    {
+      "table": "collection_reports",
+      "name": "collection_reports_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "collection_reports",
+      "name": "fk_rails_0720c1a3d6",
+      "kind": "f",
+      "definition": "FOREIGN KEY (collection_id) REFERENCES collections(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "collection_reports",
+      "name": "fk_rails_4a504bd5e6",
+      "kind": "f",
+      "definition": "FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE"
     },
     {
       "table": "collections",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "none"
+      "name": "collections_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
     },
     {
       "table": "collections",
-      "column": "tag_id",
-      "target": "tags",
-      "on_delete": "none"
+      "name": "collections_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "collections",
+      "name": "collections_discoverable_not_null",
+      "kind": "n",
+      "definition": "NOT NULL discoverable"
+    },
+    {
+      "table": "collections",
+      "name": "collections_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "collections",
+      "name": "collections_item_count_not_null",
+      "kind": "n",
+      "definition": "NOT NULL item_count"
+    },
+    {
+      "table": "collections",
+      "name": "collections_local_not_null",
+      "kind": "n",
+      "definition": "NOT NULL local"
+    },
+    {
+      "table": "collections",
+      "name": "collections_name_not_null",
+      "kind": "n",
+      "definition": "NOT NULL name"
+    },
+    {
+      "table": "collections",
+      "name": "collections_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "collections",
+      "name": "collections_sensitive_not_null",
+      "kind": "n",
+      "definition": "NOT NULL sensitive"
+    },
+    {
+      "table": "collections",
+      "name": "collections_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "collections",
+      "name": "fk_rails_544f142936",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id)"
+    },
+    {
+      "table": "collections",
+      "name": "fk_rails_70f13aad15",
+      "kind": "f",
+      "definition": "FOREIGN KEY (tag_id) REFERENCES tags(id)"
     },
     {
       "table": "conversation_mutes",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "conversation_mutes_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
     },
     {
       "table": "conversation_mutes",
-      "column": "conversation_id",
-      "target": "conversations",
-      "on_delete": "cascade"
+      "name": "conversation_mutes_conversation_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL conversation_id"
+    },
+    {
+      "table": "conversation_mutes",
+      "name": "conversation_mutes_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "conversation_mutes",
+      "name": "conversation_mutes_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "conversation_mutes",
+      "name": "fk_225b4212bb",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "conversation_mutes",
+      "name": "fk_rails_5ab139311f",
+      "kind": "f",
+      "definition": "FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "conversations",
+      "name": "conversations_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "conversations",
+      "name": "conversations_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "conversations",
+      "name": "conversations_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "conversations",
+      "name": "conversations_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "custom_emoji_categories",
-      "column": "featured_emoji_id",
-      "target": "custom_emojis",
-      "on_delete": "nullify"
+      "name": "custom_emoji_categories_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "custom_emoji_categories",
+      "name": "custom_emoji_categories_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "custom_emoji_categories",
+      "name": "custom_emoji_categories_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "custom_emoji_categories",
+      "name": "custom_emoji_categories_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "custom_emoji_categories",
+      "name": "fk_rails_ad7840c8cf",
+      "kind": "f",
+      "definition": "FOREIGN KEY (featured_emoji_id) REFERENCES custom_emojis(id) ON DELETE SET NULL"
+    },
+    {
+      "table": "custom_emojis",
+      "name": "custom_emojis_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "custom_emojis",
+      "name": "custom_emojis_disabled_not_null",
+      "kind": "n",
+      "definition": "NOT NULL disabled"
+    },
+    {
+      "table": "custom_emojis",
+      "name": "custom_emojis_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "custom_emojis",
+      "name": "custom_emojis_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "custom_emojis",
+      "name": "custom_emojis_shortcode_not_null",
+      "kind": "n",
+      "definition": "NOT NULL shortcode"
+    },
+    {
+      "table": "custom_emojis",
+      "name": "custom_emojis_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "custom_emojis",
+      "name": "custom_emojis_visible_in_picker_not_null",
+      "kind": "n",
+      "definition": "NOT NULL visible_in_picker"
     },
     {
       "table": "custom_filter_keywords",
-      "column": "custom_filter_id",
-      "target": "custom_filters",
-      "on_delete": "cascade"
+      "name": "custom_filter_keywords_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "custom_filter_keywords",
+      "name": "custom_filter_keywords_custom_filter_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL custom_filter_id"
+    },
+    {
+      "table": "custom_filter_keywords",
+      "name": "custom_filter_keywords_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "custom_filter_keywords",
+      "name": "custom_filter_keywords_keyword_not_null",
+      "kind": "n",
+      "definition": "NOT NULL keyword"
+    },
+    {
+      "table": "custom_filter_keywords",
+      "name": "custom_filter_keywords_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "custom_filter_keywords",
+      "name": "custom_filter_keywords_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "custom_filter_keywords",
+      "name": "custom_filter_keywords_whole_word_not_null",
+      "kind": "n",
+      "definition": "NOT NULL whole_word"
+    },
+    {
+      "table": "custom_filter_keywords",
+      "name": "fk_rails_5a49a74012",
+      "kind": "f",
+      "definition": "FOREIGN KEY (custom_filter_id) REFERENCES custom_filters(id) ON DELETE CASCADE"
     },
     {
       "table": "custom_filter_statuses",
-      "column": "custom_filter_id",
-      "target": "custom_filters",
-      "on_delete": "cascade"
+      "name": "custom_filter_statuses_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
     },
     {
       "table": "custom_filter_statuses",
-      "column": "status_id",
-      "target": "statuses",
-      "on_delete": "cascade"
+      "name": "custom_filter_statuses_custom_filter_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL custom_filter_id"
+    },
+    {
+      "table": "custom_filter_statuses",
+      "name": "custom_filter_statuses_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "custom_filter_statuses",
+      "name": "custom_filter_statuses_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "custom_filter_statuses",
+      "name": "custom_filter_statuses_status_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL status_id"
+    },
+    {
+      "table": "custom_filter_statuses",
+      "name": "custom_filter_statuses_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "custom_filter_statuses",
+      "name": "fk_rails_2f6d20c0cf",
+      "kind": "f",
+      "definition": "FOREIGN KEY (status_id) REFERENCES statuses(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "custom_filter_statuses",
+      "name": "fk_rails_e2ddaf5b14",
+      "kind": "f",
+      "definition": "FOREIGN KEY (custom_filter_id) REFERENCES custom_filters(id) ON DELETE CASCADE"
     },
     {
       "table": "custom_filters",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "custom_filters_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "custom_filters",
+      "name": "custom_filters_action_not_null",
+      "kind": "n",
+      "definition": "NOT NULL action"
+    },
+    {
+      "table": "custom_filters",
+      "name": "custom_filters_context_not_null",
+      "kind": "n",
+      "definition": "NOT NULL context"
+    },
+    {
+      "table": "custom_filters",
+      "name": "custom_filters_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "custom_filters",
+      "name": "custom_filters_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "custom_filters",
+      "name": "custom_filters_phrase_not_null",
+      "kind": "n",
+      "definition": "NOT NULL phrase"
+    },
+    {
+      "table": "custom_filters",
+      "name": "custom_filters_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "custom_filters",
+      "name": "custom_filters_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "custom_filters",
+      "name": "fk_rails_8b8d786993",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "domain_allows",
+      "name": "domain_allows_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "domain_allows",
+      "name": "domain_allows_domain_not_null",
+      "kind": "n",
+      "definition": "NOT NULL domain"
+    },
+    {
+      "table": "domain_allows",
+      "name": "domain_allows_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "domain_allows",
+      "name": "domain_allows_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "domain_allows",
+      "name": "domain_allows_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "domain_blocks",
+      "name": "domain_blocks_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "domain_blocks",
+      "name": "domain_blocks_domain_not_null",
+      "kind": "n",
+      "definition": "NOT NULL domain"
+    },
+    {
+      "table": "domain_blocks",
+      "name": "domain_blocks_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "domain_blocks",
+      "name": "domain_blocks_obfuscate_not_null",
+      "kind": "n",
+      "definition": "NOT NULL obfuscate"
+    },
+    {
+      "table": "domain_blocks",
+      "name": "domain_blocks_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "domain_blocks",
+      "name": "domain_blocks_reject_media_not_null",
+      "kind": "n",
+      "definition": "NOT NULL reject_media"
+    },
+    {
+      "table": "domain_blocks",
+      "name": "domain_blocks_reject_reports_not_null",
+      "kind": "n",
+      "definition": "NOT NULL reject_reports"
+    },
+    {
+      "table": "domain_blocks",
+      "name": "domain_blocks_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "email_domain_blocks",
-      "column": "parent_id",
-      "target": "email_domain_blocks",
-      "on_delete": "cascade"
+      "name": "email_domain_blocks_allow_with_approval_not_null",
+      "kind": "n",
+      "definition": "NOT NULL allow_with_approval"
+    },
+    {
+      "table": "email_domain_blocks",
+      "name": "email_domain_blocks_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "email_domain_blocks",
+      "name": "email_domain_blocks_domain_not_null",
+      "kind": "n",
+      "definition": "NOT NULL domain"
+    },
+    {
+      "table": "email_domain_blocks",
+      "name": "email_domain_blocks_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "email_domain_blocks",
+      "name": "email_domain_blocks_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "email_domain_blocks",
+      "name": "email_domain_blocks_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "email_domain_blocks",
+      "name": "fk_rails_408efe0a15",
+      "kind": "f",
+      "definition": "FOREIGN KEY (parent_id) REFERENCES email_domain_blocks(id) ON DELETE CASCADE"
     },
     {
       "table": "email_subscriptions",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "email_subscriptions_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "email_subscriptions",
+      "name": "email_subscriptions_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "email_subscriptions",
+      "name": "email_subscriptions_email_not_null",
+      "kind": "n",
+      "definition": "NOT NULL email"
+    },
+    {
+      "table": "email_subscriptions",
+      "name": "email_subscriptions_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "email_subscriptions",
+      "name": "email_subscriptions_locale_not_null",
+      "kind": "n",
+      "definition": "NOT NULL locale"
+    },
+    {
+      "table": "email_subscriptions",
+      "name": "email_subscriptions_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "email_subscriptions",
+      "name": "email_subscriptions_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "email_subscriptions",
+      "name": "fk_rails_282940e759",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "fasp_backfill_requests",
-      "column": "fasp_provider_id",
-      "target": "fasp_providers",
-      "on_delete": "none"
+      "name": "fasp_backfill_requests_category_not_null",
+      "kind": "n",
+      "definition": "NOT NULL category"
+    },
+    {
+      "table": "fasp_backfill_requests",
+      "name": "fasp_backfill_requests_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "fasp_backfill_requests",
+      "name": "fasp_backfill_requests_fasp_provider_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL fasp_provider_id"
+    },
+    {
+      "table": "fasp_backfill_requests",
+      "name": "fasp_backfill_requests_fulfilled_not_null",
+      "kind": "n",
+      "definition": "NOT NULL fulfilled"
+    },
+    {
+      "table": "fasp_backfill_requests",
+      "name": "fasp_backfill_requests_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "fasp_backfill_requests",
+      "name": "fasp_backfill_requests_max_count_not_null",
+      "kind": "n",
+      "definition": "NOT NULL max_count"
+    },
+    {
+      "table": "fasp_backfill_requests",
+      "name": "fasp_backfill_requests_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "fasp_backfill_requests",
+      "name": "fasp_backfill_requests_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "fasp_backfill_requests",
+      "name": "fk_rails_760d761775",
+      "kind": "f",
+      "definition": "FOREIGN KEY (fasp_provider_id) REFERENCES fasp_providers(id)"
     },
     {
       "table": "fasp_debug_callbacks",
-      "column": "fasp_provider_id",
-      "target": "fasp_providers",
-      "on_delete": "none"
+      "name": "fasp_debug_callbacks_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "fasp_debug_callbacks",
+      "name": "fasp_debug_callbacks_fasp_provider_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL fasp_provider_id"
+    },
+    {
+      "table": "fasp_debug_callbacks",
+      "name": "fasp_debug_callbacks_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "fasp_debug_callbacks",
+      "name": "fasp_debug_callbacks_ip_not_null",
+      "kind": "n",
+      "definition": "NOT NULL ip"
+    },
+    {
+      "table": "fasp_debug_callbacks",
+      "name": "fasp_debug_callbacks_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "fasp_debug_callbacks",
+      "name": "fasp_debug_callbacks_request_body_not_null",
+      "kind": "n",
+      "definition": "NOT NULL request_body"
+    },
+    {
+      "table": "fasp_debug_callbacks",
+      "name": "fasp_debug_callbacks_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "fasp_debug_callbacks",
+      "name": "fk_rails_c1650087cd",
+      "kind": "f",
+      "definition": "FOREIGN KEY (fasp_provider_id) REFERENCES fasp_providers(id)"
     },
     {
       "table": "fasp_follow_recommendations",
-      "column": "recommended_account_id",
-      "target": "accounts",
-      "on_delete": "none"
+      "name": "fasp_follow_recommendations_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
     },
     {
       "table": "fasp_follow_recommendations",
-      "column": "requesting_account_id",
-      "target": "accounts",
-      "on_delete": "none"
+      "name": "fasp_follow_recommendations_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "fasp_follow_recommendations",
+      "name": "fasp_follow_recommendations_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "fasp_follow_recommendations",
+      "name": "fasp_follow_recommendations_recommended_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL recommended_account_id"
+    },
+    {
+      "table": "fasp_follow_recommendations",
+      "name": "fasp_follow_recommendations_requesting_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL requesting_account_id"
+    },
+    {
+      "table": "fasp_follow_recommendations",
+      "name": "fasp_follow_recommendations_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "fasp_follow_recommendations",
+      "name": "fk_rails_5c63a5fd1b",
+      "kind": "f",
+      "definition": "FOREIGN KEY (recommended_account_id) REFERENCES accounts(id)"
+    },
+    {
+      "table": "fasp_follow_recommendations",
+      "name": "fk_rails_71623d7e2c",
+      "kind": "f",
+      "definition": "FOREIGN KEY (requesting_account_id) REFERENCES accounts(id)"
+    },
+    {
+      "table": "fasp_providers",
+      "name": "fasp_providers_base_url_not_null",
+      "kind": "n",
+      "definition": "NOT NULL base_url"
+    },
+    {
+      "table": "fasp_providers",
+      "name": "fasp_providers_capabilities_not_null",
+      "kind": "n",
+      "definition": "NOT NULL capabilities"
+    },
+    {
+      "table": "fasp_providers",
+      "name": "fasp_providers_confirmed_not_null",
+      "kind": "n",
+      "definition": "NOT NULL confirmed"
+    },
+    {
+      "table": "fasp_providers",
+      "name": "fasp_providers_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "fasp_providers",
+      "name": "fasp_providers_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "fasp_providers",
+      "name": "fasp_providers_name_not_null",
+      "kind": "n",
+      "definition": "NOT NULL name"
+    },
+    {
+      "table": "fasp_providers",
+      "name": "fasp_providers_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "fasp_providers",
+      "name": "fasp_providers_provider_public_key_pem_not_null",
+      "kind": "n",
+      "definition": "NOT NULL provider_public_key_pem"
+    },
+    {
+      "table": "fasp_providers",
+      "name": "fasp_providers_remote_identifier_not_null",
+      "kind": "n",
+      "definition": "NOT NULL remote_identifier"
+    },
+    {
+      "table": "fasp_providers",
+      "name": "fasp_providers_server_private_key_pem_not_null",
+      "kind": "n",
+      "definition": "NOT NULL server_private_key_pem"
+    },
+    {
+      "table": "fasp_providers",
+      "name": "fasp_providers_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "fasp_subscriptions",
-      "column": "fasp_provider_id",
-      "target": "fasp_providers",
-      "on_delete": "none"
+      "name": "fasp_subscriptions_category_not_null",
+      "kind": "n",
+      "definition": "NOT NULL category"
+    },
+    {
+      "table": "fasp_subscriptions",
+      "name": "fasp_subscriptions_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "fasp_subscriptions",
+      "name": "fasp_subscriptions_fasp_provider_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL fasp_provider_id"
+    },
+    {
+      "table": "fasp_subscriptions",
+      "name": "fasp_subscriptions_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "fasp_subscriptions",
+      "name": "fasp_subscriptions_max_batch_size_not_null",
+      "kind": "n",
+      "definition": "NOT NULL max_batch_size"
+    },
+    {
+      "table": "fasp_subscriptions",
+      "name": "fasp_subscriptions_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "fasp_subscriptions",
+      "name": "fasp_subscriptions_subscription_type_not_null",
+      "kind": "n",
+      "definition": "NOT NULL subscription_type"
+    },
+    {
+      "table": "fasp_subscriptions",
+      "name": "fasp_subscriptions_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "fasp_subscriptions",
+      "name": "fk_rails_4c021f5938",
+      "kind": "f",
+      "definition": "FOREIGN KEY (fasp_provider_id) REFERENCES fasp_providers(id)"
     },
     {
       "table": "favourites",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "favourites_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
     },
     {
       "table": "favourites",
-      "column": "status_id",
-      "target": "statuses",
-      "on_delete": "cascade"
+      "name": "favourites_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "favourites",
+      "name": "favourites_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "favourites",
+      "name": "favourites_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "favourites",
+      "name": "favourites_status_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL status_id"
+    },
+    {
+      "table": "favourites",
+      "name": "favourites_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "favourites",
+      "name": "fk_5eb6c2b873",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "favourites",
+      "name": "fk_b0e856845e",
+      "kind": "f",
+      "definition": "FOREIGN KEY (status_id) REFERENCES statuses(id) ON DELETE CASCADE"
     },
     {
       "table": "featured_tags",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "featured_tags_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
     },
     {
       "table": "featured_tags",
-      "column": "tag_id",
-      "target": "tags",
-      "on_delete": "cascade"
+      "name": "featured_tags_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "featured_tags",
+      "name": "featured_tags_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "featured_tags",
+      "name": "featured_tags_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "featured_tags",
+      "name": "featured_tags_statuses_count_not_null",
+      "kind": "n",
+      "definition": "NOT NULL statuses_count"
+    },
+    {
+      "table": "featured_tags",
+      "name": "featured_tags_tag_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL tag_id"
+    },
+    {
+      "table": "featured_tags",
+      "name": "featured_tags_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "featured_tags",
+      "name": "fk_rails_174efcf15f",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "featured_tags",
+      "name": "fk_rails_23a9055c7c",
+      "kind": "f",
+      "definition": "FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE"
     },
     {
       "table": "follow_recommendation_mutes",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_rails_a9f09ec9a8",
+      "kind": "f",
+      "definition": "FOREIGN KEY (target_account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "follow_recommendation_mutes",
-      "column": "target_account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_rails_d36abd69ea",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "follow_recommendation_mutes",
+      "name": "follow_recommendation_mutes_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "follow_recommendation_mutes",
+      "name": "follow_recommendation_mutes_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "follow_recommendation_mutes",
+      "name": "follow_recommendation_mutes_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "follow_recommendation_mutes",
+      "name": "follow_recommendation_mutes_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "follow_recommendation_mutes",
+      "name": "follow_recommendation_mutes_target_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL target_account_id"
+    },
+    {
+      "table": "follow_recommendation_mutes",
+      "name": "follow_recommendation_mutes_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "follow_recommendation_suppressions",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_rails_dfb9a1dbe2",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "follow_recommendation_suppressions",
+      "name": "follow_recommendation_suppressions_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "follow_recommendation_suppressions",
+      "name": "follow_recommendation_suppressions_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "follow_recommendation_suppressions",
+      "name": "follow_recommendation_suppressions_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "follow_recommendation_suppressions",
+      "name": "follow_recommendation_suppressions_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "follow_recommendation_suppressions",
+      "name": "follow_recommendation_suppressions_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "follow_requests",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_76d644b0e7",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "follow_requests",
-      "column": "target_account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_9291ec025d",
+      "kind": "f",
+      "definition": "FOREIGN KEY (target_account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "follow_requests",
+      "name": "follow_requests_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "follow_requests",
+      "name": "follow_requests_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "follow_requests",
+      "name": "follow_requests_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "follow_requests",
+      "name": "follow_requests_notify_not_null",
+      "kind": "n",
+      "definition": "NOT NULL notify"
+    },
+    {
+      "table": "follow_requests",
+      "name": "follow_requests_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "follow_requests",
+      "name": "follow_requests_show_reblogs_not_null",
+      "kind": "n",
+      "definition": "NOT NULL show_reblogs"
+    },
+    {
+      "table": "follow_requests",
+      "name": "follow_requests_target_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL target_account_id"
+    },
+    {
+      "table": "follow_requests",
+      "name": "follow_requests_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "follows",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_32ed1b5560",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "follows",
-      "column": "target_account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_745ca29eac",
+      "kind": "f",
+      "definition": "FOREIGN KEY (target_account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "follows",
+      "name": "follows_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "follows",
+      "name": "follows_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "follows",
+      "name": "follows_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "follows",
+      "name": "follows_notify_not_null",
+      "kind": "n",
+      "definition": "NOT NULL notify"
+    },
+    {
+      "table": "follows",
+      "name": "follows_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "follows",
+      "name": "follows_show_reblogs_not_null",
+      "kind": "n",
+      "definition": "NOT NULL show_reblogs"
+    },
+    {
+      "table": "follows",
+      "name": "follows_target_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL target_account_id"
+    },
+    {
+      "table": "follows",
+      "name": "follows_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "generated_annual_reports",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_rails_4ca37f035c",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "generated_annual_reports",
+      "name": "generated_annual_reports_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "generated_annual_reports",
+      "name": "generated_annual_reports_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "generated_annual_reports",
+      "name": "generated_annual_reports_data_not_null",
+      "kind": "n",
+      "definition": "NOT NULL data"
+    },
+    {
+      "table": "generated_annual_reports",
+      "name": "generated_annual_reports_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "generated_annual_reports",
+      "name": "generated_annual_reports_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "generated_annual_reports",
+      "name": "generated_annual_reports_schema_version_not_null",
+      "kind": "n",
+      "definition": "NOT NULL schema_version"
+    },
+    {
+      "table": "generated_annual_reports",
+      "name": "generated_annual_reports_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "generated_annual_reports",
+      "name": "generated_annual_reports_year_not_null",
+      "kind": "n",
+      "definition": "NOT NULL year"
     },
     {
       "table": "global_follow_recommendations",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_rails_bacefde68a",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "global_follow_recommendations",
+      "name": "global_follow_recommendations_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "global_follow_recommendations",
+      "name": "global_follow_recommendations_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (account_id)"
+    },
+    {
+      "table": "global_follow_recommendations",
+      "name": "global_follow_recommendations_rank_not_null",
+      "kind": "n",
+      "definition": "NOT NULL rank"
+    },
+    {
+      "table": "global_follow_recommendations",
+      "name": "global_follow_recommendations_reason_not_null",
+      "kind": "n",
+      "definition": "NOT NULL reason"
+    },
+    {
+      "table": "global_follow_recommendations",
+      "name": "global_follow_recommendations_stale_not_null",
+      "kind": "n",
+      "definition": "NOT NULL stale"
     },
     {
       "table": "identities",
-      "column": "user_id",
-      "target": "users",
-      "on_delete": "cascade"
+      "name": "fk_bea040f377",
+      "kind": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "identities",
+      "name": "identities_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "identities",
+      "name": "identities_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "identities",
+      "name": "identities_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "identities",
+      "name": "identities_provider_not_null",
+      "kind": "n",
+      "definition": "NOT NULL provider"
+    },
+    {
+      "table": "identities",
+      "name": "identities_uid_not_null",
+      "kind": "n",
+      "definition": "NOT NULL uid"
+    },
+    {
+      "table": "identities",
+      "name": "identities_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "instance_moderation_notes",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_rails_62f919e09b",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "instance_moderation_notes",
+      "name": "instance_moderation_notes_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "instance_moderation_notes",
+      "name": "instance_moderation_notes_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "instance_moderation_notes",
+      "name": "instance_moderation_notes_domain_not_null",
+      "kind": "n",
+      "definition": "NOT NULL domain"
+    },
+    {
+      "table": "instance_moderation_notes",
+      "name": "instance_moderation_notes_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "instance_moderation_notes",
+      "name": "instance_moderation_notes_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "instance_moderation_notes",
+      "name": "instance_moderation_notes_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "invites",
-      "column": "user_id",
-      "target": "users",
-      "on_delete": "cascade"
+      "name": "fk_rails_ff69dbb2ac",
+      "kind": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "invites",
+      "name": "invites_autofollow_not_null",
+      "kind": "n",
+      "definition": "NOT NULL autofollow"
+    },
+    {
+      "table": "invites",
+      "name": "invites_code_not_null",
+      "kind": "n",
+      "definition": "NOT NULL code"
+    },
+    {
+      "table": "invites",
+      "name": "invites_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "invites",
+      "name": "invites_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "invites",
+      "name": "invites_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "invites",
+      "name": "invites_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "invites",
+      "name": "invites_user_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL user_id"
+    },
+    {
+      "table": "invites",
+      "name": "invites_uses_not_null",
+      "kind": "n",
+      "definition": "NOT NULL uses"
+    },
+    {
+      "table": "ip_blocks",
+      "name": "ip_blocks_comment_not_null",
+      "kind": "n",
+      "definition": "NOT NULL comment"
+    },
+    {
+      "table": "ip_blocks",
+      "name": "ip_blocks_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "ip_blocks",
+      "name": "ip_blocks_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "ip_blocks",
+      "name": "ip_blocks_ip_not_null",
+      "kind": "n",
+      "definition": "NOT NULL ip"
+    },
+    {
+      "table": "ip_blocks",
+      "name": "ip_blocks_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "ip_blocks",
+      "name": "ip_blocks_severity_not_null",
+      "kind": "n",
+      "definition": "NOT NULL severity"
+    },
+    {
+      "table": "ip_blocks",
+      "name": "ip_blocks_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "keypairs",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_rails_f5ea7ac36a",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "keypairs",
+      "name": "keypairs_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "keypairs",
+      "name": "keypairs_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "keypairs",
+      "name": "keypairs_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "keypairs",
+      "name": "keypairs_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "keypairs",
+      "name": "keypairs_public_key_not_null",
+      "kind": "n",
+      "definition": "NOT NULL public_key"
+    },
+    {
+      "table": "keypairs",
+      "name": "keypairs_revoked_not_null",
+      "kind": "n",
+      "definition": "NOT NULL revoked"
+    },
+    {
+      "table": "keypairs",
+      "name": "keypairs_type_not_null",
+      "kind": "n",
+      "definition": "NOT NULL type"
+    },
+    {
+      "table": "keypairs",
+      "name": "keypairs_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "list_accounts",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_rails_40f9cc29f1",
+      "kind": "f",
+      "definition": "FOREIGN KEY (follow_id) REFERENCES follows(id) ON DELETE CASCADE"
     },
     {
       "table": "list_accounts",
-      "column": "follow_id",
-      "target": "follows",
-      "on_delete": "cascade"
+      "name": "fk_rails_85fee9d6ab",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "list_accounts",
-      "column": "follow_request_id",
-      "target": "follow_requests",
-      "on_delete": "cascade"
+      "name": "fk_rails_e54e356c88",
+      "kind": "f",
+      "definition": "FOREIGN KEY (list_id) REFERENCES lists(id) ON DELETE CASCADE"
     },
     {
       "table": "list_accounts",
-      "column": "list_id",
-      "target": "lists",
-      "on_delete": "cascade"
+      "name": "fk_rails_f11f9d1fcc",
+      "kind": "f",
+      "definition": "FOREIGN KEY (follow_request_id) REFERENCES follow_requests(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "list_accounts",
+      "name": "list_accounts_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "list_accounts",
+      "name": "list_accounts_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "list_accounts",
+      "name": "list_accounts_list_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL list_id"
+    },
+    {
+      "table": "list_accounts",
+      "name": "list_accounts_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
     },
     {
       "table": "lists",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_rails_3853b78dac",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "lists",
+      "name": "lists_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "lists",
+      "name": "lists_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "lists",
+      "name": "lists_exclusive_not_null",
+      "kind": "n",
+      "definition": "NOT NULL exclusive"
+    },
+    {
+      "table": "lists",
+      "name": "lists_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "lists",
+      "name": "lists_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "lists",
+      "name": "lists_replies_policy_not_null",
+      "kind": "n",
+      "definition": "NOT NULL replies_policy"
+    },
+    {
+      "table": "lists",
+      "name": "lists_title_not_null",
+      "kind": "n",
+      "definition": "NOT NULL title"
+    },
+    {
+      "table": "lists",
+      "name": "lists_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "login_activities",
-      "column": "user_id",
-      "target": "users",
-      "on_delete": "cascade"
+      "name": "fk_rails_e4b6396b41",
+      "kind": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "login_activities",
+      "name": "login_activities_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "login_activities",
+      "name": "login_activities_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "login_activities",
+      "name": "login_activities_user_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL user_id"
     },
     {
       "table": "markers",
-      "column": "user_id",
-      "target": "users",
-      "on_delete": "cascade"
+      "name": "fk_rails_a7009bc2b6",
+      "kind": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "markers",
+      "name": "markers_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "markers",
+      "name": "markers_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "markers",
+      "name": "markers_last_read_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL last_read_id"
+    },
+    {
+      "table": "markers",
+      "name": "markers_lock_version_not_null",
+      "kind": "n",
+      "definition": "NOT NULL lock_version"
+    },
+    {
+      "table": "markers",
+      "name": "markers_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "markers",
+      "name": "markers_timeline_not_null",
+      "kind": "n",
+      "definition": "NOT NULL timeline"
+    },
+    {
+      "table": "markers",
+      "name": "markers_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "markers",
+      "name": "markers_user_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL user_id"
     },
     {
       "table": "media_attachments",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "nullify"
+      "name": "fk_96dd81e81b",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE SET NULL"
     },
     {
       "table": "media_attachments",
-      "column": "scheduled_status_id",
-      "target": "scheduled_statuses",
-      "on_delete": "nullify"
+      "name": "fk_rails_31fc5aeef1",
+      "kind": "f",
+      "definition": "FOREIGN KEY (scheduled_status_id) REFERENCES scheduled_statuses(id) ON DELETE SET NULL"
     },
     {
       "table": "media_attachments",
-      "column": "status_id",
-      "target": "statuses",
-      "on_delete": "nullify"
+      "name": "fk_rails_3ec0cfdd70",
+      "kind": "f",
+      "definition": "FOREIGN KEY (status_id) REFERENCES statuses(id) ON DELETE SET NULL"
+    },
+    {
+      "table": "media_attachments",
+      "name": "media_attachments_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "media_attachments",
+      "name": "media_attachments_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "media_attachments",
+      "name": "media_attachments_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "media_attachments",
+      "name": "media_attachments_remote_url_not_null",
+      "kind": "n",
+      "definition": "NOT NULL remote_url"
+    },
+    {
+      "table": "media_attachments",
+      "name": "media_attachments_type_not_null",
+      "kind": "n",
+      "definition": "NOT NULL type"
+    },
+    {
+      "table": "media_attachments",
+      "name": "media_attachments_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "mentions",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_970d43f9d1",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "mentions",
-      "column": "status_id",
-      "target": "statuses",
-      "on_delete": "cascade"
+      "name": "fk_rails_59edbe2887",
+      "kind": "f",
+      "definition": "FOREIGN KEY (status_id) REFERENCES statuses(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "mentions",
+      "name": "mentions_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "mentions",
+      "name": "mentions_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "mentions",
+      "name": "mentions_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "mentions",
+      "name": "mentions_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "mentions",
+      "name": "mentions_silent_not_null",
+      "kind": "n",
+      "definition": "NOT NULL silent"
+    },
+    {
+      "table": "mentions",
+      "name": "mentions_status_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL status_id"
+    },
+    {
+      "table": "mentions",
+      "name": "mentions_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "mutes",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_b8d8daf315",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "mutes",
-      "column": "target_account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_eecff219ea",
+      "kind": "f",
+      "definition": "FOREIGN KEY (target_account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "mutes",
+      "name": "mutes_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "mutes",
+      "name": "mutes_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "mutes",
+      "name": "mutes_hide_notifications_not_null",
+      "kind": "n",
+      "definition": "NOT NULL hide_notifications"
+    },
+    {
+      "table": "mutes",
+      "name": "mutes_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "mutes",
+      "name": "mutes_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "mutes",
+      "name": "mutes_target_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL target_account_id"
+    },
+    {
+      "table": "mutes",
+      "name": "mutes_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "notification_permissions",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_rails_7c0bed08df",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "notification_permissions",
-      "column": "from_account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_rails_e3e0aaad70",
+      "kind": "f",
+      "definition": "FOREIGN KEY (from_account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "notification_permissions",
+      "name": "notification_permissions_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "notification_permissions",
+      "name": "notification_permissions_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "notification_permissions",
+      "name": "notification_permissions_from_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL from_account_id"
+    },
+    {
+      "table": "notification_permissions",
+      "name": "notification_permissions_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "notification_permissions",
+      "name": "notification_permissions_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "notification_permissions",
+      "name": "notification_permissions_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "notification_policies",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_rails_506d62f0da",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "notification_policies",
+      "name": "notification_policies_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "notification_policies",
+      "name": "notification_policies_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "notification_policies",
+      "name": "notification_policies_for_bots_not_null",
+      "kind": "n",
+      "definition": "NOT NULL for_bots"
+    },
+    {
+      "table": "notification_policies",
+      "name": "notification_policies_for_limited_accounts_not_null",
+      "kind": "n",
+      "definition": "NOT NULL for_limited_accounts"
+    },
+    {
+      "table": "notification_policies",
+      "name": "notification_policies_for_new_accounts_not_null",
+      "kind": "n",
+      "definition": "NOT NULL for_new_accounts"
+    },
+    {
+      "table": "notification_policies",
+      "name": "notification_policies_for_not_followers_not_null",
+      "kind": "n",
+      "definition": "NOT NULL for_not_followers"
+    },
+    {
+      "table": "notification_policies",
+      "name": "notification_policies_for_not_following_not_null",
+      "kind": "n",
+      "definition": "NOT NULL for_not_following"
+    },
+    {
+      "table": "notification_policies",
+      "name": "notification_policies_for_private_mentions_not_null",
+      "kind": "n",
+      "definition": "NOT NULL for_private_mentions"
+    },
+    {
+      "table": "notification_policies",
+      "name": "notification_policies_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "notification_policies",
+      "name": "notification_policies_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "notification_policies",
+      "name": "notification_policies_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "notification_requests",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_rails_5632f121b4",
+      "kind": "f",
+      "definition": "FOREIGN KEY (from_account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "notification_requests",
-      "column": "from_account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_rails_61c7aa9c1f",
+      "kind": "f",
+      "definition": "FOREIGN KEY (last_status_id) REFERENCES statuses(id) ON DELETE SET NULL"
     },
     {
       "table": "notification_requests",
-      "column": "last_status_id",
-      "target": "statuses",
-      "on_delete": "nullify"
+      "name": "fk_rails_881c7f71c4",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "notification_requests",
+      "name": "notification_requests_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "notification_requests",
+      "name": "notification_requests_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "notification_requests",
+      "name": "notification_requests_from_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL from_account_id"
+    },
+    {
+      "table": "notification_requests",
+      "name": "notification_requests_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "notification_requests",
+      "name": "notification_requests_notifications_count_not_null",
+      "kind": "n",
+      "definition": "NOT NULL notifications_count"
+    },
+    {
+      "table": "notification_requests",
+      "name": "notification_requests_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "notification_requests",
+      "name": "notification_requests_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "notifications",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_c141c8ee55",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "notifications",
-      "column": "from_account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_fbd6b0bf9e",
+      "kind": "f",
+      "definition": "FOREIGN KEY (from_account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "notifications",
+      "name": "notifications_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "notifications",
+      "name": "notifications_activity_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL activity_id"
+    },
+    {
+      "table": "notifications",
+      "name": "notifications_activity_type_not_null",
+      "kind": "n",
+      "definition": "NOT NULL activity_type"
+    },
+    {
+      "table": "notifications",
+      "name": "notifications_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "notifications",
+      "name": "notifications_filtered_not_null",
+      "kind": "n",
+      "definition": "NOT NULL filtered"
+    },
+    {
+      "table": "notifications",
+      "name": "notifications_from_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL from_account_id"
+    },
+    {
+      "table": "notifications",
+      "name": "notifications_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "notifications",
+      "name": "notifications_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "notifications",
+      "name": "notifications_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "oauth_access_grants",
-      "column": "application_id",
-      "target": "oauth_applications",
-      "on_delete": "cascade"
+      "name": "fk_34d54b0a33",
+      "kind": "f",
+      "definition": "FOREIGN KEY (application_id) REFERENCES oauth_applications(id) ON DELETE CASCADE"
     },
     {
       "table": "oauth_access_grants",
-      "column": "resource_owner_id",
-      "target": "users",
-      "on_delete": "cascade"
+      "name": "fk_63b044929b",
+      "kind": "f",
+      "definition": "FOREIGN KEY (resource_owner_id) REFERENCES users(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "oauth_access_grants",
+      "name": "oauth_access_grants_application_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL application_id"
+    },
+    {
+      "table": "oauth_access_grants",
+      "name": "oauth_access_grants_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "oauth_access_grants",
+      "name": "oauth_access_grants_expires_in_not_null",
+      "kind": "n",
+      "definition": "NOT NULL expires_in"
+    },
+    {
+      "table": "oauth_access_grants",
+      "name": "oauth_access_grants_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "oauth_access_grants",
+      "name": "oauth_access_grants_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "oauth_access_grants",
+      "name": "oauth_access_grants_redirect_uri_not_null",
+      "kind": "n",
+      "definition": "NOT NULL redirect_uri"
+    },
+    {
+      "table": "oauth_access_grants",
+      "name": "oauth_access_grants_resource_owner_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL resource_owner_id"
+    },
+    {
+      "table": "oauth_access_grants",
+      "name": "oauth_access_grants_token_not_null",
+      "kind": "n",
+      "definition": "NOT NULL token"
     },
     {
       "table": "oauth_access_tokens",
-      "column": "application_id",
-      "target": "oauth_applications",
-      "on_delete": "cascade"
+      "name": "fk_e84df68546",
+      "kind": "f",
+      "definition": "FOREIGN KEY (resource_owner_id) REFERENCES users(id) ON DELETE CASCADE"
     },
     {
       "table": "oauth_access_tokens",
-      "column": "resource_owner_id",
-      "target": "users",
-      "on_delete": "cascade"
+      "name": "fk_f5fc4c1ee3",
+      "kind": "f",
+      "definition": "FOREIGN KEY (application_id) REFERENCES oauth_applications(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "oauth_access_tokens",
+      "name": "oauth_access_tokens_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "oauth_access_tokens",
+      "name": "oauth_access_tokens_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "oauth_access_tokens",
+      "name": "oauth_access_tokens_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "oauth_access_tokens",
+      "name": "oauth_access_tokens_token_not_null",
+      "kind": "n",
+      "definition": "NOT NULL token"
     },
     {
       "table": "oauth_applications",
-      "column": "owner_id",
-      "target": "users",
-      "on_delete": "cascade"
+      "name": "fk_b0988c7c0a",
+      "kind": "f",
+      "definition": "FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "oauth_applications",
+      "name": "oauth_applications_confidential_not_null",
+      "kind": "n",
+      "definition": "NOT NULL confidential"
+    },
+    {
+      "table": "oauth_applications",
+      "name": "oauth_applications_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "oauth_applications",
+      "name": "oauth_applications_name_not_null",
+      "kind": "n",
+      "definition": "NOT NULL name"
+    },
+    {
+      "table": "oauth_applications",
+      "name": "oauth_applications_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "oauth_applications",
+      "name": "oauth_applications_redirect_uri_not_null",
+      "kind": "n",
+      "definition": "NOT NULL redirect_uri"
+    },
+    {
+      "table": "oauth_applications",
+      "name": "oauth_applications_scopes_not_null",
+      "kind": "n",
+      "definition": "NOT NULL scopes"
+    },
+    {
+      "table": "oauth_applications",
+      "name": "oauth_applications_secret_not_null",
+      "kind": "n",
+      "definition": "NOT NULL secret"
+    },
+    {
+      "table": "oauth_applications",
+      "name": "oauth_applications_superapp_not_null",
+      "kind": "n",
+      "definition": "NOT NULL superapp"
+    },
+    {
+      "table": "oauth_applications",
+      "name": "oauth_applications_uid_not_null",
+      "kind": "n",
+      "definition": "NOT NULL uid"
+    },
+    {
+      "table": "pghero_space_stats",
+      "name": "pghero_space_stats_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "pghero_space_stats",
+      "name": "pghero_space_stats_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
     },
     {
       "table": "poll_votes",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_rails_a6e6974b7e",
+      "kind": "f",
+      "definition": "FOREIGN KEY (poll_id) REFERENCES polls(id) ON DELETE CASCADE"
     },
     {
       "table": "poll_votes",
-      "column": "poll_id",
-      "target": "polls",
-      "on_delete": "cascade"
+      "name": "fk_rails_b6c18cf44a",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "poll_votes",
+      "name": "poll_votes_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "poll_votes",
+      "name": "poll_votes_choice_not_null",
+      "kind": "n",
+      "definition": "NOT NULL choice"
+    },
+    {
+      "table": "poll_votes",
+      "name": "poll_votes_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "poll_votes",
+      "name": "poll_votes_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "poll_votes",
+      "name": "poll_votes_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "poll_votes",
+      "name": "poll_votes_poll_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL poll_id"
+    },
+    {
+      "table": "poll_votes",
+      "name": "poll_votes_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "polls",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_rails_3e0d9f1115",
+      "kind": "f",
+      "definition": "FOREIGN KEY (status_id) REFERENCES statuses(id) ON DELETE CASCADE"
     },
     {
       "table": "polls",
-      "column": "status_id",
-      "target": "statuses",
-      "on_delete": "cascade"
+      "name": "fk_rails_5b19a0c011",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "polls",
+      "name": "polls_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "polls",
+      "name": "polls_cached_tallies_not_null",
+      "kind": "n",
+      "definition": "NOT NULL cached_tallies"
+    },
+    {
+      "table": "polls",
+      "name": "polls_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "polls",
+      "name": "polls_hide_totals_not_null",
+      "kind": "n",
+      "definition": "NOT NULL hide_totals"
+    },
+    {
+      "table": "polls",
+      "name": "polls_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "polls",
+      "name": "polls_lock_version_not_null",
+      "kind": "n",
+      "definition": "NOT NULL lock_version"
+    },
+    {
+      "table": "polls",
+      "name": "polls_multiple_not_null",
+      "kind": "n",
+      "definition": "NOT NULL multiple"
+    },
+    {
+      "table": "polls",
+      "name": "polls_options_not_null",
+      "kind": "n",
+      "definition": "NOT NULL options"
+    },
+    {
+      "table": "polls",
+      "name": "polls_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "polls",
+      "name": "polls_status_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL status_id"
+    },
+    {
+      "table": "polls",
+      "name": "polls_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "polls",
+      "name": "polls_votes_count_not_null",
+      "kind": "n",
+      "definition": "NOT NULL votes_count"
+    },
+    {
+      "table": "preview_card_providers",
+      "name": "preview_card_providers_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "preview_card_providers",
+      "name": "preview_card_providers_domain_not_null",
+      "kind": "n",
+      "definition": "NOT NULL domain"
+    },
+    {
+      "table": "preview_card_providers",
+      "name": "preview_card_providers_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "preview_card_providers",
+      "name": "preview_card_providers_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "preview_card_providers",
+      "name": "preview_card_providers_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "preview_card_trends",
-      "column": "preview_card_id",
-      "target": "preview_cards",
-      "on_delete": "cascade"
+      "name": "fk_rails_371593db34",
+      "kind": "f",
+      "definition": "FOREIGN KEY (preview_card_id) REFERENCES preview_cards(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "preview_card_trends",
+      "name": "preview_card_trends_allowed_not_null",
+      "kind": "n",
+      "definition": "NOT NULL allowed"
+    },
+    {
+      "table": "preview_card_trends",
+      "name": "preview_card_trends_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "preview_card_trends",
+      "name": "preview_card_trends_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "preview_card_trends",
+      "name": "preview_card_trends_preview_card_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL preview_card_id"
+    },
+    {
+      "table": "preview_card_trends",
+      "name": "preview_card_trends_rank_not_null",
+      "kind": "n",
+      "definition": "NOT NULL rank"
+    },
+    {
+      "table": "preview_card_trends",
+      "name": "preview_card_trends_score_not_null",
+      "kind": "n",
+      "definition": "NOT NULL score"
     },
     {
       "table": "preview_cards",
-      "column": "author_account_id",
-      "target": "accounts",
-      "on_delete": "nullify"
+      "name": "fk_rails_6fb2119894",
+      "kind": "f",
+      "definition": "FOREIGN KEY (unverified_author_account_id) REFERENCES accounts(id) ON DELETE SET NULL"
     },
     {
       "table": "preview_cards",
-      "column": "unverified_author_account_id",
-      "target": "accounts",
-      "on_delete": "nullify"
+      "name": "fk_rails_dca4905b94",
+      "kind": "f",
+      "definition": "FOREIGN KEY (author_account_id) REFERENCES accounts(id) ON DELETE SET NULL"
+    },
+    {
+      "table": "preview_cards",
+      "name": "preview_cards_author_name_not_null",
+      "kind": "n",
+      "definition": "NOT NULL author_name"
+    },
+    {
+      "table": "preview_cards",
+      "name": "preview_cards_author_url_not_null",
+      "kind": "n",
+      "definition": "NOT NULL author_url"
+    },
+    {
+      "table": "preview_cards",
+      "name": "preview_cards_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "preview_cards",
+      "name": "preview_cards_description_not_null",
+      "kind": "n",
+      "definition": "NOT NULL description"
+    },
+    {
+      "table": "preview_cards",
+      "name": "preview_cards_embed_url_not_null",
+      "kind": "n",
+      "definition": "NOT NULL embed_url"
+    },
+    {
+      "table": "preview_cards",
+      "name": "preview_cards_height_not_null",
+      "kind": "n",
+      "definition": "NOT NULL height"
+    },
+    {
+      "table": "preview_cards",
+      "name": "preview_cards_html_not_null",
+      "kind": "n",
+      "definition": "NOT NULL html"
+    },
+    {
+      "table": "preview_cards",
+      "name": "preview_cards_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "preview_cards",
+      "name": "preview_cards_image_description_not_null",
+      "kind": "n",
+      "definition": "NOT NULL image_description"
+    },
+    {
+      "table": "preview_cards",
+      "name": "preview_cards_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "preview_cards",
+      "name": "preview_cards_provider_name_not_null",
+      "kind": "n",
+      "definition": "NOT NULL provider_name"
+    },
+    {
+      "table": "preview_cards",
+      "name": "preview_cards_provider_url_not_null",
+      "kind": "n",
+      "definition": "NOT NULL provider_url"
+    },
+    {
+      "table": "preview_cards",
+      "name": "preview_cards_title_not_null",
+      "kind": "n",
+      "definition": "NOT NULL title"
+    },
+    {
+      "table": "preview_cards",
+      "name": "preview_cards_type_not_null",
+      "kind": "n",
+      "definition": "NOT NULL type"
+    },
+    {
+      "table": "preview_cards",
+      "name": "preview_cards_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "preview_cards",
+      "name": "preview_cards_url_not_null",
+      "kind": "n",
+      "definition": "NOT NULL url"
+    },
+    {
+      "table": "preview_cards",
+      "name": "preview_cards_width_not_null",
+      "kind": "n",
+      "definition": "NOT NULL width"
+    },
+    {
+      "table": "preview_cards_statuses",
+      "name": "preview_cards_statuses_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (status_id, preview_card_id)"
+    },
+    {
+      "table": "preview_cards_statuses",
+      "name": "preview_cards_statuses_preview_card_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL preview_card_id"
+    },
+    {
+      "table": "preview_cards_statuses",
+      "name": "preview_cards_statuses_status_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL status_id"
     },
     {
       "table": "quotes",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_rails_36d54169fc",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "quotes",
-      "column": "quoted_account_id",
-      "target": "accounts",
-      "on_delete": "nullify"
+      "name": "fk_rails_38068caa0e",
+      "kind": "f",
+      "definition": "FOREIGN KEY (quoted_status_id) REFERENCES statuses(id) ON DELETE SET NULL"
     },
     {
       "table": "quotes",
-      "column": "quoted_status_id",
-      "target": "statuses",
-      "on_delete": "nullify"
+      "name": "fk_rails_bd3ab4462c",
+      "kind": "f",
+      "definition": "FOREIGN KEY (status_id) REFERENCES statuses(id) ON DELETE CASCADE"
     },
     {
       "table": "quotes",
-      "column": "status_id",
-      "target": "statuses",
-      "on_delete": "cascade"
+      "name": "fk_rails_bfc5276b70",
+      "kind": "f",
+      "definition": "FOREIGN KEY (quoted_account_id) REFERENCES accounts(id) ON DELETE SET NULL"
+    },
+    {
+      "table": "quotes",
+      "name": "quotes_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "quotes",
+      "name": "quotes_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "quotes",
+      "name": "quotes_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "quotes",
+      "name": "quotes_legacy_not_null",
+      "kind": "n",
+      "definition": "NOT NULL legacy"
+    },
+    {
+      "table": "quotes",
+      "name": "quotes_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "quotes",
+      "name": "quotes_state_not_null",
+      "kind": "n",
+      "definition": "NOT NULL state"
+    },
+    {
+      "table": "quotes",
+      "name": "quotes_status_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL status_id"
+    },
+    {
+      "table": "quotes",
+      "name": "quotes_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "relationship_severance_events",
+      "name": "relationship_severance_events_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "relationship_severance_events",
+      "name": "relationship_severance_events_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "relationship_severance_events",
+      "name": "relationship_severance_events_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "relationship_severance_events",
+      "name": "relationship_severance_events_purged_not_null",
+      "kind": "n",
+      "definition": "NOT NULL purged"
+    },
+    {
+      "table": "relationship_severance_events",
+      "name": "relationship_severance_events_target_name_not_null",
+      "kind": "n",
+      "definition": "NOT NULL target_name"
+    },
+    {
+      "table": "relationship_severance_events",
+      "name": "relationship_severance_events_type_not_null",
+      "kind": "n",
+      "definition": "NOT NULL type"
+    },
+    {
+      "table": "relationship_severance_events",
+      "name": "relationship_severance_events_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "relays",
+      "name": "relays_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "relays",
+      "name": "relays_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "relays",
+      "name": "relays_inbox_url_not_null",
+      "kind": "n",
+      "definition": "NOT NULL inbox_url"
+    },
+    {
+      "table": "relays",
+      "name": "relays_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "relays",
+      "name": "relays_state_not_null",
+      "kind": "n",
+      "definition": "NOT NULL state"
+    },
+    {
+      "table": "relays",
+      "name": "relays_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "report_notes",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_rails_7fa83a61eb",
+      "kind": "f",
+      "definition": "FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE"
     },
     {
       "table": "report_notes",
-      "column": "report_id",
-      "target": "reports",
-      "on_delete": "cascade"
+      "name": "fk_rails_cae66353f3",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "report_notes",
+      "name": "report_notes_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "report_notes",
+      "name": "report_notes_content_not_null",
+      "kind": "n",
+      "definition": "NOT NULL content"
+    },
+    {
+      "table": "report_notes",
+      "name": "report_notes_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "report_notes",
+      "name": "report_notes_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "report_notes",
+      "name": "report_notes_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "report_notes",
+      "name": "report_notes_report_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL report_id"
+    },
+    {
+      "table": "report_notes",
+      "name": "report_notes_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "reports",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_4b81f7522c",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "reports",
-      "column": "action_taken_by_account_id",
-      "target": "accounts",
-      "on_delete": "nullify"
+      "name": "fk_bca45b75fd",
+      "kind": "f",
+      "definition": "FOREIGN KEY (action_taken_by_account_id) REFERENCES accounts(id) ON DELETE SET NULL"
     },
     {
       "table": "reports",
-      "column": "application_id",
-      "target": "oauth_applications",
-      "on_delete": "nullify"
+      "name": "fk_eb37af34f0",
+      "kind": "f",
+      "definition": "FOREIGN KEY (target_account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "reports",
-      "column": "assigned_account_id",
-      "target": "accounts",
-      "on_delete": "nullify"
+      "name": "fk_rails_3deb8c7acb",
+      "kind": "f",
+      "definition": "FOREIGN KEY (application_id) REFERENCES oauth_applications(id) ON DELETE SET NULL"
     },
     {
       "table": "reports",
-      "column": "target_account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_rails_4e7a498fb4",
+      "kind": "f",
+      "definition": "FOREIGN KEY (assigned_account_id) REFERENCES accounts(id) ON DELETE SET NULL"
+    },
+    {
+      "table": "reports",
+      "name": "reports_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "reports",
+      "name": "reports_category_not_null",
+      "kind": "n",
+      "definition": "NOT NULL category"
+    },
+    {
+      "table": "reports",
+      "name": "reports_comment_not_null",
+      "kind": "n",
+      "definition": "NOT NULL comment"
+    },
+    {
+      "table": "reports",
+      "name": "reports_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "reports",
+      "name": "reports_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "reports",
+      "name": "reports_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "reports",
+      "name": "reports_status_ids_not_null",
+      "kind": "n",
+      "definition": "NOT NULL status_ids"
+    },
+    {
+      "table": "reports",
+      "name": "reports_target_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL target_account_id"
+    },
+    {
+      "table": "reports",
+      "name": "reports_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "rule_translations",
-      "column": "rule_id",
-      "target": "rules",
-      "on_delete": "cascade"
+      "name": "fk_rails_d5fd439dde",
+      "kind": "f",
+      "definition": "FOREIGN KEY (rule_id) REFERENCES rules(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "rule_translations",
+      "name": "rule_translations_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "rule_translations",
+      "name": "rule_translations_hint_not_null",
+      "kind": "n",
+      "definition": "NOT NULL hint"
+    },
+    {
+      "table": "rule_translations",
+      "name": "rule_translations_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "rule_translations",
+      "name": "rule_translations_language_not_null",
+      "kind": "n",
+      "definition": "NOT NULL language"
+    },
+    {
+      "table": "rule_translations",
+      "name": "rule_translations_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "rule_translations",
+      "name": "rule_translations_rule_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL rule_id"
+    },
+    {
+      "table": "rule_translations",
+      "name": "rule_translations_text_not_null",
+      "kind": "n",
+      "definition": "NOT NULL text"
+    },
+    {
+      "table": "rule_translations",
+      "name": "rule_translations_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "rules",
+      "name": "rules_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "rules",
+      "name": "rules_hint_not_null",
+      "kind": "n",
+      "definition": "NOT NULL hint"
+    },
+    {
+      "table": "rules",
+      "name": "rules_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "rules",
+      "name": "rules_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "rules",
+      "name": "rules_priority_not_null",
+      "kind": "n",
+      "definition": "NOT NULL priority"
+    },
+    {
+      "table": "rules",
+      "name": "rules_text_not_null",
+      "kind": "n",
+      "definition": "NOT NULL text"
+    },
+    {
+      "table": "rules",
+      "name": "rules_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "scheduled_statuses",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_rails_23bd9018f9",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "scheduled_statuses",
+      "name": "scheduled_statuses_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "scheduled_statuses",
+      "name": "scheduled_statuses_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "scheduled_statuses",
+      "name": "scheduled_statuses_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "schema_migrations",
+      "name": "schema_migrations_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (version)"
+    },
+    {
+      "table": "schema_migrations",
+      "name": "schema_migrations_version_not_null",
+      "kind": "n",
+      "definition": "NOT NULL version"
     },
     {
       "table": "session_activations",
-      "column": "access_token_id",
-      "target": "oauth_access_tokens",
-      "on_delete": "cascade"
+      "name": "fk_957e5bda89",
+      "kind": "f",
+      "definition": "FOREIGN KEY (access_token_id) REFERENCES oauth_access_tokens(id) ON DELETE CASCADE"
     },
     {
       "table": "session_activations",
-      "column": "user_id",
-      "target": "users",
-      "on_delete": "cascade"
+      "name": "fk_e5fda67334",
+      "kind": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "session_activations",
+      "name": "session_activations_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "session_activations",
+      "name": "session_activations_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "session_activations",
+      "name": "session_activations_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "session_activations",
+      "name": "session_activations_session_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL session_id"
+    },
+    {
+      "table": "session_activations",
+      "name": "session_activations_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "session_activations",
+      "name": "session_activations_user_agent_not_null",
+      "kind": "n",
+      "definition": "NOT NULL user_agent"
+    },
+    {
+      "table": "session_activations",
+      "name": "session_activations_user_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL user_id"
+    },
+    {
+      "table": "settings",
+      "name": "settings_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "settings",
+      "name": "settings_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "settings",
+      "name": "settings_var_not_null",
+      "kind": "n",
+      "definition": "NOT NULL var"
     },
     {
       "table": "severed_relationships",
-      "column": "local_account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_rails_5054494e1e",
+      "kind": "f",
+      "definition": "FOREIGN KEY (relationship_severance_event_id) REFERENCES relationship_severance_events(id) ON DELETE CASCADE"
     },
     {
       "table": "severed_relationships",
-      "column": "relationship_severance_event_id",
-      "target": "relationship_severance_events",
-      "on_delete": "cascade"
+      "name": "fk_rails_98ff099d4c",
+      "kind": "f",
+      "definition": "FOREIGN KEY (local_account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "severed_relationships",
-      "column": "remote_account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_rails_f7afd97ba4",
+      "kind": "f",
+      "definition": "FOREIGN KEY (remote_account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "severed_relationships",
+      "name": "severed_relationships_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "severed_relationships",
+      "name": "severed_relationships_direction_not_null",
+      "kind": "n",
+      "definition": "NOT NULL direction"
+    },
+    {
+      "table": "severed_relationships",
+      "name": "severed_relationships_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "severed_relationships",
+      "name": "severed_relationships_local_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL local_account_id"
+    },
+    {
+      "table": "severed_relationships",
+      "name": "severed_relationships_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "severed_relationships",
+      "name": "severed_relationships_relationship_severance_event_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL relationship_severance_event_id"
+    },
+    {
+      "table": "severed_relationships",
+      "name": "severed_relationships_remote_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL remote_account_id"
+    },
+    {
+      "table": "severed_relationships",
+      "name": "severed_relationships_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "site_uploads",
+      "name": "site_uploads_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "site_uploads",
+      "name": "site_uploads_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "site_uploads",
+      "name": "site_uploads_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "site_uploads",
+      "name": "site_uploads_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "site_uploads",
+      "name": "site_uploads_var_not_null",
+      "kind": "n",
+      "definition": "NOT NULL var"
+    },
+    {
+      "table": "software_deprecations",
+      "name": "software_deprecations_branch_not_null",
+      "kind": "n",
+      "definition": "NOT NULL branch"
+    },
+    {
+      "table": "software_deprecations",
+      "name": "software_deprecations_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "software_deprecations",
+      "name": "software_deprecations_end_of_support_not_null",
+      "kind": "n",
+      "definition": "NOT NULL end_of_support"
+    },
+    {
+      "table": "software_deprecations",
+      "name": "software_deprecations_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "software_deprecations",
+      "name": "software_deprecations_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "software_deprecations",
+      "name": "software_deprecations_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "software_deprecations",
+      "name": "software_deprecations_warning_issued_not_null",
+      "kind": "n",
+      "definition": "NOT NULL warning_issued"
+    },
+    {
+      "table": "software_updates",
+      "name": "software_updates_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "software_updates",
+      "name": "software_updates_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "software_updates",
+      "name": "software_updates_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "software_updates",
+      "name": "software_updates_release_notes_not_null",
+      "kind": "n",
+      "definition": "NOT NULL release_notes"
+    },
+    {
+      "table": "software_updates",
+      "name": "software_updates_type_not_null",
+      "kind": "n",
+      "definition": "NOT NULL type"
+    },
+    {
+      "table": "software_updates",
+      "name": "software_updates_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "software_updates",
+      "name": "software_updates_urgent_not_null",
+      "kind": "n",
+      "definition": "NOT NULL urgent"
+    },
+    {
+      "table": "software_updates",
+      "name": "software_updates_version_not_null",
+      "kind": "n",
+      "definition": "NOT NULL version"
     },
     {
       "table": "status_edits",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "nullify"
+      "name": "fk_rails_a960f234a0",
+      "kind": "f",
+      "definition": "FOREIGN KEY (status_id) REFERENCES statuses(id) ON DELETE CASCADE"
     },
     {
       "table": "status_edits",
-      "column": "status_id",
-      "target": "statuses",
-      "on_delete": "cascade"
+      "name": "fk_rails_dc8988c545",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE SET NULL"
+    },
+    {
+      "table": "status_edits",
+      "name": "status_edits_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "status_edits",
+      "name": "status_edits_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "status_edits",
+      "name": "status_edits_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "status_edits",
+      "name": "status_edits_spoiler_text_not_null",
+      "kind": "n",
+      "definition": "NOT NULL spoiler_text"
+    },
+    {
+      "table": "status_edits",
+      "name": "status_edits_status_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL status_id"
+    },
+    {
+      "table": "status_edits",
+      "name": "status_edits_text_not_null",
+      "kind": "n",
+      "definition": "NOT NULL text"
+    },
+    {
+      "table": "status_edits",
+      "name": "status_edits_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "status_pins",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_d4cb435b62",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "status_pins",
-      "column": "status_id",
-      "target": "statuses",
-      "on_delete": "cascade"
+      "name": "fk_rails_65c05552f1",
+      "kind": "f",
+      "definition": "FOREIGN KEY (status_id) REFERENCES statuses(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "status_pins",
+      "name": "status_pins_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "status_pins",
+      "name": "status_pins_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "status_pins",
+      "name": "status_pins_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "status_pins",
+      "name": "status_pins_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "status_pins",
+      "name": "status_pins_status_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL status_id"
+    },
+    {
+      "table": "status_pins",
+      "name": "status_pins_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "status_stats",
-      "column": "status_id",
-      "target": "statuses",
-      "on_delete": "cascade"
+      "name": "fk_rails_4a247aac42",
+      "kind": "f",
+      "definition": "FOREIGN KEY (status_id) REFERENCES statuses(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "status_stats",
+      "name": "status_stats_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "status_stats",
+      "name": "status_stats_favourites_count_not_null",
+      "kind": "n",
+      "definition": "NOT NULL favourites_count"
+    },
+    {
+      "table": "status_stats",
+      "name": "status_stats_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "status_stats",
+      "name": "status_stats_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "status_stats",
+      "name": "status_stats_quotes_count_not_null",
+      "kind": "n",
+      "definition": "NOT NULL quotes_count"
+    },
+    {
+      "table": "status_stats",
+      "name": "status_stats_reblogs_count_not_null",
+      "kind": "n",
+      "definition": "NOT NULL reblogs_count"
+    },
+    {
+      "table": "status_stats",
+      "name": "status_stats_replies_count_not_null",
+      "kind": "n",
+      "definition": "NOT NULL replies_count"
+    },
+    {
+      "table": "status_stats",
+      "name": "status_stats_status_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL status_id"
+    },
+    {
+      "table": "status_stats",
+      "name": "status_stats_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "status_trends",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_rails_68c610dc1a",
+      "kind": "f",
+      "definition": "FOREIGN KEY (status_id) REFERENCES statuses(id) ON DELETE CASCADE"
     },
     {
       "table": "status_trends",
-      "column": "status_id",
-      "target": "statuses",
-      "on_delete": "cascade"
+      "name": "fk_rails_a6b527ea49",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "status_trends",
+      "name": "status_trends_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "status_trends",
+      "name": "status_trends_allowed_not_null",
+      "kind": "n",
+      "definition": "NOT NULL allowed"
+    },
+    {
+      "table": "status_trends",
+      "name": "status_trends_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "status_trends",
+      "name": "status_trends_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "status_trends",
+      "name": "status_trends_rank_not_null",
+      "kind": "n",
+      "definition": "NOT NULL rank"
+    },
+    {
+      "table": "status_trends",
+      "name": "status_trends_score_not_null",
+      "kind": "n",
+      "definition": "NOT NULL score"
+    },
+    {
+      "table": "status_trends",
+      "name": "status_trends_status_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL status_id"
     },
     {
       "table": "statuses",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_9bda1543f7",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "statuses",
-      "column": "in_reply_to_account_id",
-      "target": "accounts",
-      "on_delete": "nullify"
+      "name": "fk_c7fa917661",
+      "kind": "f",
+      "definition": "FOREIGN KEY (in_reply_to_account_id) REFERENCES accounts(id) ON DELETE SET NULL"
     },
     {
       "table": "statuses",
-      "column": "in_reply_to_id",
-      "target": "statuses",
-      "on_delete": "nullify"
+      "name": "fk_rails_256483a9ab",
+      "kind": "f",
+      "definition": "FOREIGN KEY (reblog_of_id) REFERENCES statuses(id) ON DELETE CASCADE"
     },
     {
       "table": "statuses",
-      "column": "reblog_of_id",
-      "target": "statuses",
-      "on_delete": "cascade"
+      "name": "fk_rails_94a6f70399",
+      "kind": "f",
+      "definition": "FOREIGN KEY (in_reply_to_id) REFERENCES statuses(id) ON DELETE SET NULL"
+    },
+    {
+      "table": "statuses",
+      "name": "statuses_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "statuses",
+      "name": "statuses_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "statuses",
+      "name": "statuses_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "statuses",
+      "name": "statuses_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "statuses",
+      "name": "statuses_quote_approval_policy_not_null",
+      "kind": "n",
+      "definition": "NOT NULL quote_approval_policy"
+    },
+    {
+      "table": "statuses",
+      "name": "statuses_reply_not_null",
+      "kind": "n",
+      "definition": "NOT NULL reply"
+    },
+    {
+      "table": "statuses",
+      "name": "statuses_sensitive_not_null",
+      "kind": "n",
+      "definition": "NOT NULL sensitive"
+    },
+    {
+      "table": "statuses",
+      "name": "statuses_spoiler_text_not_null",
+      "kind": "n",
+      "definition": "NOT NULL spoiler_text"
+    },
+    {
+      "table": "statuses",
+      "name": "statuses_text_not_null",
+      "kind": "n",
+      "definition": "NOT NULL text"
+    },
+    {
+      "table": "statuses",
+      "name": "statuses_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "statuses",
+      "name": "statuses_visibility_not_null",
+      "kind": "n",
+      "definition": "NOT NULL visibility"
     },
     {
       "table": "statuses_tags",
-      "column": "status_id",
-      "target": "statuses",
-      "on_delete": "cascade"
+      "name": "fk_3081861e21",
+      "kind": "f",
+      "definition": "FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE"
     },
     {
       "table": "statuses_tags",
-      "column": "tag_id",
-      "target": "tags",
-      "on_delete": "cascade"
+      "name": "fk_rails_df0fe11427",
+      "kind": "f",
+      "definition": "FOREIGN KEY (status_id) REFERENCES statuses(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "statuses_tags",
+      "name": "statuses_tags_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (tag_id, status_id)"
+    },
+    {
+      "table": "statuses_tags",
+      "name": "statuses_tags_status_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL status_id"
+    },
+    {
+      "table": "statuses_tags",
+      "name": "statuses_tags_tag_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL tag_id"
     },
     {
       "table": "tag_follows",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_rails_091e831473",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "tag_follows",
-      "column": "tag_id",
-      "target": "tags",
-      "on_delete": "cascade"
+      "name": "fk_rails_0deefe597f",
+      "kind": "f",
+      "definition": "FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "tag_follows",
+      "name": "tag_follows_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "tag_follows",
+      "name": "tag_follows_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "tag_follows",
+      "name": "tag_follows_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "tag_follows",
+      "name": "tag_follows_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "tag_follows",
+      "name": "tag_follows_tag_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL tag_id"
+    },
+    {
+      "table": "tag_follows",
+      "name": "tag_follows_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "tag_trends",
-      "column": "tag_id",
-      "target": "tags",
-      "on_delete": "cascade"
+      "name": "fk_rails_3033046460",
+      "kind": "f",
+      "definition": "FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "tag_trends",
+      "name": "tag_trends_allowed_not_null",
+      "kind": "n",
+      "definition": "NOT NULL allowed"
+    },
+    {
+      "table": "tag_trends",
+      "name": "tag_trends_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "tag_trends",
+      "name": "tag_trends_language_not_null",
+      "kind": "n",
+      "definition": "NOT NULL language"
+    },
+    {
+      "table": "tag_trends",
+      "name": "tag_trends_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "tag_trends",
+      "name": "tag_trends_rank_not_null",
+      "kind": "n",
+      "definition": "NOT NULL rank"
+    },
+    {
+      "table": "tag_trends",
+      "name": "tag_trends_score_not_null",
+      "kind": "n",
+      "definition": "NOT NULL score"
+    },
+    {
+      "table": "tag_trends",
+      "name": "tag_trends_tag_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL tag_id"
     },
     {
       "table": "tagged_objects",
-      "column": "status_id",
-      "target": "statuses",
-      "on_delete": "cascade"
+      "name": "fk_rails_087c1d32f7",
+      "kind": "f",
+      "definition": "FOREIGN KEY (status_id) REFERENCES statuses(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "tagged_objects",
+      "name": "tagged_objects_ap_type_not_null",
+      "kind": "n",
+      "definition": "NOT NULL ap_type"
+    },
+    {
+      "table": "tagged_objects",
+      "name": "tagged_objects_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "tagged_objects",
+      "name": "tagged_objects_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "tagged_objects",
+      "name": "tagged_objects_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "tagged_objects",
+      "name": "tagged_objects_status_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL status_id"
+    },
+    {
+      "table": "tagged_objects",
+      "name": "tagged_objects_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "tags",
+      "name": "tags_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "tags",
+      "name": "tags_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "tags",
+      "name": "tags_name_not_null",
+      "kind": "n",
+      "definition": "NOT NULL name"
+    },
+    {
+      "table": "tags",
+      "name": "tags_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "tags",
+      "name": "tags_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "terms_of_services",
+      "name": "terms_of_services_changelog_not_null",
+      "kind": "n",
+      "definition": "NOT NULL changelog"
+    },
+    {
+      "table": "terms_of_services",
+      "name": "terms_of_services_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "terms_of_services",
+      "name": "terms_of_services_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "terms_of_services",
+      "name": "terms_of_services_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "terms_of_services",
+      "name": "terms_of_services_text_not_null",
+      "kind": "n",
+      "definition": "NOT NULL text"
+    },
+    {
+      "table": "terms_of_services",
+      "name": "terms_of_services_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "tombstones",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_rails_f95b861449",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "tombstones",
+      "name": "tombstones_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "tombstones",
+      "name": "tombstones_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "tombstones",
+      "name": "tombstones_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "tombstones",
+      "name": "tombstones_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "tombstones",
+      "name": "tombstones_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "tombstones",
+      "name": "tombstones_uri_not_null",
+      "kind": "n",
+      "definition": "NOT NULL uri"
+    },
+    {
+      "table": "unavailable_domains",
+      "name": "unavailable_domains_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "unavailable_domains",
+      "name": "unavailable_domains_domain_not_null",
+      "kind": "n",
+      "definition": "NOT NULL domain"
+    },
+    {
+      "table": "unavailable_domains",
+      "name": "unavailable_domains_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "unavailable_domains",
+      "name": "unavailable_domains_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "unavailable_domains",
+      "name": "unavailable_domains_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "user_invite_requests",
-      "column": "user_id",
-      "target": "users",
-      "on_delete": "cascade"
+      "name": "fk_rails_3773f15361",
+      "kind": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "user_invite_requests",
+      "name": "user_invite_requests_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "user_invite_requests",
+      "name": "user_invite_requests_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "user_invite_requests",
+      "name": "user_invite_requests_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "user_invite_requests",
+      "name": "user_invite_requests_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "user_invite_requests",
+      "name": "user_invite_requests_user_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL user_id"
+    },
+    {
+      "table": "user_roles",
+      "name": "user_roles_collection_limit_not_null",
+      "kind": "n",
+      "definition": "NOT NULL collection_limit"
+    },
+    {
+      "table": "user_roles",
+      "name": "user_roles_color_not_null",
+      "kind": "n",
+      "definition": "NOT NULL color"
+    },
+    {
+      "table": "user_roles",
+      "name": "user_roles_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "user_roles",
+      "name": "user_roles_highlighted_not_null",
+      "kind": "n",
+      "definition": "NOT NULL highlighted"
+    },
+    {
+      "table": "user_roles",
+      "name": "user_roles_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "user_roles",
+      "name": "user_roles_name_not_null",
+      "kind": "n",
+      "definition": "NOT NULL name"
+    },
+    {
+      "table": "user_roles",
+      "name": "user_roles_permissions_not_null",
+      "kind": "n",
+      "definition": "NOT NULL permissions"
+    },
+    {
+      "table": "user_roles",
+      "name": "user_roles_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "user_roles",
+      "name": "user_roles_position_not_null",
+      "kind": "n",
+      "definition": "NOT NULL \"position\""
+    },
+    {
+      "table": "user_roles",
+      "name": "user_roles_require_2fa_not_null",
+      "kind": "n",
+      "definition": "NOT NULL require_2fa"
+    },
+    {
+      "table": "user_roles",
+      "name": "user_roles_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "username_blocks",
+      "name": "username_blocks_allow_with_approval_not_null",
+      "kind": "n",
+      "definition": "NOT NULL allow_with_approval"
+    },
+    {
+      "table": "username_blocks",
+      "name": "username_blocks_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "username_blocks",
+      "name": "username_blocks_exact_not_null",
+      "kind": "n",
+      "definition": "NOT NULL exact"
+    },
+    {
+      "table": "username_blocks",
+      "name": "username_blocks_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "username_blocks",
+      "name": "username_blocks_normalized_username_not_null",
+      "kind": "n",
+      "definition": "NOT NULL normalized_username"
+    },
+    {
+      "table": "username_blocks",
+      "name": "username_blocks_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "username_blocks",
+      "name": "username_blocks_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "username_blocks",
+      "name": "username_blocks_username_not_null",
+      "kind": "n",
+      "definition": "NOT NULL username"
     },
     {
       "table": "users",
-      "column": "account_id",
-      "target": "accounts",
-      "on_delete": "cascade"
+      "name": "fk_50500f500d",
+      "kind": "f",
+      "definition": "FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE"
     },
     {
       "table": "users",
-      "column": "created_by_application_id",
-      "target": "oauth_applications",
-      "on_delete": "nullify"
+      "name": "fk_rails_642f17018b",
+      "kind": "f",
+      "definition": "FOREIGN KEY (role_id) REFERENCES user_roles(id) ON DELETE SET NULL"
     },
     {
       "table": "users",
-      "column": "invite_id",
-      "target": "invites",
-      "on_delete": "nullify"
+      "name": "fk_rails_8fb2a43e88",
+      "kind": "f",
+      "definition": "FOREIGN KEY (invite_id) REFERENCES invites(id) ON DELETE SET NULL"
     },
     {
       "table": "users",
-      "column": "role_id",
-      "target": "user_roles",
-      "on_delete": "nullify"
+      "name": "fk_rails_ecc9536e7c",
+      "kind": "f",
+      "definition": "FOREIGN KEY (created_by_application_id) REFERENCES oauth_applications(id) ON DELETE SET NULL"
+    },
+    {
+      "table": "users",
+      "name": "users_account_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL account_id"
+    },
+    {
+      "table": "users",
+      "name": "users_approved_not_null",
+      "kind": "n",
+      "definition": "NOT NULL approved"
+    },
+    {
+      "table": "users",
+      "name": "users_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "users",
+      "name": "users_disabled_not_null",
+      "kind": "n",
+      "definition": "NOT NULL disabled"
+    },
+    {
+      "table": "users",
+      "name": "users_email_not_null",
+      "kind": "n",
+      "definition": "NOT NULL email"
+    },
+    {
+      "table": "users",
+      "name": "users_encrypted_password_not_null",
+      "kind": "n",
+      "definition": "NOT NULL encrypted_password"
+    },
+    {
+      "table": "users",
+      "name": "users_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "users",
+      "name": "users_otp_required_for_login_not_null",
+      "kind": "n",
+      "definition": "NOT NULL otp_required_for_login"
+    },
+    {
+      "table": "users",
+      "name": "users_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "users",
+      "name": "users_require_tos_interstitial_not_null",
+      "kind": "n",
+      "definition": "NOT NULL require_tos_interstitial"
+    },
+    {
+      "table": "users",
+      "name": "users_sign_in_count_not_null",
+      "kind": "n",
+      "definition": "NOT NULL sign_in_count"
+    },
+    {
+      "table": "users",
+      "name": "users_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
     },
     {
       "table": "web_push_subscriptions",
-      "column": "access_token_id",
-      "target": "oauth_access_tokens",
-      "on_delete": "cascade"
+      "name": "fk_rails_751a9f390b",
+      "kind": "f",
+      "definition": "FOREIGN KEY (access_token_id) REFERENCES oauth_access_tokens(id) ON DELETE CASCADE"
     },
     {
       "table": "web_push_subscriptions",
-      "column": "user_id",
-      "target": "users",
-      "on_delete": "cascade"
+      "name": "fk_rails_b006f28dac",
+      "kind": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "web_push_subscriptions",
+      "name": "web_push_subscriptions_access_token_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL access_token_id"
+    },
+    {
+      "table": "web_push_subscriptions",
+      "name": "web_push_subscriptions_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "web_push_subscriptions",
+      "name": "web_push_subscriptions_endpoint_not_null",
+      "kind": "n",
+      "definition": "NOT NULL endpoint"
+    },
+    {
+      "table": "web_push_subscriptions",
+      "name": "web_push_subscriptions_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "web_push_subscriptions",
+      "name": "web_push_subscriptions_key_auth_not_null",
+      "kind": "n",
+      "definition": "NOT NULL key_auth"
+    },
+    {
+      "table": "web_push_subscriptions",
+      "name": "web_push_subscriptions_key_p256dh_not_null",
+      "kind": "n",
+      "definition": "NOT NULL key_p256dh"
+    },
+    {
+      "table": "web_push_subscriptions",
+      "name": "web_push_subscriptions_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "web_push_subscriptions",
+      "name": "web_push_subscriptions_standard_not_null",
+      "kind": "n",
+      "definition": "NOT NULL standard"
+    },
+    {
+      "table": "web_push_subscriptions",
+      "name": "web_push_subscriptions_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "web_push_subscriptions",
+      "name": "web_push_subscriptions_user_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL user_id"
     },
     {
       "table": "web_settings",
-      "column": "user_id",
-      "target": "users",
-      "on_delete": "cascade"
+      "name": "fk_11910667b2",
+      "kind": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "web_settings",
+      "name": "web_settings_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "web_settings",
+      "name": "web_settings_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "web_settings",
+      "name": "web_settings_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "web_settings",
+      "name": "web_settings_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "web_settings",
+      "name": "web_settings_user_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL user_id"
     },
     {
       "table": "webauthn_credentials",
-      "column": "user_id",
-      "target": "users",
-      "on_delete": "cascade"
+      "name": "fk_rails_a4355aef77",
+      "kind": "f",
+      "definition": "FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE"
+    },
+    {
+      "table": "webauthn_credentials",
+      "name": "webauthn_credentials_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "webauthn_credentials",
+      "name": "webauthn_credentials_external_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL external_id"
+    },
+    {
+      "table": "webauthn_credentials",
+      "name": "webauthn_credentials_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "webauthn_credentials",
+      "name": "webauthn_credentials_nickname_not_null",
+      "kind": "n",
+      "definition": "NOT NULL nickname"
+    },
+    {
+      "table": "webauthn_credentials",
+      "name": "webauthn_credentials_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "webauthn_credentials",
+      "name": "webauthn_credentials_public_key_not_null",
+      "kind": "n",
+      "definition": "NOT NULL public_key"
+    },
+    {
+      "table": "webauthn_credentials",
+      "name": "webauthn_credentials_sign_count_not_null",
+      "kind": "n",
+      "definition": "NOT NULL sign_count"
+    },
+    {
+      "table": "webauthn_credentials",
+      "name": "webauthn_credentials_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "webhooks",
+      "name": "webhooks_created_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL created_at"
+    },
+    {
+      "table": "webhooks",
+      "name": "webhooks_enabled_not_null",
+      "kind": "n",
+      "definition": "NOT NULL enabled"
+    },
+    {
+      "table": "webhooks",
+      "name": "webhooks_events_not_null",
+      "kind": "n",
+      "definition": "NOT NULL events"
+    },
+    {
+      "table": "webhooks",
+      "name": "webhooks_id_not_null",
+      "kind": "n",
+      "definition": "NOT NULL id"
+    },
+    {
+      "table": "webhooks",
+      "name": "webhooks_pkey",
+      "kind": "p",
+      "definition": "PRIMARY KEY (id)"
+    },
+    {
+      "table": "webhooks",
+      "name": "webhooks_secret_not_null",
+      "kind": "n",
+      "definition": "NOT NULL secret"
+    },
+    {
+      "table": "webhooks",
+      "name": "webhooks_updated_at_not_null",
+      "kind": "n",
+      "definition": "NOT NULL updated_at"
+    },
+    {
+      "table": "webhooks",
+      "name": "webhooks_url_not_null",
+      "kind": "n",
+      "definition": "NOT NULL url"
     }
-  ]
+  ],
+  "sequences": {
+    "account_aliases_id_seq": {
+      "name": "account_aliases_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "account_conversations_id_seq": {
+      "name": "account_conversations_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "account_deletion_requests_id_seq": {
+      "name": "account_deletion_requests_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "account_domain_blocks_id_seq": {
+      "name": "account_domain_blocks_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "account_migrations_id_seq": {
+      "name": "account_migrations_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "account_moderation_notes_id_seq": {
+      "name": "account_moderation_notes_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "account_notes_id_seq": {
+      "name": "account_notes_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "account_pins_id_seq": {
+      "name": "account_pins_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "account_relationship_severance_events_id_seq": {
+      "name": "account_relationship_severance_events_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "account_stats_id_seq": {
+      "name": "account_stats_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "account_statuses_cleanup_policies_id_seq": {
+      "name": "account_statuses_cleanup_policies_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "account_summaries_account_id_seq": {
+      "name": "account_summaries_account_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "account_warning_presets_id_seq": {
+      "name": "account_warning_presets_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "account_warnings_id_seq": {
+      "name": "account_warnings_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "accounts_id_seq": {
+      "name": "accounts_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "admin_action_logs_id_seq": {
+      "name": "admin_action_logs_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "announcement_mutes_id_seq": {
+      "name": "announcement_mutes_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "announcement_reactions_id_seq": {
+      "name": "announcement_reactions_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "announcements_id_seq": {
+      "name": "announcements_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "annual_report_statuses_per_account_counts_id_seq": {
+      "name": "annual_report_statuses_per_account_counts_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "appeals_id_seq": {
+      "name": "appeals_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "backups_id_seq": {
+      "name": "backups_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "blocks_id_seq": {
+      "name": "blocks_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "bookmarks_id_seq": {
+      "name": "bookmarks_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "bulk_import_rows_id_seq": {
+      "name": "bulk_import_rows_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "bulk_imports_id_seq": {
+      "name": "bulk_imports_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "canonical_email_blocks_id_seq": {
+      "name": "canonical_email_blocks_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "collection_items_id_seq": {
+      "name": "collection_items_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "collection_reports_id_seq": {
+      "name": "collection_reports_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "collections_id_seq": {
+      "name": "collections_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "conversation_mutes_id_seq": {
+      "name": "conversation_mutes_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "conversations_id_seq": {
+      "name": "conversations_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "custom_emoji_categories_id_seq": {
+      "name": "custom_emoji_categories_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "custom_emojis_id_seq": {
+      "name": "custom_emojis_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "custom_filter_keywords_id_seq": {
+      "name": "custom_filter_keywords_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "custom_filter_statuses_id_seq": {
+      "name": "custom_filter_statuses_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "custom_filters_id_seq": {
+      "name": "custom_filters_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "domain_allows_id_seq": {
+      "name": "domain_allows_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "domain_blocks_id_seq": {
+      "name": "domain_blocks_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "email_domain_blocks_id_seq": {
+      "name": "email_domain_blocks_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "email_subscriptions_id_seq": {
+      "name": "email_subscriptions_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "fasp_backfill_requests_id_seq": {
+      "name": "fasp_backfill_requests_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "fasp_debug_callbacks_id_seq": {
+      "name": "fasp_debug_callbacks_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "fasp_follow_recommendations_id_seq": {
+      "name": "fasp_follow_recommendations_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "fasp_providers_id_seq": {
+      "name": "fasp_providers_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "fasp_subscriptions_id_seq": {
+      "name": "fasp_subscriptions_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "favourites_id_seq": {
+      "name": "favourites_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "featured_tags_id_seq": {
+      "name": "featured_tags_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "follow_recommendation_mutes_id_seq": {
+      "name": "follow_recommendation_mutes_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "follow_recommendation_suppressions_id_seq": {
+      "name": "follow_recommendation_suppressions_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "follow_requests_id_seq": {
+      "name": "follow_requests_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "follows_id_seq": {
+      "name": "follows_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "generated_annual_reports_id_seq": {
+      "name": "generated_annual_reports_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "global_follow_recommendations_account_id_seq": {
+      "name": "global_follow_recommendations_account_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "identities_id_seq": {
+      "name": "identities_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "instance_moderation_notes_id_seq": {
+      "name": "instance_moderation_notes_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "invites_id_seq": {
+      "name": "invites_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "ip_blocks_id_seq": {
+      "name": "ip_blocks_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "keypairs_id_seq": {
+      "name": "keypairs_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "list_accounts_id_seq": {
+      "name": "list_accounts_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "lists_id_seq": {
+      "name": "lists_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "login_activities_id_seq": {
+      "name": "login_activities_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "markers_id_seq": {
+      "name": "markers_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "media_attachments_id_seq": {
+      "name": "media_attachments_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "mentions_id_seq": {
+      "name": "mentions_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "mutes_id_seq": {
+      "name": "mutes_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "notification_permissions_id_seq": {
+      "name": "notification_permissions_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "notification_policies_id_seq": {
+      "name": "notification_policies_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "notification_requests_id_seq": {
+      "name": "notification_requests_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "notifications_id_seq": {
+      "name": "notifications_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "oauth_access_grants_id_seq": {
+      "name": "oauth_access_grants_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "oauth_access_tokens_id_seq": {
+      "name": "oauth_access_tokens_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "oauth_applications_id_seq": {
+      "name": "oauth_applications_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "pghero_space_stats_id_seq": {
+      "name": "pghero_space_stats_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "poll_votes_id_seq": {
+      "name": "poll_votes_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "polls_id_seq": {
+      "name": "polls_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "preview_card_providers_id_seq": {
+      "name": "preview_card_providers_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "preview_card_trends_id_seq": {
+      "name": "preview_card_trends_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "preview_cards_id_seq": {
+      "name": "preview_cards_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "quotes_id_seq": {
+      "name": "quotes_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "relationship_severance_events_id_seq": {
+      "name": "relationship_severance_events_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "relays_id_seq": {
+      "name": "relays_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "report_notes_id_seq": {
+      "name": "report_notes_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "reports_id_seq": {
+      "name": "reports_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "rule_translations_id_seq": {
+      "name": "rule_translations_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "rules_id_seq": {
+      "name": "rules_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "scheduled_statuses_id_seq": {
+      "name": "scheduled_statuses_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "session_activations_id_seq": {
+      "name": "session_activations_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "settings_id_seq": {
+      "name": "settings_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "severed_relationships_id_seq": {
+      "name": "severed_relationships_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "site_uploads_id_seq": {
+      "name": "site_uploads_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "software_deprecations_id_seq": {
+      "name": "software_deprecations_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "software_updates_id_seq": {
+      "name": "software_updates_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "status_edits_id_seq": {
+      "name": "status_edits_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "status_pins_id_seq": {
+      "name": "status_pins_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "status_stats_id_seq": {
+      "name": "status_stats_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "status_trends_id_seq": {
+      "name": "status_trends_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "statuses_id_seq": {
+      "name": "statuses_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "tag_follows_id_seq": {
+      "name": "tag_follows_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "tag_trends_id_seq": {
+      "name": "tag_trends_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "tagged_objects_id_seq": {
+      "name": "tagged_objects_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "tags_id_seq": {
+      "name": "tags_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "terms_of_services_id_seq": {
+      "name": "terms_of_services_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "tombstones_id_seq": {
+      "name": "tombstones_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "unavailable_domains_id_seq": {
+      "name": "unavailable_domains_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "user_invite_requests_id_seq": {
+      "name": "user_invite_requests_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "user_roles_id_seq": {
+      "name": "user_roles_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "username_blocks_id_seq": {
+      "name": "username_blocks_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "users_id_seq": {
+      "name": "users_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "web_push_subscriptions_id_seq": {
+      "name": "web_push_subscriptions_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "web_settings_id_seq": {
+      "name": "web_settings_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "webauthn_credentials_id_seq": {
+      "name": "webauthn_credentials_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    },
+    "webhooks_id_seq": {
+      "name": "webhooks_id_seq",
+      "data_type": "bigint",
+      "increment": 1
+    }
+  },
+  "views": {
+    "instances": {
+      "name": "instances",
+      "materialized": true,
+      "definition": " WITH domain_counts(domain, accounts_count) AS (\n         SELECT accounts.domain,\n            count(*) AS accounts_count\n           FROM accounts\n          WHERE accounts.domain IS NOT NULL\n          GROUP BY accounts.domain\n        )\n SELECT domain_counts.domain,\n    domain_counts.accounts_count\n   FROM domain_counts\nUNION\n SELECT domain_blocks.domain,\n    COALESCE(domain_counts.accounts_count, 0::bigint) AS accounts_count\n   FROM domain_blocks\n     LEFT JOIN domain_counts ON domain_counts.domain::text = domain_blocks.domain::text\nUNION\n SELECT domain_allows.domain,\n    COALESCE(domain_counts.accounts_count, 0::bigint) AS accounts_count\n   FROM domain_allows\n     LEFT JOIN domain_counts ON domain_counts.domain::text = domain_allows.domain::text;"
+    },
+    "user_ips": {
+      "name": "user_ips",
+      "materialized": false,
+      "definition": " SELECT user_id,\n    ip,\n    max(used_at) AS used_at\n   FROM ( SELECT users.id AS user_id,\n            users.sign_up_ip AS ip,\n            users.created_at AS used_at\n           FROM users\n          WHERE users.sign_up_ip IS NOT NULL\n        UNION ALL\n         SELECT session_activations.user_id,\n            session_activations.ip,\n            session_activations.updated_at\n           FROM session_activations\n        UNION ALL\n         SELECT login_activities.user_id,\n            login_activities.ip,\n            login_activities.created_at\n           FROM login_activities\n          WHERE login_activities.success = true) t0\n  GROUP BY user_id, ip;"
+    }
+  }
 }

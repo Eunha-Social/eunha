@@ -248,10 +248,15 @@ async fn check(database_url: Option<String>) -> Result<()> {
     let findings = schema_check::diff(&live, &expected);
     if findings.is_empty() {
         println!(
-            "Schema matches Mastodon {} ({} tables, {} foreign keys).",
+            "Schema matches Mastodon {} ({} tables, {} constraints, {} indexes).",
             version::MASTODON,
             expected.tables.len(),
-            expected.foreign_keys.len()
+            expected.constraints.len(),
+            expected
+                .tables
+                .values()
+                .map(|t| t.indexes.len())
+                .sum::<usize>()
         );
         return Ok(());
     }
@@ -288,9 +293,11 @@ async fn record_reference(database_url: String) -> Result<()> {
     std::fs::write(&path, json + "\n").with_context(|| format!("writing {}", path.display()))?;
 
     println!(
-        "Recorded {} tables and {} foreign keys to {}.",
+        "Recorded {} tables, {} constraints, {} sequences and {} views to {}.",
         schema.tables.len(),
-        schema.foreign_keys.len(),
+        schema.constraints.len(),
+        schema.sequences.len(),
+        schema.views.len(),
         path.display()
     );
     Ok(())
