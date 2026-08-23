@@ -310,16 +310,31 @@ pub(super) async fn handle_follow(
                 }
             }
             feder_core::inbound::Action::RecordFollow => {
-                sqlx::query!(
+                // `RETURNING` distinguishes a new follow from a redelivery of
+                // one already recorded: federation repeats, and counting on
+                // every arrival would inflate the follower count.
+                let created = sqlx::query_scalar!(
                     r#"INSERT INTO follows (account_id, target_account_id, uri, created_at, updated_at)
                        VALUES ($1, $2, $3, now(), now())
-                       ON CONFLICT (account_id, target_account_id) DO UPDATE SET uri = EXCLUDED.uri"#,
+                       ON CONFLICT (account_id, target_account_id) DO UPDATE SET uri = EXCLUDED.uri
+                       RETURNING (xmax = 0) AS "inserted!""#,
                     follower_id,
                     target.id,
                     activity_uri,
                 )
-                .execute(&state.db)
+                .fetch_one(&state.db)
                 .await?;
+
+                // Mastodon's Follow counter callbacks are unconditional, so a
+                // follow from another instance moves the same two counts as one
+                // made here.
+                if created {
+                    if let Err(e) =
+                        crate::counters::on_follow_created(&state.db, follower_id, target.id).await
+                    {
+                        tracing::error!(error = %e, "failed to count a federated follow");
+                    }
+                }
 
                 if let Some(ref f) = follower {
                     let acct = match &f.domain {
@@ -403,9 +418,26 @@ pub(super) async fn handle_undo(
                 .and_then(|o| o.get("id"))
                 .and_then(|i| i.as_str())
                 .unwrap_or("");
-            let undone_follow = sqlx::query!("DELETE FROM follows WHERE uri = $1", follow_uri)
-                .execute(&state.db)
-                .await?;
+            // Return who was following whom, so the two counts can come back
+            // down: an unfollow that removed a row but left the counts is a
+            // count that only ever rises.
+            let undone_follow = sqlx::query!(
+                "DELETE FROM follows WHERE uri = $1 RETURNING account_id, target_account_id",
+                follow_uri
+            )
+            .fetch_optional(&state.db)
+            .await?;
+            if let Some(row) = &undone_follow {
+                if let Err(e) = crate::counters::on_follow_removed(
+                    &state.db,
+                    row.account_id,
+                    row.target_account_id,
+                )
+                .await
+                {
+                    tracing::error!(error = %e, "failed to uncount a federated unfollow");
+                }
+            }
             let undone_request = sqlx::query!(
                 "DELETE FROM follow_requests WHERE uri = $1 RETURNING account_id, target_account_id",
                 follow_uri
@@ -426,7 +458,7 @@ pub(super) async fn handle_undo(
             // The Follow may not have been processed yet (out-of-order delivery);
             // remember this Undo so a late Follow with the same id is skipped
             // rather than resurrecting the follow.
-            if undone_follow.rows_affected() == 0 && undone_request.is_none() {
+            if undone_follow.is_none() && undone_request.is_none() {
                 delete_later(state, actor_uri, follow_uri).await;
             }
         }

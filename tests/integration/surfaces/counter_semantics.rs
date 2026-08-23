@@ -531,3 +531,136 @@ async fn test_a_federated_status_counts_for_its_author() {
     .flatten();
     assert!(last.is_some(), "last_status_at should follow what arrives");
 }
+
+/// A follow from another instance raises the local account's follower count.
+///
+/// `Follow`'s counter callbacks are unconditional, so this should hold however
+/// the follow arrived. Kept as coverage rather than as a fix: eunha routes both
+/// paths through one `counters` module, and this is what says so.
+#[tokio::test]
+async fn test_a_federated_follow_counts() {
+    let ctx = TestContext::new("counters-federated-follow").await;
+
+    let domain = "counters-follow.invalid";
+    let actor_uri = format!("https://{domain}/users/eve");
+    sqlx::query!(
+        r#"INSERT INTO accounts
+             (id, username, domain, display_name, note, url, uri, public_key,
+              inbox_url, outbox_url, created_at, updated_at)
+           VALUES ($1, 'eve', $2, 'eve', '', $3::text, $3::text, 'remote-key',
+                   $3::text||'/inbox', $3::text||'/outbox', now(), now())"#,
+        eunha::snowflake::next_id(),
+        domain,
+        actor_uri,
+    )
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+
+    let follow = serde_json::json!({
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "id": format!("https://{domain}/activities/follow-1"),
+        "type": "Follow",
+        "actor": actor_uri,
+        "object": format!("https://{}/users/alice", ctx.domain),
+    });
+    sqlx::query!(
+        r#"INSERT INTO eunha.inbox_jobs (activity, activity_type, actor_uri, created_at, updated_at)
+           VALUES ($1, 'Follow', $2, now(), now())"#,
+        follow,
+        actor_uri,
+    )
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+    eunha::api::ap::inbox::drain_inbox_queue(&ctx.state)
+        .await
+        .unwrap();
+
+    let account: serde_json::Value = ctx
+        .api
+        .get(
+            &format!("/api/v1/accounts/{}", ctx.alice_id),
+            Some(&ctx.alice_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        account["followers_count"].as_i64(),
+        Some(1),
+        "a follow from another instance should be counted"
+    );
+
+    // Redelivery must not inflate it: federation repeats.
+    sqlx::query!(
+        r#"INSERT INTO eunha.inbox_jobs (activity, activity_type, actor_uri, created_at, updated_at)
+           VALUES ($1, 'Follow', $2, now(), now())"#,
+        follow,
+        actor_uri,
+    )
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+    eunha::api::ap::inbox::drain_inbox_queue(&ctx.state)
+        .await
+        .unwrap();
+    let account: serde_json::Value = ctx
+        .api
+        .get(
+            &format!("/api/v1/accounts/{}", ctx.alice_id),
+            Some(&ctx.alice_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        account["followers_count"].as_i64(),
+        Some(1),
+        "the same Follow delivered twice is still one follower"
+    );
+
+    // And undoing it brings the count back down.
+    let undo = serde_json::json!({
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "id": format!("https://{domain}/activities/undo-1"),
+        "type": "Undo",
+        "actor": actor_uri,
+        "object": {
+            "id": format!("https://{domain}/activities/follow-1"),
+            "type": "Follow",
+            "actor": actor_uri,
+            "object": format!("https://{}/users/alice", ctx.domain),
+        },
+    });
+    sqlx::query!(
+        r#"INSERT INTO eunha.inbox_jobs (activity, activity_type, actor_uri, created_at, updated_at)
+           VALUES ($1, 'Undo', $2, now(), now())"#,
+        undo,
+        actor_uri,
+    )
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+    eunha::api::ap::inbox::drain_inbox_queue(&ctx.state)
+        .await
+        .unwrap();
+
+    let account: serde_json::Value = ctx
+        .api
+        .get(
+            &format!("/api/v1/accounts/{}", ctx.alice_id),
+            Some(&ctx.alice_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        account["followers_count"].as_i64(),
+        Some(0),
+        "an unfollow from another instance should bring the count back down"
+    );
+}
