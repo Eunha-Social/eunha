@@ -14,14 +14,14 @@ every check polls.
 
 Run it through scripts/federation_test.sh, which builds the pair.
 
-Known state, as of writing: eunha → Mastodon works — a Follow eunha signs is
-accepted by a real Mastodon, which is the first thing here that the
-eunha-against-eunha tests could not establish. Mastodon → eunha does not yet
-land: Mastodon reports the delivery job complete, with nothing in its retry or
-dead sets, and eunha's inbox never sees the request. That is unfinished
-business, not a conclusion about either implementation.
+Known state, as of writing: Mastodon → eunha passes every check — follow,
+status, favourite, boost and delete all cross and are understood. eunha →
+Mastodon establishes follows in both directions, but a status posted on eunha
+does not appear on Mastodon, while eunha's log shows it delivering. That last
+one is a real lead rather than an environment problem, and is where to pick this
+up.
 
-Four things about the environment took a while to find, and all four make a
+Five things about the environment took a while to find, and all five make a
 correct implementation look broken:
 
 * **Port 443 or nothing.** Mastodon webfingers an account by the *host* of its
@@ -34,6 +34,13 @@ correct implementation look broken:
 * **The image runs as a non-root user**, so the CA goes in through
   `SSL_CERT_FILE` — appended to the image's own bundle, not replacing it.
 * **No Sidekiq means nothing is delivered at all**, silently.
+* **`ALLOWED_PRIVATE_ADDRESSES` belongs on the sidekiq service, not just web.**
+  Deliveries run in sidekiq; without it every one fails before a request is
+  made, and Mastodon's circuit breaker then trips the inbox to red and stops
+  trying. The symptom is no request, no error, and empty queues — which reads as
+  "Mastodon silently refuses to talk to eunha" and is nothing of the kind. If
+  deliveries stop arriving, look for `stoplight:` keys in Mastodon's Redis
+  before suspecting eunha.
 """
 import argparse
 import json

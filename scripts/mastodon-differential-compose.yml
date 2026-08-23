@@ -87,6 +87,11 @@ services:
       ES_ENABLED: "false"
       SMTP_DELIVERY_METHOD: test
       RAILS_LOG_LEVEL: warn
+      # Deliveries run here, not in web, so this is the process that has to be
+      # allowed to reach a private address. Without it every delivery fails
+      # before a request is made, and Mastodon's circuit breaker trips the inbox
+      # to red — after which it stops trying and reports nothing at all.
+      ALLOWED_PRIVATE_ADDRESSES: "0.0.0.0/0"
       SSL_CERT_FILE: /certs/ca-bundle.crt
 
   # TLS for eunha, inside the network and on 443.
