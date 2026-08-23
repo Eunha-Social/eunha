@@ -62,7 +62,10 @@ async fn test_self_deletion_federates_delete_actor() {
     let actor = format!("https://{}/users/alice", ctx.domain);
     assert_eq!(job.0["actor"].as_str(), Some(actor.as_str()));
     assert_eq!(job.0["object"].as_str(), Some(actor.as_str()));
-    assert_eq!(job.0["id"].as_str(), Some(format!("{actor}#delete").as_str()));
+    assert_eq!(
+        job.0["id"].as_str(),
+        Some(format!("{actor}#delete").as_str())
+    );
     assert_eq!(
         job.0["to"][0].as_str(),
         Some("https://www.w3.org/ns/activitystreams#Public"),
@@ -98,7 +101,12 @@ async fn test_inbound_delete_actor_purges_remote_account() {
     });
     let resp = ctx
         .api
-        .post_signed("/inbox", &delete, &format!("{remote_uri}#main-key"), &priv_pem)
+        .post_signed(
+            "/inbox",
+            &delete,
+            &format!("{remote_uri}#main-key"),
+            &priv_pem,
+        )
         .await;
     assert!(
         resp.status().is_success(),

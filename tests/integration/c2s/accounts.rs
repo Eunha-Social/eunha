@@ -29,7 +29,10 @@ async fn test_recount_follows_fixes_drift() {
 
     let alice: Value = ctx
         .api
-        .get(&format!("/api/v1/accounts/{alice_id}"), Some(&ctx.alice_token))
+        .get(
+            &format!("/api/v1/accounts/{alice_id}"),
+            Some(&ctx.alice_token),
+        )
         .await
         .json()
         .await
@@ -1583,7 +1586,11 @@ async fn test_update_credentials_length_limits() {
         .send()
         .await
         .unwrap();
-    assert_eq!(resp.status(), StatusCode::OK, "40-char display name is allowed");
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "40-char display name is allowed"
+    );
 
     // 501-char note → 422.
     let resp = patch(reqwest::multipart::Form::new().text("note", "x".repeat(501)))

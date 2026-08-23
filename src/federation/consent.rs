@@ -180,10 +180,10 @@ mod tests {
         // definitions) so the markers resolve for remote consumers.
         let ctx = &q["@context"];
         assert!(
-            ctx.as_array().is_some_and(|entries| entries.iter().any(|e| e
-                .get("QuoteAuthorization")
-                .and_then(|v| v.as_str())
-                == Some("https://w3id.org/fep/044f#QuoteAuthorization"))),
+            ctx.as_array().is_some_and(|entries| entries
+                .iter()
+                .any(|e| e.get("QuoteAuthorization").and_then(|v| v.as_str())
+                    == Some("https://w3id.org/fep/044f#QuoteAuthorization"))),
             "compound @context must declare the QuoteAuthorization term: {ctx}"
         );
     }

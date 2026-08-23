@@ -134,9 +134,7 @@ async fn verify_account_links(state: &AppState, account_id: i64) -> anyhow::Resu
 
     let mut changed = false;
     for field in &mut fields {
-        let already_verified = field
-            .get("verified_at")
-            .is_some_and(|v| !v.is_null());
+        let already_verified = field.get("verified_at").is_some_and(|v| !v.is_null());
         let Some(value) = field.get("value").and_then(|v| v.as_str()) else {
             continue;
         };
@@ -216,7 +214,10 @@ mod tests {
         let hrefs = rel_me_hrefs(html);
         assert_eq!(
             hrefs,
-            vec!["https://a.example".to_string(), "https://b.example".to_string()],
+            vec![
+                "https://a.example".to_string(),
+                "https://b.example".to_string()
+            ],
         );
     }
 

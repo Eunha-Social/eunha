@@ -82,7 +82,10 @@ pub async fn create_invite(
     let req = body.map(|Json(b)| b).unwrap_or_default();
 
     let comment = req.comment.filter(|c| !c.is_empty());
-    if comment.as_ref().is_some_and(|c| c.chars().count() > COMMENT_SIZE_LIMIT) {
+    if comment
+        .as_ref()
+        .is_some_and(|c| c.chars().count() > COMMENT_SIZE_LIMIT)
+    {
         return Err(AppError::Unprocessable(format!(
             "Validation failed: Comment is too long (maximum is {COMMENT_SIZE_LIMIT} characters)"
         )));

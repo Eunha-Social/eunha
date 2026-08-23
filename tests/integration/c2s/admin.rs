@@ -311,7 +311,10 @@ async fn test_admin_delete_account_requires_suspension() {
     let resp = ctx
         .api
         .http
-        .delete(ctx.api.url(&format!("/api/v1/admin/accounts/{}", ctx.bob_id)))
+        .delete(
+            ctx.api
+                .url(&format!("/api/v1/admin/accounts/{}", ctx.bob_id)),
+        )
         .header("host", &ctx.api.host)
         .bearer_auth(&ctx.alice_token)
         .send()
@@ -350,7 +353,10 @@ async fn test_admin_delete_account_purges_suspended_account() {
     let resp = ctx
         .api
         .http
-        .delete(ctx.api.url(&format!("/api/v1/admin/accounts/{}", ctx.bob_id)))
+        .delete(
+            ctx.api
+                .url(&format!("/api/v1/admin/accounts/{}", ctx.bob_id)),
+        )
         .header("host", &ctx.api.host)
         .bearer_auth(&ctx.alice_token)
         .send()
@@ -1053,7 +1059,10 @@ async fn test_suspension_hides_statuses_and_unsuspend_restores() {
     // Hidden from readers …
     assert_eq!(
         ctx.api
-            .get(&format!("/api/v1/statuses/{status_id}"), Some(&ctx.alice_token))
+            .get(
+                &format!("/api/v1/statuses/{status_id}"),
+                Some(&ctx.alice_token)
+            )
             .await
             .status(),
         StatusCode::NOT_FOUND,
@@ -1091,7 +1100,10 @@ async fn test_suspension_hides_statuses_and_unsuspend_restores() {
 
     assert_eq!(
         ctx.api
-            .get(&format!("/api/v1/statuses/{status_id}"), Some(&ctx.alice_token))
+            .get(
+                &format!("/api/v1/statuses/{status_id}"),
+                Some(&ctx.alice_token)
+            )
             .await
             .status(),
         StatusCode::OK,

@@ -24,7 +24,10 @@ async fn test_account_delete_page_and_challenge() {
         .unwrap();
     assert_eq!(page.status(), StatusCode::OK);
     let body = page.text().await.unwrap();
-    assert!(body.contains("/auth.css"), "should link the shared stylesheet");
+    assert!(
+        body.contains("/auth.css"),
+        "should link the shared stylesheet"
+    );
     assert!(
         body.contains("name=\"password\""),
         "should ask for the password challenge",
@@ -65,7 +68,9 @@ async fn test_account_delete_page_and_challenge() {
         .unwrap();
     assert_eq!(ok.status(), StatusCode::OK);
     assert_eq!(
-        ok.headers().get("hx-redirect").and_then(|v| v.to_str().ok()),
+        ok.headers()
+            .get("hx-redirect")
+            .and_then(|v| v.to_str().ok()),
         Some("/account/login?deleted=1"),
         "a deleted account is signed out",
     );

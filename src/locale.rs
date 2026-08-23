@@ -138,7 +138,9 @@ impl Locale {
             (Self::En, "delete_warning_irreversible") => {
                 "You will not be able to restore or reactivate your account"
             }
-            (Self::Ko, "delete_warning_irreversible") => "계정을 복구하거나 다시 사용할 수 없게 됩니다",
+            (Self::Ko, "delete_warning_irreversible") => {
+                "계정을 복구하거나 다시 사용할 수 없게 됩니다"
+            }
             (Self::En, "delete_warning_username_unavailable") => {
                 "Your username will remain unavailable"
             }
@@ -163,10 +165,10 @@ impl Locale {
             (Self::Ko, "delete_confirm_password") => {
                 "본인 확인을 위해 현재 사용 중인 암호를 입력해 주십시오"
             }
-            (Self::En, "delete_confirm_username") => {
-                "Enter your username to confirm the procedure"
+            (Self::En, "delete_confirm_username") => "Enter your username to confirm the procedure",
+            (Self::Ko, "delete_confirm_username") => {
+                "절차를 진행하려면 당신의 사용자명을 입력하세요"
             }
-            (Self::Ko, "delete_confirm_username") => "절차를 진행하려면 당신의 사용자명을 입력하세요",
             (Self::En, "delete_challenge_not_passed") => {
                 "The information you entered was not correct"
             }

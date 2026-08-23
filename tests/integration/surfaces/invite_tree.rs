@@ -94,9 +94,7 @@ async fn test_invite_tree_excludes_unapproved() {
     fn contains(nodes: &[Value], id: &str) -> bool {
         nodes.iter().any(|n| {
             n["id"].as_str() == Some(id)
-                || n["children"]
-                    .as_array()
-                    .is_some_and(|c| contains(c, id))
+                || n["children"].as_array().is_some_and(|c| contains(c, id))
         })
     }
     let roots = body["roots"].as_array().unwrap();

@@ -4026,12 +4026,17 @@ async fn test_failed_scheduled_publish_keeps_the_schedule() {
         .await
         .expect("a failing publish must not abort the whole run");
 
-    let still_there: i64 =
-        sqlx::query_scalar!(r#"SELECT count(*) AS "c!" FROM scheduled_statuses WHERE id = $1"#, sched_id)
-            .fetch_one(&ctx.db)
-            .await
-            .unwrap();
-    assert_eq!(still_there, 1, "a failed publish must not delete the schedule");
+    let still_there: i64 = sqlx::query_scalar!(
+        r#"SELECT count(*) AS "c!" FROM scheduled_statuses WHERE id = $1"#,
+        sched_id
+    )
+    .fetch_one(&ctx.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        still_there, 1,
+        "a failed publish must not delete the schedule"
+    );
 
     let attempt = sqlx::query!(
         "SELECT attempts, failed_at, run_at > now() AS backed_off, last_error
@@ -4042,13 +4047,25 @@ async fn test_failed_scheduled_publish_keeps_the_schedule() {
     .await
     .expect("the failure must be recorded");
     assert_eq!(attempt.attempts, 1, "the attempt must be counted");
-    assert!(attempt.failed_at.is_none(), "one failure must not park the schedule");
-    assert_eq!(attempt.backed_off, Some(true), "the retry must be scheduled for later");
-    assert!(attempt.last_error.is_some(), "the failure reason must be kept");
+    assert!(
+        attempt.failed_at.is_none(),
+        "one failure must not park the schedule"
+    );
+    assert_eq!(
+        attempt.backed_off,
+        Some(true),
+        "the retry must be scheduled for later"
+    );
+    assert!(
+        attempt.last_error.is_some(),
+        "the failure reason must be kept"
+    );
 
     // Running again immediately must respect the backoff rather than hammering
     // the same doomed row every tick.
-    eunha::background::publish_due_statuses(&ctx.state).await.unwrap();
+    eunha::background::publish_due_statuses(&ctx.state)
+        .await
+        .unwrap();
     let attempts: i32 = sqlx::query_scalar!(
         "SELECT attempts FROM eunha.scheduled_status_attempts WHERE scheduled_status_id = $1",
         sched_id,
@@ -4067,7 +4084,9 @@ async fn test_failed_scheduled_publish_keeps_the_schedule() {
     .execute(&ctx.db)
     .await
     .unwrap();
-    eunha::background::publish_due_statuses(&ctx.state).await.unwrap();
+    eunha::background::publish_due_statuses(&ctx.state)
+        .await
+        .unwrap();
     let attempts: i32 = sqlx::query_scalar!(
         "SELECT attempts FROM eunha.scheduled_status_attempts WHERE scheduled_status_id = $1",
         sched_id,
@@ -4075,7 +4094,10 @@ async fn test_failed_scheduled_publish_keeps_the_schedule() {
     .fetch_one(&ctx.db)
     .await
     .unwrap();
-    assert_eq!(attempts, 2, "the schedule must be retried once its backoff expires");
+    assert_eq!(
+        attempts, 2,
+        "the schedule must be retried once its backoff expires"
+    );
 }
 
 /// A schedule that can never produce a status is dropped rather than retried
@@ -4095,13 +4117,17 @@ async fn test_unpublishable_scheduled_status_is_dropped() {
     .await
     .unwrap();
 
-    eunha::background::publish_due_statuses(&ctx.state).await.unwrap();
+    eunha::background::publish_due_statuses(&ctx.state)
+        .await
+        .unwrap();
 
-    let remaining: i64 =
-        sqlx::query_scalar!(r#"SELECT count(*) AS "c!" FROM scheduled_statuses WHERE id = $1"#, sched_id)
-            .fetch_one(&ctx.db)
-            .await
-            .unwrap();
+    let remaining: i64 = sqlx::query_scalar!(
+        r#"SELECT count(*) AS "c!" FROM scheduled_statuses WHERE id = $1"#,
+        sched_id
+    )
+    .fetch_one(&ctx.db)
+    .await
+    .unwrap();
     assert_eq!(remaining, 0, "a schedule with no params must be dropped");
 }
 

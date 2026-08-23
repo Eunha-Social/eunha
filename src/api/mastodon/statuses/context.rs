@@ -189,8 +189,17 @@ pub async fn get_status_context(
     };
 
     let (anc_filters, desc_filters) = if let Some(vid) = viewer_id {
-        let af = crate::api::mastodon::timelines::compute_filter_results(&state, vid, &anc_owned, "thread").await;
-        let df = crate::api::mastodon::timelines::compute_filter_results(&state, vid, &desc_owned, "thread").await;
+        let af = crate::api::mastodon::timelines::compute_filter_results(
+            &state, vid, &anc_owned, "thread",
+        )
+        .await;
+        let df = crate::api::mastodon::timelines::compute_filter_results(
+            &state,
+            vid,
+            &desc_owned,
+            "thread",
+        )
+        .await;
         (af, df)
     } else {
         (Default::default(), Default::default())

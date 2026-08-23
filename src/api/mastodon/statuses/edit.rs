@@ -394,12 +394,16 @@ pub async fn get_status_history(
     .await?;
 
     // Render current version content on the fly
-    let current_mentions = crate::api::mastodon::status_serialize::fetch_status_mentions(&state, id)
-        .await
-        .unwrap_or_default();
+    let current_mentions =
+        crate::api::mastodon::status_serialize::fetch_status_mentions(&state, id)
+            .await
+            .unwrap_or_default();
     let current_content = if account.domain.is_none() {
         let instance_domain = state.instance.domain.clone();
-        let map = crate::api::mastodon::formatting::mention_map_from_api(&current_mentions, &instance_domain);
+        let map = crate::api::mastodon::formatting::mention_map_from_api(
+            &current_mentions,
+            &instance_domain,
+        );
         crate::api::mastodon::formatting::render_content(&status.text, &instance_domain, &map)
     } else {
         ammonia::clean(&status.text)
@@ -441,18 +445,19 @@ pub async fn get_status_history(
     let media_map: std::collections::HashMap<i64, &crate::db::models::MediaAttachment> =
         fetched_media.iter().map(|m| (m.id, m)).collect();
 
-    let ordered_media = |ids: Option<&Vec<i64>>| -> Vec<crate::api::mastodon::types::MediaAttachment> {
-        ids.map(|list| {
-            list.iter()
-                .filter_map(|id| media_map.get(id))
-                .map(|m| crate::api::mastodon::convert::media_from_db(m))
-                .filter(|m| {
-                    m.url.is_some() || m.remote_url.as_deref().is_some_and(|u| !u.is_empty())
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-    };
+    let ordered_media =
+        |ids: Option<&Vec<i64>>| -> Vec<crate::api::mastodon::types::MediaAttachment> {
+            ids.map(|list| {
+                list.iter()
+                    .filter_map(|id| media_map.get(id))
+                    .map(|m| crate::api::mastodon::convert::media_from_db(m))
+                    .filter(|m| {
+                        m.url.is_some() || m.remote_url.as_deref().is_some_and(|u| !u.is_empty())
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+        };
 
     let mut result: Vec<StatusEdit> = edits.iter().map(|e| {
         let poll = e.poll_options.as_ref().filter(|o| !o.is_empty()).map(|opts| {
@@ -494,7 +499,9 @@ pub async fn get_status_history(
         content: current_content,
         spoiler_text: status.spoiler_text.clone(),
         sensitive: status.sensitive,
-        created_at: crate::api::mastodon::convert::mastodon_date(status.edited_at.unwrap_or(status.created_at)),
+        created_at: crate::api::mastodon::convert::mastodon_date(
+            status.edited_at.unwrap_or(status.created_at),
+        ),
         account: api_account,
         media_attachments: ordered_media(status.ordered_media_attachment_ids.as_ref()),
         emojis: vec![],

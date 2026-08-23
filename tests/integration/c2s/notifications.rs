@@ -170,7 +170,10 @@ async fn test_mention_notification_with_deleted_status_is_excluded() {
         .json()
         .await
         .unwrap();
-    let groups = v2["notification_groups"].as_array().cloned().unwrap_or_default();
+    let groups = v2["notification_groups"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
     assert!(
         !groups.iter().any(|g| g["type"] == "mention"),
         "mention group with a deleted status must be excluded from v2"
