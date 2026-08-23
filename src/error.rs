@@ -15,6 +15,13 @@ pub enum AppError {
     UnauthorizedMsg(String),
     #[error("forbidden")]
     Forbidden,
+    /// The token is valid but was not granted the scope this endpoint needs.
+    ///
+    /// Distinct from [`AppError::Forbidden`] because Mastodon says which it is,
+    /// and the two call for different fixes: one is a permission the account
+    /// lacks, the other an authorisation the app never asked for.
+    #[error("outside the authorized scopes")]
+    ForbiddenScope,
     #[error("unprocessable entity: {0}")]
     Unprocessable(String),
     #[error("conflict")]
@@ -38,6 +45,10 @@ impl IntoResponse for AppError {
             AppError::Forbidden => (
                 StatusCode::FORBIDDEN,
                 "This action is not allowed".to_string(),
+            ),
+            AppError::ForbiddenScope => (
+                StatusCode::FORBIDDEN,
+                "This action is outside the authorized scopes".to_string(),
             ),
             AppError::Unprocessable(msg) => (StatusCode::UNPROCESSABLE_ENTITY, msg.clone()),
             AppError::Conflict => (StatusCode::CONFLICT, "Duplicate record".to_string()),

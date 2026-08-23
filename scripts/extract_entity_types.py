@@ -146,6 +146,42 @@ TS_INTERFACE = {
     # Inherits AccountSerializer and adds `source` and `role`; the TypeScript
     # describes the plain account, which is the right base for the shared fields.
     "credential_account": "ApiAccountJSON",
+    # Entities the TypeScript does not describe. Optionality comes from the
+    # serializer's own `if:` conditions, which is less complete but not wrong:
+    # a field marked always-present that Mastodon sometimes omits shows up as a
+    # difference to look at rather than as silence.
+    "notification": None,
+    "context": None,
+    "conversation": None,
+    "filter": None,
+    "filter_keyword": None,
+    "familiar_followers": None,
+    "featured_tag": None,
+    "scheduled_status": None,
+    "status_source": None,
+    "status_edit": None,
+    "report": None,
+    "role": None,
+    "rule": None,
+    "search": None,
+    "application": None,
+    "quote": None,
+    "notification_policy": None,
+    "notification_request": None,
+    "appeal": None,
+    "account_warning": None,
+    "privacy_policy": None,
+    "terms_of_service": None,
+    "extended_description": None,
+    "translation": None,
+    "annual_report": None,
+    "collection": None,
+    "collection_item": None,
+    "domain_block": None,
+    "preferences": None,
+    "profile": None,
+    "reaction": None,
+    "language": None,
 }
 
 
@@ -160,7 +196,7 @@ def main():
         if not emitted:
             print(f"  !! {entity}: no serializer found", file=sys.stderr)
             continue
-        typed = resolve(iface, interfaces, alias)
+        typed = resolve(iface, interfaces, alias) if iface else {}
 
         always, conditional = [], []
         for field, required in emitted.items():

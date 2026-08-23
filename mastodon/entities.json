@@ -54,6 +54,18 @@
    "url"
   ]
  },
+ "account_warning": {
+  "always": [
+   "action",
+   "appeal",
+   "created_at",
+   "id",
+   "status_ids",
+   "target_account",
+   "text"
+  ],
+  "conditional": []
+ },
  "announcement": {
   "always": [
    "all_day",
@@ -72,6 +84,81 @@
   "conditional": [
    "read"
   ]
+ },
+ "annual_report": {
+  "always": [
+   "account_id",
+   "data",
+   "schema_version",
+   "share_url",
+   "year"
+  ],
+  "conditional": []
+ },
+ "appeal": {
+  "always": [
+   "state",
+   "text"
+  ],
+  "conditional": []
+ },
+ "application": {
+  "always": [
+   "id",
+   "name",
+   "redirect_uri",
+   "redirect_uris",
+   "scopes",
+   "vapid_key",
+   "website"
+  ],
+  "conditional": []
+ },
+ "collection": {
+  "always": [
+   "account_id",
+   "created_at",
+   "description",
+   "discoverable",
+   "id",
+   "item_count",
+   "items",
+   "language",
+   "local",
+   "name",
+   "sensitive",
+   "tag",
+   "updated_at",
+   "uri",
+   "url"
+  ],
+  "conditional": []
+ },
+ "collection_item": {
+  "always": [
+   "created_at",
+   "id",
+   "state"
+  ],
+  "conditional": [
+   "account_id"
+  ]
+ },
+ "context": {
+  "always": [
+   "ancestors",
+   "descendants"
+  ],
+  "conditional": []
+ },
+ "conversation": {
+  "always": [
+   "accounts",
+   "id",
+   "last_status",
+   "unread"
+  ],
+  "conditional": []
  },
  "credential_account": {
   "always": [
@@ -131,6 +218,60 @@
    "featured"
   ]
  },
+ "domain_block": {
+  "always": [
+   "comment",
+   "digest",
+   "domain",
+   "severity"
+  ],
+  "conditional": []
+ },
+ "extended_description": {
+  "always": [
+   "content",
+   "updated_at"
+  ],
+  "conditional": []
+ },
+ "familiar_followers": {
+  "always": [
+   "accounts",
+   "id"
+  ],
+  "conditional": []
+ },
+ "featured_tag": {
+  "always": [
+   "id",
+   "last_status_at",
+   "name",
+   "statuses_count",
+   "url"
+  ],
+  "conditional": []
+ },
+ "filter": {
+  "always": [
+   "context",
+   "expires_at",
+   "filter_action",
+   "id",
+   "title"
+  ],
+  "conditional": [
+   "keywords",
+   "statuses"
+  ]
+ },
+ "filter_keyword": {
+  "always": [
+   "id",
+   "keyword",
+   "whole_word"
+  ],
+  "conditional": []
+ },
  "instance": {
   "always": [
    "api_versions",
@@ -148,6 +289,13 @@
    "usage",
    "version",
    "wrapstodon"
+  ],
+  "conditional": []
+ },
+ "language": {
+  "always": [
+   "code",
+   "name"
   ],
   "conditional": []
  },
@@ -184,6 +332,48 @@
    "text_url"
   ]
  },
+ "notification": {
+  "always": [
+   "account",
+   "created_at",
+   "group_key",
+   "id",
+   "type"
+  ],
+  "conditional": [
+   "collection",
+   "event",
+   "fallback",
+   "filtered",
+   "moderation_warning",
+   "report",
+   "status"
+  ]
+ },
+ "notification_policy": {
+  "always": [
+   "for_bots",
+   "for_limited_accounts",
+   "for_new_accounts",
+   "for_not_followers",
+   "for_not_following",
+   "for_private_mentions",
+   "summary"
+  ],
+  "conditional": []
+ },
+ "notification_request": {
+  "always": [
+   "account",
+   "created_at",
+   "from_account",
+   "id",
+   "last_status",
+   "notifications_count",
+   "updated_at"
+  ],
+  "conditional": []
+ },
  "poll": {
   "always": [
    "emojis",
@@ -199,6 +389,18 @@
    "own_votes",
    "voted"
   ]
+ },
+ "preferences": {
+  "always": [
+   "posting_default_language",
+   "posting_default_privacy",
+   "posting_default_quote_policy",
+   "posting_default_sensitive",
+   "reading_autoplay_gifs",
+   "reading_default_sensitive_media",
+   "reading_default_sensitive_text"
+  ],
+  "conditional": []
  },
  "preview_card": {
   "always": [
@@ -225,6 +427,58 @@
    "missing_attribution"
   ]
  },
+ "privacy_policy": {
+  "always": [
+   "content",
+   "updated_at"
+  ],
+  "conditional": []
+ },
+ "profile": {
+  "always": [
+   "attribution_domains",
+   "avatar",
+   "avatar_description",
+   "avatar_static",
+   "bot",
+   "discoverable",
+   "display_name",
+   "featured_tags",
+   "fields",
+   "formatted_fields",
+   "formatted_note",
+   "header",
+   "header_description",
+   "header_static",
+   "hide_collections",
+   "id",
+   "indexable",
+   "locked",
+   "note",
+   "show_featured",
+   "show_media",
+   "show_media_replies"
+  ],
+  "conditional": []
+ },
+ "quote": {
+  "always": [
+   "quoted_status",
+   "state"
+  ],
+  "conditional": []
+ },
+ "reaction": {
+  "always": [
+   "count",
+   "name"
+  ],
+  "conditional": [
+   "me",
+   "static_url",
+   "url"
+  ]
+ },
  "relationship": {
   "always": [
    "blocked_by",
@@ -243,6 +497,60 @@
    "requested",
    "requested_by",
    "showing_reblogs"
+  ],
+  "conditional": []
+ },
+ "report": {
+  "always": [
+   "action_taken",
+   "action_taken_at",
+   "category",
+   "collection_ids",
+   "comment",
+   "created_at",
+   "forwarded",
+   "id",
+   "rule_ids",
+   "status_ids",
+   "target_account"
+  ],
+  "conditional": []
+ },
+ "role": {
+  "always": [
+   "collection_limit",
+   "color",
+   "highlighted",
+   "id",
+   "name",
+   "permissions"
+  ],
+  "conditional": []
+ },
+ "rule": {
+  "always": [
+   "hint",
+   "id",
+   "text",
+   "translations"
+  ],
+  "conditional": []
+ },
+ "scheduled_status": {
+  "always": [
+   "id",
+   "media_attachments",
+   "params",
+   "scheduled_at"
+  ],
+  "conditional": []
+ },
+ "search": {
+  "always": [
+   "accounts",
+   "collections",
+   "hashtags",
+   "statuses"
   ],
   "conditional": []
  },
@@ -287,6 +595,29 @@
    "text"
   ]
  },
+ "status_edit": {
+  "always": [
+   "account",
+   "content",
+   "created_at",
+   "emojis",
+   "media_attachments",
+   "sensitive",
+   "spoiler_text"
+  ],
+  "conditional": [
+   "poll",
+   "quote"
+  ]
+ },
+ "status_source": {
+  "always": [
+   "id",
+   "spoiler_text",
+   "text"
+  ],
+  "conditional": []
+ },
  "suggestion": {
   "always": [
    "account",
@@ -306,5 +637,26 @@
    "featuring",
    "following"
   ]
+ },
+ "terms_of_service": {
+  "always": [
+   "content",
+   "effective",
+   "effective_date",
+   "succeeded_by"
+  ],
+  "conditional": []
+ },
+ "translation": {
+  "always": [
+   "content",
+   "detected_source_language",
+   "language",
+   "media_attachments",
+   "poll",
+   "provider",
+   "spoiler_text"
+  ],
+  "conditional": []
  }
 }

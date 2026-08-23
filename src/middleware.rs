@@ -42,7 +42,7 @@ impl AuthenticatedUser {
         if self.has_scope(required) {
             Ok(())
         } else {
-            Err(crate::error::AppError::Forbidden)
+            Err(crate::error::AppError::ForbiddenScope)
         }
     }
 

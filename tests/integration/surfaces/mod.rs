@@ -3,6 +3,7 @@
 mod auth_pages;
 mod divergences;
 mod entity_parity;
+mod error_contract;
 mod invite_tree;
 mod oembed;
 mod schema_compatibility;
