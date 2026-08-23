@@ -583,19 +583,22 @@ pub async fn post_status(
         }
     }
 
-    // Advance last_status_at and increment statuses_count in account_stats
-    sqlx::query!(
-        r#"INSERT INTO account_stats (account_id, statuses_count, last_status_at, created_at, updated_at)
-           VALUES ($1, 1, $2, now(), now())
-           ON CONFLICT (account_id) DO UPDATE
-             SET statuses_count = account_stats.statuses_count + 1,
-                 last_status_at = GREATEST(account_stats.last_status_at, $2),
-                 updated_at = now()"#,
-        account.id,
-        status.created_at,
-    )
-    .execute(&state.db)
-    .await?;
+    // Advance last_status_at and increment statuses_count in account_stats.
+    // A direct message moves neither, as in Mastodon.
+    if crate::db::models::vis::counted(visibility_int) {
+        sqlx::query!(
+            r#"INSERT INTO account_stats (account_id, statuses_count, last_status_at, created_at, updated_at)
+               VALUES ($1, 1, $2, now(), now())
+               ON CONFLICT (account_id) DO UPDATE
+                 SET statuses_count = account_stats.statuses_count + 1,
+                     last_status_at = GREATEST(account_stats.last_status_at, $2),
+                     updated_at = now()"#,
+            account.id,
+            status.created_at,
+        )
+        .execute(&state.db)
+        .await?;
+    }
 
     // Increment parent's replies_count, but only for a reply everyone can see:
     // Mastodon counts `if in_reply_to_id.present? && distributable?`.

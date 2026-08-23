@@ -388,6 +388,19 @@ pub mod vis {
         }
     }
 
+    /// Whether a status counts towards its author's public totals.
+    ///
+    /// Mastodon's `increment_counter_caches` opens `return if
+    /// direct_visibility?`, so a direct message moves no counter at all. The
+    /// post count sits on a profile anyone can read, and one that climbed
+    /// whenever an account sent a private message would report that it had.
+    ///
+    /// `limited` is not `direct` and does count, matching upstream.
+    #[must_use]
+    pub fn counted(v: i32) -> bool {
+        v != DIRECT
+    }
+
     /// Mastodon's `Status#distributable?`: a status everyone can see.
     ///
     /// It decides what may be counted in public. `replies_count` is shown to

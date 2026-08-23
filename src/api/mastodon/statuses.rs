@@ -537,13 +537,16 @@ pub async fn delete_status(
         .execute(&state.db)
         .await?;
 
-    sqlx::query!(
-        r#"UPDATE account_stats SET statuses_count = GREATEST(statuses_count - 1, 0), updated_at = now()
-           WHERE account_id = $1"#,
-        account.id
-    )
-    .execute(&state.db)
-    .await?;
+    // Only subtract what was added: a direct message never raised this count.
+    if crate::db::models::vis::counted(status.visibility) {
+        sqlx::query!(
+            r#"UPDATE account_stats SET statuses_count = GREATEST(statuses_count - 1, 0), updated_at = now()
+               WHERE account_id = $1"#,
+            account.id
+        )
+        .execute(&state.db)
+        .await?;
+    }
 
     // Only decrement for a reply that was counted in the first place, or the
     // count drifts down each time a private one is deleted.

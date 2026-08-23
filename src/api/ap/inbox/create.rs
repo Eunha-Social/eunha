@@ -253,9 +253,28 @@ pub(super) async fn handle_create(
 
     // Mastodon's counter callbacks sit on the Status model, so they run for a
     // status that arrived in the inbox exactly as for one posted here. Without
-    // this a local post replied to from across the network reads as having no
-    // replies at all. Only a reply everyone can see is counted, as when posting
-    // locally.
+    // these a remote profile's post count stays at whatever it was when the
+    // account was first seen, and a local post replied to from across the
+    // network reads as having no replies at all.
+    if crate::db::models::vis::counted(visibility) {
+        if let Err(e) = sqlx::query!(
+            r#"INSERT INTO account_stats (account_id, statuses_count, last_status_at, created_at, updated_at)
+               VALUES ($1, 1, $2, now(), now())
+               ON CONFLICT (account_id) DO UPDATE
+                 SET statuses_count = account_stats.statuses_count + 1,
+                     last_status_at = GREATEST(account_stats.last_status_at, $2),
+                     updated_at = now()"#,
+            account_id,
+            created_at,
+        )
+        .execute(&state.db)
+        .await
+        {
+            tracing::error!(account_id, error = %e, "failed to count a federated status");
+        }
+    }
+
+    // Only a reply everyone can see is counted, as when posting locally.
     if let Some(parent_id) =
         in_reply_to_id.filter(|_| crate::db::models::vis::distributable(visibility))
     {

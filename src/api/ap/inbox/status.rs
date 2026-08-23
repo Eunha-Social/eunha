@@ -87,7 +87,7 @@ pub(super) async fn handle_delete(
             // be put back. Only a reply that was counted is subtracted, matching
             // what `Create` counted on the way in.
             let deleted_reply = sqlx::query!(
-                r#"SELECT in_reply_to_id, visibility FROM statuses
+                r#"SELECT account_id, in_reply_to_id, visibility FROM statuses
                    WHERE uri = $1 AND deleted_at IS NULL"#,
                 uri,
             )
@@ -97,6 +97,22 @@ pub(super) async fn handle_delete(
                 sqlx::query!("UPDATE statuses SET deleted_at = now() WHERE uri = $1", uri,)
                     .execute(&state.db)
                     .await?;
+            if let Some(row) = &deleted_reply {
+                // The author's post count follows the same rule as on arrival.
+                if crate::db::models::vis::counted(row.visibility) {
+                    if let Err(e) = sqlx::query!(
+                        r#"UPDATE account_stats
+                           SET statuses_count = GREATEST(statuses_count - 1, 0), updated_at = now()
+                           WHERE account_id = $1"#,
+                        row.account_id,
+                    )
+                    .execute(&state.db)
+                    .await
+                    {
+                        tracing::error!(error = %e, "failed to uncount a deleted federated status");
+                    }
+                }
+            }
             if let Some(parent_id) = deleted_reply.and_then(|r| {
                 r.in_reply_to_id
                     .filter(|_| crate::db::models::vis::distributable(r.visibility))
