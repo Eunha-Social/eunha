@@ -50,6 +50,12 @@ services:
       ES_ENABLED: "false"
       SMTP_DELIVERY_METHOD: test
       RAILS_LOG_LEVEL: warn
+      SSL_CERT_FILE: /certs/ca-bundle.crt
+      # Mastodon refuses to deliver to private addresses, as eunha does. This is
+      # its own supported exception, meant for self-hosting behind one, and it is
+      # what lets it deliver to an eunha running on the host. Without it every
+      # federation test fails as PrivateNetworkAddressError.
+      ALLOWED_PRIVATE_ADDRESSES: "0.0.0.0/0"
     ports:
       - "3000:3000"
 
@@ -60,6 +66,8 @@ services:
   sidekiq:
     image: ghcr.io/mastodon/mastodon:v4.7.0
     command: bundle exec sidekiq
+    volumes:
+      - ./ca-bundle.crt:/certs/ca-bundle.crt:ro
     depends_on:
       db: {condition: service_healthy}
       redis: {condition: service_healthy}
@@ -79,3 +87,22 @@ services:
       ES_ENABLED: "false"
       SMTP_DELIVERY_METHOD: test
       RAILS_LOG_LEVEL: warn
+      SSL_CERT_FILE: /certs/ca-bundle.crt
+
+  # TLS for eunha, inside the network and on 443.
+  #
+  # The port matters: Mastodon webfingers an account by the *host* of its actor
+  # URI and drops any port, so `alice@eunha.test:3002` is looked up as
+  # `alice@eunha.test` on 443. Serving eunha on a non-standard port makes every
+  # inbound delivery fail verification, which looks like a signature problem and
+  # is not one. Real instances are always on 443; this matches that.
+  eunha-proxy:
+    image: caddy:2-alpine
+    command: caddy run --config /etc/caddy/Caddyfile
+    volumes:
+      - ./Caddyfile.eunha:/etc/caddy/Caddyfile:ro
+      - ./eunha.pem:/certs/eunha.pem:ro
+      - ./eunha-key.pem:/certs/eunha-key.pem:ro
+    networks:
+      default:
+        aliases: [eunha.test]
