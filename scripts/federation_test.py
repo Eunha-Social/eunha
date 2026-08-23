@@ -14,14 +14,16 @@ every check polls.
 
 Run it through scripts/federation_test.sh, which builds the pair.
 
-Known state, as of writing: Mastodon → eunha passes every check — follow,
-status, favourite, boost and delete all cross and are understood. eunha →
-Mastodon establishes follows in both directions, but a status posted on eunha
-does not appear on Mastodon, while eunha's log shows it delivering. That last
-one is a real lead rather than an environment problem, and is where to pick this
-up.
+Known state, as of writing: all twenty-four checks pass. A follow, a status, a
+favourite, a boost and a delete cross in both directions and are understood on
+the other side.
 
-Five things about the environment took a while to find, and all five make a
+One note on eunha's delivery, visible in the proxy log: each POST is a 401 then
+a 202. That is the double-knock working as intended — draft-cavage first, then
+RFC 9421 when the peer answers 401 — and is what Mastodon 4.7 itself does. It
+reads alarmingly in an access log and is not a failure.
+
+Six things about the environment took a while to find, and all five make a
 correct implementation look broken:
 
 * **Port 443 or nothing.** Mastodon webfingers an account by the *host* of its
@@ -41,6 +43,11 @@ correct implementation look broken:
   "Mastodon silently refuses to talk to eunha" and is nothing of the kind. If
   deliveries stop arriving, look for `stoplight:` keys in Mastodon's Redis
   before suspecting eunha.
+* **Mastodon cannot search statuses without Elasticsearch.** Asking `/api/v2/
+  search` whether a status arrived answers no whatever the truth, so the check
+  reads the account's timeline instead. This one cost the most: it looked for a
+  long time like eunha was not delivering, when eunha was delivering and
+  Mastodon was storing it perfectly well.
 """
 import argparse
 import json
@@ -199,10 +206,15 @@ def run_direction(sender, receiver, sender_acct, receiver_acct, report):
     report.check(direction, "post a status", True)
 
     def received_status():
-        st, body = receiver.call("GET", f"/api/v2/search?q={marker}&resolve=false")
+        # Not search: Mastodon's status search needs Elasticsearch, which this
+        # stack does not run, so a delivered status is simply not findable that
+        # way. The account's own timeline is what actually shows what arrived.
+        st, body = receiver.call(
+            "GET", f"/api/v1/accounts/{back['id']}/statuses?limit=40"
+        )
         if st != 200 or not body:
             return None
-        for s in body.get("statuses", []):
+        for s in body:
             if marker in (s.get("content") or ""):
                 return s
         return None
