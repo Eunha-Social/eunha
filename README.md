@@ -86,7 +86,8 @@ thousand-gem bundle.
 ### Adopting a release
 
 1. `mise run mastodon:plan --to vX.Y.Z` lists the Rails migrations upstream
-   added since the tracked release.
+   added since the tracked release, and the deliberate divergences that now need
+   re-examining against it.
 2. Write one eunha migration reproducing them, ending with an
    `INSERT INTO public.schema_migrations` of the versions it covers — a
    migration eunha deliberately does not implement is left out of that list, so
@@ -95,9 +96,11 @@ thousand-gem bundle.
 3. Update `mastodon.toml` and `Cargo.toml`, replace `mastodon/schema.rb` with
    that release's, and run `mise run schema:build-reference`. The reference's
    diff is the schema delta you are adopting.
-4. `mise run schema:check` against a database that has run the new migration.
-5. Rehearse it against real data before deploying. Migrations run at startup,
-   so an instance gets one attempt at them:
+4. Re-examine each divergence and move its `reviewed_for` forward in
+   `divergences.toml`; the suite fails until every entry has been looked at.
+5. `mise run schema:check` against a database that has run the new migration.
+6. Rehearse it against real data before deploying. An instance gets one attempt
+   at a migration:
 
        scripts/rehearse_migration.sh postgres://user@localhost/seoul_earth
 
@@ -175,34 +178,27 @@ The request carries the Mastodon version being asked about and eunha's own
 `User-Agent`; it does not claim to be Mastodon. Set `software_update_url` to an
 empty string to turn the check off, or to another server to ask it instead.
 
-### Beyond 4.7.0
+### Deliberate divergences
 
-Two things here go further than Mastodon 4.7 rather than catching up to it.
-Both are additive: what Mastodon sends is still sent, and a peer that ignores
-them is unaffected. The one that changes what goes out on the wire is off until
-it is turned on.
+Eunha aims for behavioural parity, so a difference from Mastodon is either a bug
+or a decision. The decisions live in `divergences.toml`, one entry each, saying
+what Mastodon does, what eunha does instead, why, and which test would fail if
+that stopped being true.
 
-**Integrity proofs on outgoing activities**, off by default. An HTTP Signature
-authenticates the connection an activity arrived over, which says nothing about
-a copy that was relayed or forwarded — a FEP-8b32 proof authenticates the
-activity itself, so it stays attributable however it travelled. Mastodon 4.7
-verifies these but does not produce them, so eunha does not either unless asked:
-what an instance sends should look like what Mastodon sends until its
-administrator decides otherwise.
+They are recorded as data rather than prose because prose is not checked and so
+stops being true. `cargo test` reads that file: an entry whose evidence has gone
+missing fails, and — the part that matters over time — every entry carries the
+Mastodon release it was last judged against, so **adopting a newer release fails
+the suite until each divergence has been re-examined**. A divergence that made
+sense against one release is not automatically right against the next; upstream
+may have adopted the same idea, changed what is being diverged from, or ruled it
+out. `mise run mastodon:plan` prints them when adopting, so the question is
+asked at the moment it can be answered.
 
-Set `sign_integrity_proofs = true` to send them. Each local account then gets an
-Ed25519 key on first use, published as a FEP-521a `Multikey` under
-`assertionMethod` and stored the way Mastodon stores its own: encrypted, in
-`keypairs`, as a PKCS#8 PEM something else could read. The HTTP Signature is
-unchanged either way.
-
-**Update notices by email.** Administrators — users whose role carries
-`view_devops`, or who are administrators — are mailed when newer Mastodon
-releases appear and when the branch eunha implements approaches its end of
-support, honouring the same `notification_emails.software_updates` and
-`notification_emails.end_of_support` preferences Mastodon reads, with the same
-defaults. Only newly seen releases are mailed about, and a warning already given
-is not reissued.
+At the time of writing there are four, covering integrity proofs on outgoing
+activities, the invite tree, what the update check asks about, and when the
+local-keypair migration is recorded. Read the file rather than this paragraph:
+the file is the one that has to stay true.
 
 ### Outstanding from 4.7.0
 

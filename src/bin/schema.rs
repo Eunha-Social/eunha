@@ -219,6 +219,23 @@ async fn plan(to: Option<String>, sql: bool) -> Result<()> {
             target.trim_start_matches('v')
         );
         println!("scripts/build_mastodon_schema.sh, which records the new reference.");
+
+        let divergences = eunha::divergence::all();
+        if !divergences.is_empty() {
+            println!(
+                "\nThen re-examine {} deliberate divergence(s) against {target}. For each:\n\
+                 has upstream adopted it, changed what it differs from, or ruled it out?",
+                divergences.len()
+            );
+            for d in &divergences {
+                println!("\n  {} ({})", d.id, d.kind.as_str());
+                println!("    mastodon: {}", d.mastodon.trim().replace('\n', " "));
+                println!("    eunha:    {}", d.eunha.trim().replace('\n', " "));
+            }
+            println!(
+                "\nMoving each `reviewed_for` in divergences.toml is what records the answer."
+            );
+        }
     }
 
     if sql && !outstanding.is_empty() {

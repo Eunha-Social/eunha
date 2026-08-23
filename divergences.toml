@@ -1,0 +1,97 @@
+# Where eunha deliberately differs from the Mastodon release it implements.
+#
+# Eunha aims for behavioural parity, so a difference is either a bug or a
+# decision. This file is where the decisions live, and it exists because prose
+# in a README cannot be checked and therefore rots: `cargo test` reads this file
+# and fails when it stops describing the code.
+#
+# Every entry carries `reviewed_for`, the Mastodon release the decision was last
+# weighed against. Adopting a newer release fails the suite until each entry is
+# re-examined and its `reviewed_for` moved forward — a divergence that made sense
+# against one release is not automatically right against the next, and upstream
+# may have since adopted, changed, or ruled out the same idea.
+#
+# Adding an entry:
+#   id           kebab-case, stable; referenced by commit messages and issues
+#   kind         addition   — eunha does something Mastodon does not
+#                omission   — Mastodon does something eunha does not
+#                behaviour  — both do it, differently
+#   mastodon     what the tracked release does, stated plainly
+#   eunha        what eunha does instead
+#   why          the reason, not a restatement of `eunha`
+#   evidence     a test that would fail if this stopped being true
+#   since        the Mastodon release the divergence was introduced against
+#   reviewed_for the Mastodon release it was last judged correct for
+
+[[divergence]]
+id = "integrity-proofs-on-outgoing-activities"
+kind = "addition"
+summary = "Signs FEP-8b32 integrity proofs, and issues the Ed25519 keys to do it"
+mastodon = """
+Verifies `eddsa-jcs-2022` and `mldsa44-jcs-2024` proofs on inbound activities, \
+but produces none, and publishes only an RSA `publicKey` on its actors."""
+eunha = """
+Attaches an `eddsa-jcs-2022` proof to outgoing activities when \
+`sign_integrity_proofs` is on, and publishes the Ed25519 key that verifies it \
+as a FEP-521a `Multikey` under `assertionMethod`. Off by default."""
+why = """
+An HTTP Signature authenticates the connection an activity arrived over, which \
+says nothing about a copy that was relayed or forwarded; a proof authenticates \
+the activity itself. Mastodon 4.7 verifies these, so they are read by the \
+servers that matter. Off by default because an instance's traffic should look \
+like Mastodon's until its administrator decides otherwise."""
+evidence = "tests/integration/federation/integrity_proofs.rs"
+since = "4.7.0"
+reviewed_for = "4.7.0"
+
+[[divergence]]
+id = "invite-tree"
+kind = "addition"
+summary = "Exposes who invited whom"
+mastodon = "Records `users.invite_id` but offers no API for the resulting tree."
+eunha = """
+Serves `/api/eunha/v1/invite_tree`, and keeps `eunha.invite_lineage` so the \
+lineage survives the inviter's account being deleted."""
+why = """
+An instance that grew by invitation has a shape worth seeing. It is served under \
+`/api/eunha/` rather than `/api/v1/`, so no Mastodon client can mistake it for \
+an endpoint Mastodon defines."""
+evidence = "tests/integration/surfaces/invite_tree.rs"
+since = "4.6.0"
+reviewed_for = "4.7.0"
+
+[[divergence]]
+id = "update-check-asks-about-mastodon"
+kind = "behaviour"
+summary = "Update notices are about the Mastodon release implemented, not about eunha"
+mastodon = "Asks the update server about its own version and reports on itself."
+eunha = """
+Asks the same server about the Mastodon release it implements, and says so in \
+the notices it sends."""
+why = """
+Eunha's version number means nothing to that server, and eunha is not Mastodon. \
+What the question can honestly mean is 'is the schema and API eunha reproduces \
+still supported?', which is worth an administrator's attention and is what gets \
+asked."""
+evidence = "tests/integration/surfaces/software_updates.rs"
+since = "4.7.0"
+reviewed_for = "4.7.0"
+
+[[divergence]]
+id = "keypairs-migration-recorded-at-runtime"
+kind = "behaviour"
+summary = "The local-keypair migration is recorded when it happens, not in advance"
+mastodon = """
+Applies `20260702144128_migrate_local_account_keypairs` with the rest and \
+records it in `schema_migrations` like any other."""
+eunha = """
+Leaves it out of the SQL migrations and records it only once the keys have \
+actually moved, which needs ActiveRecord encryption keys configured."""
+why = """
+A ledger entry asserts the move has happened. Without encryption keys eunha \
+cannot move them, and recording it anyway would tell a Mastodon booted on the \
+database to skip work still outstanding. Leaving it unrecorded is safe either \
+way: Mastodon runs it and moves the keys, or runs it and finds nothing to do."""
+evidence = "tests/integration/federation/keypairs.rs"
+since = "4.7.0"
+reviewed_for = "4.7.0"
