@@ -182,3 +182,87 @@ async fn test_instance_entity_matches() {
 
     report(findings);
 }
+
+/// `Poll`, and the `MediaAttachment` and `PreviewCard` a status can carry.
+#[tokio::test]
+async fn test_poll_and_attachment_entities_match() {
+    let ctx = TestContext::new("parity-poll").await;
+    let mut findings = Vec::new();
+
+    let posted = ctx
+        .api
+        .post_json(
+            "/api/v1/statuses",
+            Some(&ctx.alice_token),
+            &serde_json::json!({
+                "status": "which one?",
+                "poll": {"options": ["this", "that"], "expires_in": 3600},
+            }),
+        )
+        .await;
+    assert_eq!(posted.status().as_u16(), 200, "posting a poll");
+    let status: Value = posted.json().await.unwrap();
+
+    compare("poll", &status["poll"], &mut findings);
+    report(findings);
+}
+
+/// `List` and `Marker`, both small enough that a missing field is the whole
+/// entity's worth of difference.
+#[tokio::test]
+async fn test_list_and_marker_entities_match() {
+    let ctx = TestContext::new("parity-list").await;
+    let mut findings = Vec::new();
+
+    let created = ctx
+        .api
+        .post_json(
+            "/api/v1/lists",
+            Some(&ctx.alice_token),
+            &serde_json::json!({"title": "a list"}),
+        )
+        .await;
+    assert_eq!(created.status().as_u16(), 200, "creating a list");
+    let list: Value = created.json().await.unwrap();
+    compare("list", &list, &mut findings);
+
+    let status = ctx
+        .api
+        .post_status(&ctx.alice_token, "something to mark", "public")
+        .await;
+    let marked = ctx
+        .api
+        .post_json(
+            "/api/v1/markers",
+            Some(&ctx.alice_token),
+            &serde_json::json!({"home": {"last_read_id": status["id"]}}),
+        )
+        .await;
+    assert_eq!(marked.status().as_u16(), 200, "setting a marker");
+    let markers: Value = marked.json().await.unwrap();
+    compare("marker", &markers["home"], &mut findings);
+
+    report(findings);
+}
+
+/// `Tag`, as returned when following one.
+#[tokio::test]
+async fn test_tag_entity_matches() {
+    let ctx = TestContext::new("parity-tag").await;
+    let mut findings = Vec::new();
+
+    ctx.api
+        .post_status(&ctx.alice_token, "tagged #parity", "public")
+        .await;
+
+    let response: Value = ctx
+        .api
+        .get("/api/v1/tags/parity", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+    compare("tag", &response, &mut findings);
+
+    report(findings);
+}

@@ -62,30 +62,69 @@ pub async fn get_markers(
 
 // ── POST /api/v1/markers ──────────────────────────────────────────────────
 
+/// The JSON form of a marker request: `{"home": {"last_read_id": "123"}}`.
+#[derive(Debug, Default, serde::Deserialize)]
+struct MarkerRequest {
+    home: Option<MarkerPosition>,
+    notifications: Option<MarkerPosition>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct MarkerPosition {
+    /// Held as a `Value` because clients send the id both quoted and bare, and
+    /// Rails does not mind which.
+    last_read_id: Option<serde_json::Value>,
+}
+
+impl MarkerPosition {
+    fn id(self) -> Option<String> {
+        match self.last_read_id? {
+            serde_json::Value::String(s) => Some(s),
+            serde_json::Value::Number(n) => Some(n.to_string()),
+            _ => None,
+        }
+    }
+}
+
 pub async fn set_markers(
     State(state): State<AppState>,
     Extension(auth): Extension<AuthenticatedUser>,
+    headers: axum::http::HeaderMap,
     body: Bytes,
 ) -> AppResult<Json<HashMap<String, MarkerInfo>>> {
     auth.require_scope("write:statuses")?;
     let user_id = auth.user_id.ok_or(AppError::Unauthorized)?;
-    let body_str = std::str::from_utf8(&body).unwrap_or("");
 
-    // Parse bracket-notation form: home[last_read_id]=..., notifications[last_read_id]=...
-    let mut home_id: Option<String> = None;
-    let mut notif_id: Option<String> = None;
+    let is_json = headers
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|t| t.contains("application/json"));
 
-    for pair in body_str.split('&') {
-        if let Some((k, v)) = pair.split_once('=') {
-            let key = urlencoding::decode(k).unwrap_or_default();
-            let val = urlencoding::decode(v).unwrap_or_default();
-            match key.as_ref() {
-                "home[last_read_id]" => home_id = Some(val.into_owned()),
-                "notifications[last_read_id]" => notif_id = Some(val.into_owned()),
-                _ => {}
+    // Rails parses either transparently, and clients send both: the bracket
+    // notation of a form post, or the nested object of a JSON one.
+    let (home_id, notif_id) = if is_json {
+        let request: MarkerRequest = serde_json::from_slice(&body).unwrap_or_default();
+        (
+            request.home.and_then(MarkerPosition::id),
+            request.notifications.and_then(MarkerPosition::id),
+        )
+    } else {
+        let body_str = std::str::from_utf8(&body).unwrap_or("");
+        let mut home_id: Option<String> = None;
+        let mut notif_id: Option<String> = None;
+        for pair in body_str.split('&') {
+            if let Some((k, v)) = pair.split_once('=') {
+                let key = urlencoding::decode(k).unwrap_or_default();
+                let val = urlencoding::decode(v).unwrap_or_default();
+                match key.as_ref() {
+                    "home[last_read_id]" => home_id = Some(val.into_owned()),
+                    "notifications[last_read_id]" => notif_id = Some(val.into_owned()),
+                    _ => {}
+                }
             }
         }
-    }
+        (home_id, notif_id)
+    };
 
     let mut result = HashMap::new();
 
