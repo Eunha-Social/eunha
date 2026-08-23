@@ -545,8 +545,12 @@ pub async fn delete_status(
     .execute(&state.db)
     .await?;
 
-    // Decrement parent's replies_count if this was a reply
-    if let Some(parent_id) = status.in_reply_to_id {
+    // Only decrement for a reply that was counted in the first place, or the
+    // count drifts down each time a private one is deleted.
+    if let Some(parent_id) = status
+        .in_reply_to_id
+        .filter(|_| crate::db::models::vis::distributable(status.visibility))
+    {
         let _ = sqlx::query!(
             r#"UPDATE status_stats SET replies_count = GREATEST(replies_count - 1, 0), updated_at = now()
                WHERE status_id = $1"#,

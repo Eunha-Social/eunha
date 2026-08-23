@@ -301,8 +301,10 @@ async fn publish_one(
         tracing::error!(scheduled_id, status_id = status.id, error = %e, "failed to update account stats for scheduled status");
     }
 
-    // Increment parent's replies_count
-    if let Some(parent_id) = in_reply_to_id {
+    // Only a reply everyone can see counts, as when posting directly.
+    if let Some(parent_id) =
+        in_reply_to_id.filter(|_| crate::db::models::vis::distributable(visibility_int))
+    {
         let _ = sqlx::query!(
             r#"INSERT INTO status_stats (status_id, replies_count, created_at, updated_at)
                VALUES ($1, 1, now(), now())

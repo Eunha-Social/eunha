@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT in_reply_to_id, visibility FROM statuses\n                   WHERE uri = $1 AND deleted_at IS NULL",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "in_reply_to_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "visibility",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "3300b1c251a6b126b5dba2d86bc348e7a37b3a4ac4e00052dd6e34d0334392dd"
+}

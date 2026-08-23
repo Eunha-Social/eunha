@@ -388,6 +388,17 @@ pub mod vis {
         }
     }
 
+    /// Mastodon's `Status#distributable?`: a status everyone can see.
+    ///
+    /// It decides what may be counted in public. `replies_count` is shown to
+    /// anyone who can see the parent, so counting a followers-only or direct
+    /// reply would announce that a private reply exists — which is what
+    /// choosing that visibility was meant to avoid.
+    #[must_use]
+    pub fn distributable(v: i32) -> bool {
+        matches!(v, PUBLIC | UNLISTED)
+    }
+
     /// Derive visibility from an object's `to`/`cc` audience (portable logic in feder-core).
     pub fn from_audience<S: AsRef<str>, T: AsRef<str>>(to: &[S], cc: &[T]) -> i32 {
         use feder_core::addressing::Visibility;

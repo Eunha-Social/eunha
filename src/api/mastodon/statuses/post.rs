@@ -597,8 +597,11 @@ pub async fn post_status(
     .execute(&state.db)
     .await?;
 
-    // Increment parent's replies_count in status_stats if this is a reply
-    if let Some(parent_id) = in_reply_to_id {
+    // Increment parent's replies_count, but only for a reply everyone can see:
+    // Mastodon counts `if in_reply_to_id.present? && distributable?`.
+    if let Some(parent_id) =
+        in_reply_to_id.filter(|_| crate::db::models::vis::distributable(visibility_int))
+    {
         let _ = sqlx::query!(
             r#"INSERT INTO status_stats (status_id, replies_count, created_at, updated_at)
                VALUES ($1, 1, now(), now())

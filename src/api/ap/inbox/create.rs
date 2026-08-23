@@ -251,6 +251,29 @@ pub(super) async fn handle_create(
         return Ok(()); // duplicate
     };
 
+    // Mastodon's counter callbacks sit on the Status model, so they run for a
+    // status that arrived in the inbox exactly as for one posted here. Without
+    // this a local post replied to from across the network reads as having no
+    // replies at all. Only a reply everyone can see is counted, as when posting
+    // locally.
+    if let Some(parent_id) =
+        in_reply_to_id.filter(|_| crate::db::models::vis::distributable(visibility))
+    {
+        if let Err(e) = sqlx::query!(
+            r#"INSERT INTO status_stats (status_id, replies_count, created_at, updated_at)
+               VALUES ($1, 1, now(), now())
+               ON CONFLICT (status_id) DO UPDATE
+                 SET replies_count = status_stats.replies_count + 1,
+                     updated_at = now()"#,
+            parent_id,
+        )
+        .execute(&state.db)
+        .await
+        {
+            tracing::error!(parent_id, error = %e, "failed to count a federated reply");
+        }
+    }
+
     // Record the FEP-044f quote. Matching Mastodon, fetch the quoted post when
     // it isn't cached locally so the quote serializes instead of being silently
     // dropped; the fetch is bounded by fetch_remote_status's depth limit.

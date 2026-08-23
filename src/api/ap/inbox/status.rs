@@ -83,10 +83,36 @@ pub(super) async fn handle_delete(
             // a concurrent Create for this uri (same `create:{uri}` lock) so we
             // observe its committed status and it observes our tombstone.
             let _create_lock = acquire_create_lock(state, uri).await;
+            // Read what is about to be deleted, so the parent's reply count can
+            // be put back. Only a reply that was counted is subtracted, matching
+            // what `Create` counted on the way in.
+            let deleted_reply = sqlx::query!(
+                r#"SELECT in_reply_to_id, visibility FROM statuses
+                   WHERE uri = $1 AND deleted_at IS NULL"#,
+                uri,
+            )
+            .fetch_optional(&state.db)
+            .await?;
             let deleted =
                 sqlx::query!("UPDATE statuses SET deleted_at = now() WHERE uri = $1", uri,)
                     .execute(&state.db)
                     .await?;
+            if let Some(parent_id) = deleted_reply.and_then(|r| {
+                r.in_reply_to_id
+                    .filter(|_| crate::db::models::vis::distributable(r.visibility))
+            }) {
+                if let Err(e) = sqlx::query!(
+                    r#"UPDATE status_stats
+                       SET replies_count = GREATEST(replies_count - 1, 0), updated_at = now()
+                       WHERE status_id = $1"#,
+                    parent_id,
+                )
+                .execute(&state.db)
+                .await
+                {
+                    tracing::error!(parent_id, error = %e, "failed to uncount a deleted federated reply");
+                }
+            }
             // If the status isn't known yet (out-of-order delivery), remember the
             // Delete so a late Create with this URI is skipped.
             if deleted.rows_affected() == 0 {

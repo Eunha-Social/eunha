@@ -1,6 +1,7 @@
 //! Other public API surfaces beyond the Mastodon C2S REST API.
 
 mod auth_pages;
+mod counter_semantics;
 mod divergences;
 mod entity_parity;
 mod error_contract;
