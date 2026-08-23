@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM statuses WHERE uri = $1 RETURNING reblog_of_id, account_id, visibility",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "reblog_of_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "account_id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "visibility",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "22b2ba458bfab0ffae33c960de74e288db116bd7c3717ca1c1ae02c776136a82"
+}

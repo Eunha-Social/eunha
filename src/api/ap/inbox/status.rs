@@ -253,6 +253,27 @@ pub(super) async fn handle_announce(
     .fetch_optional(&state.db)
     .await?;
 
+    // A boost is a status, so it counts towards the booster's own total, as any
+    // status does. `RETURNING` above is `None` when the announce was already
+    // recorded, which is how a redelivery avoids counting twice.
+    if inserted.is_some() && crate::db::models::vis::counted(visibility) {
+        if let Err(e) = sqlx::query!(
+            r#"INSERT INTO account_stats (account_id, statuses_count, last_status_at, created_at, updated_at)
+               VALUES ($1, 1, $2, now(), now())
+               ON CONFLICT (account_id) DO UPDATE
+                 SET statuses_count = account_stats.statuses_count + 1,
+                     last_status_at = GREATEST(account_stats.last_status_at, $2),
+                     updated_at = now()"#,
+            booster_id,
+            published,
+        )
+        .execute(&state.db)
+        .await
+        {
+            tracing::error!(booster_id, error = %e, "failed to count a federated boost");
+        }
+    }
+
     // Update the original status's reblogs_count
     let _ = sqlx::query!(
         r#"INSERT INTO status_stats (status_id, reblogs_count, created_at, updated_at)

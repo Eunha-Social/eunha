@@ -513,7 +513,7 @@ pub(super) async fn handle_undo(
                 .unwrap_or("");
             if !announce_uri.is_empty() {
                 let deleted = sqlx::query!(
-                    "DELETE FROM statuses WHERE uri = $1 RETURNING reblog_of_id",
+                    "DELETE FROM statuses WHERE uri = $1 RETURNING reblog_of_id, account_id, visibility",
                     announce_uri,
                 )
                 .fetch_optional(&state.db)
@@ -525,6 +525,22 @@ pub(super) async fn handle_undo(
                                 r#"UPDATE status_stats SET reblogs_count = (SELECT COUNT(*) FROM statuses WHERE reblog_of_id = $1 AND deleted_at IS NULL), updated_at = now() WHERE status_id = $1"#,
                                 original_id,
                             ).execute(&state.db).await?;
+                        }
+                        // The boost was a status of the booster's, so undoing it
+                        // takes one off their total as any deletion does.
+                        if crate::db::models::vis::counted(row.visibility) {
+                            if let Err(e) = sqlx::query!(
+                                r#"UPDATE account_stats
+                                   SET statuses_count = GREATEST(statuses_count - 1, 0),
+                                       updated_at = now()
+                                   WHERE account_id = $1"#,
+                                row.account_id,
+                            )
+                            .execute(&state.db)
+                            .await
+                            {
+                                tracing::error!(error = %e, "failed to uncount an undone boost");
+                            }
                         }
                     }
                     None => delete_later(state, actor_uri, announce_uri).await,

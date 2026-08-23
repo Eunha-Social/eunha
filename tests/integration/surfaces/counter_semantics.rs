@@ -664,3 +664,112 @@ async fn test_a_federated_follow_counts() {
         "an unfollow from another instance should bring the count back down"
     );
 }
+
+/// A boost from another instance counts as one of the booster's posts.
+///
+/// A reblog is a Status in Mastodon, so the same callback that counts an
+/// original counts a boost, and undoing it takes the count back down. eunha
+/// counted the boost against the boosted post but not against the booster.
+#[tokio::test]
+async fn test_a_federated_boost_counts_for_the_booster() {
+    let ctx = TestContext::new("counters-federated-boost").await;
+
+    let original = ctx
+        .api
+        .post_status(&ctx.alice_token, "worth boosting", "public")
+        .await;
+    let original_uri: String = sqlx::query_scalar!(
+        "SELECT uri FROM statuses WHERE id = $1",
+        original["id"].as_str().unwrap().parse::<i64>().unwrap()
+    )
+    .fetch_one(&ctx.db)
+    .await
+    .unwrap()
+    .unwrap();
+
+    let domain = "counters-boost.invalid";
+    let actor_uri = format!("https://{domain}/users/booster");
+    let booster_id = eunha::snowflake::next_id();
+    sqlx::query!(
+        r#"INSERT INTO accounts
+             (id, username, domain, display_name, note, url, uri, public_key,
+              inbox_url, outbox_url, created_at, updated_at)
+           VALUES ($1, 'booster', $2, 'booster', '', $3::text, $3::text, 'remote-key',
+                   $3::text||'/inbox', $3::text||'/outbox', now(), now())"#,
+        booster_id,
+        domain,
+        actor_uri,
+    )
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+
+    let announce_uri = format!("https://{domain}/activities/announce-1");
+    let announce = serde_json::json!({
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "id": announce_uri,
+        "type": "Announce",
+        "actor": actor_uri,
+        "object": original_uri,
+        "to": ["https://www.w3.org/ns/activitystreams#Public"],
+    });
+    let enqueue = |activity: serde_json::Value, kind: &'static str| {
+        let db = ctx.db.clone();
+        let actor = actor_uri.clone();
+        async move {
+            sqlx::query!(
+                r#"INSERT INTO eunha.inbox_jobs (activity, activity_type, actor_uri, created_at, updated_at)
+                   VALUES ($1, $2, $3, now(), now())"#,
+                activity,
+                kind,
+                actor,
+            )
+            .execute(&db)
+            .await
+            .unwrap();
+        }
+    };
+
+    enqueue(announce.clone(), "Announce").await;
+    eunha::api::ap::inbox::drain_inbox_queue(&ctx.state)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        statuses_count(&ctx, &booster_id.to_string()).await,
+        1,
+        "a boost is one of the booster's statuses"
+    );
+
+    // Redelivery must not count twice.
+    enqueue(announce, "Announce").await;
+    eunha::api::ap::inbox::drain_inbox_queue(&ctx.state)
+        .await
+        .unwrap();
+    assert_eq!(
+        statuses_count(&ctx, &booster_id.to_string()).await,
+        1,
+        "the same Announce delivered twice is still one boost"
+    );
+
+    enqueue(
+        serde_json::json!({
+            "@context": "https://www.w3.org/ns/activitystreams",
+            "id": format!("https://{domain}/activities/undo-announce-1"),
+            "type": "Undo",
+            "actor": actor_uri,
+            "object": {"id": announce_uri, "type": "Announce", "actor": actor_uri},
+        }),
+        "Undo",
+    )
+    .await;
+    eunha::api::ap::inbox::drain_inbox_queue(&ctx.state)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        statuses_count(&ctx, &booster_id.to_string()).await,
+        0,
+        "undoing a boost takes it back off the booster's total"
+    );
+}
