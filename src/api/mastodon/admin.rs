@@ -2422,7 +2422,18 @@ pub async fn admin_trending_tags(
     auth: axum::extract::Extension<AuthenticatedUser>,
 ) -> AppResult<axum::Json<Vec<super::types::Tag>>> {
     require_permission(&state, auth.account_id, perm::MANAGE_TAXONOMIES).await?;
-    super::trends::trending_tags(state, instance, query, None).await
+    // Mastodon's admin trends controllers do not paginate, so the Link header
+    // the public endpoint builds is dropped rather than passed on.
+    let (_headers, json) = super::trends::trending_tags(
+        state,
+        instance,
+        query,
+        None,
+        axum::http::HeaderMap::new(),
+        axum::http::Uri::default(),
+    )
+    .await?;
+    Ok(json)
 }
 
 pub async fn admin_trending_statuses(
@@ -2431,7 +2442,7 @@ pub async fn admin_trending_statuses(
     auth: axum::extract::Extension<AuthenticatedUser>,
 ) -> AppResult<axum::Json<Vec<super::types::Status>>> {
     require_permission(&state, auth.account_id, perm::MANAGE_TAXONOMIES).await?;
-    super::trends::trending_statuses(
+    let (_headers, json) = super::trends::trending_statuses(
         state,
         query,
         Some(axum::extract::Extension(
@@ -2443,8 +2454,11 @@ pub async fn admin_trending_statuses(
                 application_id: auth.application_id,
             },
         )),
+        axum::http::HeaderMap::new(),
+        axum::http::Uri::default(),
     )
-    .await
+    .await?;
+    Ok(json)
 }
 
 pub async fn admin_trending_links(
@@ -2453,7 +2467,14 @@ pub async fn admin_trending_links(
     auth: axum::extract::Extension<AuthenticatedUser>,
 ) -> AppResult<axum::Json<Vec<super::types::PreviewCard>>> {
     require_permission(&state, auth.account_id, perm::MANAGE_TAXONOMIES).await?;
-    super::trends::trending_links(state, query).await
+    let (_headers, json) = super::trends::trending_links(
+        state,
+        query,
+        axum::http::HeaderMap::new(),
+        axum::http::Uri::default(),
+    )
+    .await?;
+    Ok(json)
 }
 
 // ── Admin Trends Approve / Reject (stubs — eunha computes trends dynamically) ──

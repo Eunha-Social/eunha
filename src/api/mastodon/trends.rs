@@ -32,7 +32,9 @@ pub async fn trending_tags(
     Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
     Query(params): Query<TrendParams>,
     auth: Option<Extension<AuthenticatedUser>>,
-) -> AppResult<Json<Vec<Tag>>> {
+    req_headers: axum::http::HeaderMap,
+    uri: axum::http::Uri,
+) -> AppResult<(axum::http::HeaderMap, Json<Vec<Tag>>)> {
     let limit = params.limit.unwrap_or(10).clamp(1, 20);
     let offset = params.offset.unwrap_or(0).max(0);
     let domain = &instance.domain;
@@ -107,7 +109,8 @@ pub async fn trending_tags(
         })
         .collect();
 
-    Ok(Json(tags))
+    let headers = super::offset_link_headers(&req_headers, &uri, offset, limit, tags.len());
+    Ok((headers, Json(tags)))
 }
 
 // ── GET /api/v1/trends/statuses ───────────────────────────────────────────
@@ -116,7 +119,9 @@ pub async fn trending_statuses(
     State(state): State<AppState>,
     Query(params): Query<TrendParams>,
     auth: Option<Extension<crate::middleware::AuthenticatedUser>>,
-) -> AppResult<Json<Vec<Status>>> {
+    req_headers: axum::http::HeaderMap,
+    uri: axum::http::Uri,
+) -> AppResult<(axum::http::HeaderMap, Json<Vec<Status>>)> {
     let limit = params.limit.unwrap_or(20).clamp(1, 40);
     let offset = params.offset.unwrap_or(0).max(0);
     let viewer_id = auth.map(|Extension(a)| a.account_id);
@@ -151,7 +156,7 @@ pub async fn trending_statuses(
     .await?;
 
     if rows.is_empty() {
-        return Ok(Json(vec![]));
+        return Ok((axum::http::HeaderMap::new(), Json(vec![])));
     }
 
     let all_ids: Vec<i64> = rows.iter().map(|s| s.id).collect();
@@ -248,7 +253,8 @@ pub async fn trending_statuses(
     }
     hydrate_status_stats(&state, result.iter_mut()).await;
 
-    Ok(Json(result))
+    let headers = super::offset_link_headers(&req_headers, &uri, offset, limit, result.len());
+    Ok((headers, Json(result)))
 }
 
 // ── GET /api/v1/trends/links ──────────────────────────────────────────────
@@ -256,7 +262,9 @@ pub async fn trending_statuses(
 pub async fn trending_links(
     State(state): State<AppState>,
     Query(params): Query<TrendParams>,
-) -> AppResult<Json<Vec<super::types::PreviewCard>>> {
+    req_headers: axum::http::HeaderMap,
+    uri: axum::http::Uri,
+) -> AppResult<(axum::http::HeaderMap, Json<Vec<super::types::PreviewCard>>)> {
     let limit = params.limit.unwrap_or(10).clamp(1, 40);
     let offset = params.offset.unwrap_or(0).max(0);
 
@@ -282,7 +290,7 @@ pub async fn trending_links(
     .fetch_all(&state.db)
     .await?;
 
-    let cards = rows
+    let cards: Vec<super::types::PreviewCard> = rows
         .into_iter()
         .map(|r| super::types::PreviewCard {
             url: r.url,
@@ -308,5 +316,6 @@ pub async fn trending_links(
         })
         .collect();
 
-    Ok(Json(cards))
+    let headers = super::offset_link_headers(&req_headers, &uri, offset, limit, cards.len());
+    Ok((headers, Json(cards)))
 }

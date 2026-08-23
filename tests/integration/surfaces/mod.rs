@@ -8,3 +8,4 @@ mod oembed;
 mod schema_compatibility;
 mod software_updates;
 mod streaming;
+mod trends_pagination;

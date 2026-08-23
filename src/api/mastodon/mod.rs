@@ -71,6 +71,61 @@ pub(crate) fn link_header(
     format!(r#"<{next}>; rel="next", <{prev}>; rel="prev""#)
 }
 
+/// Build the `Link` header for an endpoint that pages by offset rather than by
+/// cursor — the trends endpoints, which Mastodon paginates this way because
+/// what they rank by is not the id.
+///
+/// Mastodon's conditions, from `Api::V1::Trends::*Controller`: `next` only when
+/// the page came back full, since a short page is the last one; `prev` only
+/// when the offset is more than one page in. That second condition means no
+/// `prev` on the second page, which is odd but is what Mastodon does, and a
+/// client that follows these headers should land where it would there.
+pub(crate) fn offset_link_headers(
+    req_headers: &HeaderMap,
+    uri: &axum::http::Uri,
+    offset: i64,
+    limit: i64,
+    returned: usize,
+) -> HeaderMap {
+    let mut resp_headers = HeaderMap::new();
+    let host = req_headers
+        .get("host")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("localhost");
+    let proto = req_headers
+        .get("x-forwarded-proto")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("https");
+    let base = format!("{proto}://{host}{}", uri.path());
+    let extra = non_pagination_query(uri.query());
+    let extra = extra
+        .split('&')
+        .filter(|kv| !kv.is_empty() && !kv.starts_with("offset="))
+        .collect::<Vec<_>>()
+        .join("&");
+    let sep = if extra.is_empty() { "" } else { "&" };
+
+    let mut links = Vec::new();
+    if returned as i64 == limit {
+        links.push(format!(
+            r#"<{base}?{extra}{sep}offset={}&limit={limit}>; rel="next""#,
+            offset + limit
+        ));
+    }
+    if offset > limit {
+        links.push(format!(
+            r#"<{base}?{extra}{sep}offset={}&limit={limit}>; rel="prev""#,
+            offset - limit
+        ));
+    }
+    if !links.is_empty() {
+        if let Ok(val) = links.join(", ").parse() {
+            resp_headers.insert(axum::http::header::LINK, val);
+        }
+    }
+    resp_headers
+}
+
 /// Strip pagination-specific keys from a query string and return the rest.
 pub(crate) fn non_pagination_query(raw_query: Option<&str>) -> String {
     raw_query

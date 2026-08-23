@@ -266,3 +266,115 @@ async fn test_tag_entity_matches() {
 
     report(findings);
 }
+
+/// `Notification`, which clients poll and branch on field by field.
+#[tokio::test]
+async fn test_notification_entity_matches() {
+    let ctx = TestContext::new("parity-notification").await;
+    let mut findings = Vec::new();
+
+    // Bob follows Alice, so Alice has a notification to read.
+    ctx.api.follow(&ctx.bob_token, &ctx.alice_id).await;
+
+    let notifications: Value = ctx
+        .api
+        .get("/api/v1/notifications", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+    let first = notifications
+        .as_array()
+        .and_then(|a| a.first())
+        .expect("a follow should notify");
+    compare("notification", first, &mut findings);
+
+    report(findings);
+}
+
+/// `Context`, and the `StatusSource` and `StatusEdit` of an edited status.
+#[tokio::test]
+async fn test_status_context_and_source_entities_match() {
+    let ctx = TestContext::new("parity-context").await;
+    let mut findings = Vec::new();
+
+    let status = ctx
+        .api
+        .post_status(&ctx.alice_token, "the first post", "public")
+        .await;
+    let id = status["id"].as_str().unwrap();
+
+    let context: Value = ctx
+        .api
+        .get(
+            &format!("/api/v1/statuses/{id}/context"),
+            Some(&ctx.alice_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    compare("context", &context, &mut findings);
+
+    let source: Value = ctx
+        .api
+        .get(
+            &format!("/api/v1/statuses/{id}/source"),
+            Some(&ctx.alice_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    compare("status_source", &source, &mut findings);
+
+    report(findings);
+}
+
+/// `Filter`, whose keywords a client applies itself.
+#[tokio::test]
+async fn test_filter_entity_matches() {
+    let ctx = TestContext::new("parity-filter").await;
+    let mut findings = Vec::new();
+
+    let created = ctx
+        .api
+        .post_json(
+            "/api/v2/filters",
+            Some(&ctx.alice_token),
+            &serde_json::json!({
+                "title": "a filter",
+                "context": ["home"],
+                "filter_action": "warn",
+                "keywords_attributes": [{"keyword": "spoiler", "whole_word": true}],
+            }),
+        )
+        .await;
+    assert_eq!(created.status().as_u16(), 200, "creating a filter");
+    let filter: Value = created.json().await.unwrap();
+    compare("filter", &filter, &mut findings);
+
+    if let Some(keyword) = filter["keywords"].as_array().and_then(|a| a.first()) {
+        compare("filter_keyword", keyword, &mut findings);
+    }
+
+    report(findings);
+}
+
+/// `Application`, as a client reads back its own registration.
+#[tokio::test]
+async fn test_application_entity_matches() {
+    let ctx = TestContext::new("parity-application").await;
+    let mut findings = Vec::new();
+
+    let application: Value = ctx
+        .api
+        .get("/api/v1/apps/verify_credentials", Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+    compare("application", &application, &mut findings);
+
+    report(findings);
+}
