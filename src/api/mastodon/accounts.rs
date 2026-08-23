@@ -75,14 +75,23 @@ pub(super) async fn fetch_account_roles(
     }
 }
 
-/// Fetch the single current role for a local account (used in CredentialAccount).
+/// Mastodon's `UserRole::EVERYONE_ROLE_ID`: the role every account has unless
+/// given another, which Mastodon creates on demand if it is missing.
+const EVERYONE_ROLE_ID: i64 = -99;
+
+/// Fetch the current role for a local account (used in `CredentialAccount`).
+///
+/// Mastodon's `User#role` falls back to `UserRole.everyone` rather than
+/// returning nothing, so `verify_credentials` always carries a role and a
+/// client can read its permissions without special-casing its absence.
 pub async fn fetch_account_role(state: &AppState, account_id: i64) -> Option<super::types::Role> {
     let row = sqlx::query!(
         r#"SELECT ur.id, ur.name, ur.color, ur.permissions, ur.highlighted
            FROM users u
-           JOIN user_roles ur ON ur.id = u.role_id
+           JOIN user_roles ur ON ur.id = COALESCE(u.role_id, $2)
            WHERE u.account_id = $1"#,
         account_id,
+        EVERYONE_ROLE_ID,
     )
     .fetch_optional(&state.db)
     .await

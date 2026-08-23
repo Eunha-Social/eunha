@@ -22,8 +22,18 @@ pub struct Account {
     pub uri: String,
     pub avatar: String,
     pub avatar_static: String,
+    /// Alt text for the avatar, so a client can describe it.
+    pub avatar_description: String,
     pub header: String,
     pub header_static: String,
+    pub header_description: String,
+    /// Profile display preferences: whether the account's media, media in
+    /// replies, and featured collections are shown on its profile.
+    pub show_media: bool,
+    pub show_media_replies: bool,
+    pub show_featured: bool,
+    /// Who may feature this account's posts, and whether they must ask first.
+    pub feature_approval: FeatureApproval,
     pub followers_count: i64,
     pub following_count: i64,
     pub statuses_count: i64,
@@ -52,6 +62,20 @@ pub struct Account {
     pub source: Option<AccountSource>, // only on CredentialAccount
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<Role>, // only on CredentialAccount
+}
+
+/// Who may feature an account's posts.
+///
+/// `automatic` and `manual` name audiences — `public`, `followers`,
+/// `following`, `disabled`, or `unsupported_policy` for a flag this version
+/// does not recognise. `current_user` says where the requesting account stands:
+/// `automatic`, `manual`, `denied`, `missing` when the account has no policy
+/// recorded yet, or `unknown` when it cannot be determined.
+#[derive(Debug, Clone, Serialize)]
+pub struct FeatureApproval {
+    pub automatic: Vec<String>,
+    pub manual: Vec<String>,
+    pub current_user: String,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -492,6 +492,51 @@ pub mod quote_policy {
     }
 }
 
+/// The bitmap in `accounts.feature_approval_policy`, which says who may feature
+/// the account's posts and whether they must ask first.
+///
+/// Mastodon packs two sub-policies into one integer: the automatic one in the
+/// high 16 bits, the manual one in the low 16. Each is a set of flags rather
+/// than a single choice, so a policy can name several audiences at once, and an
+/// unrecognised flag is preserved as `unsupported_policy` — a peer may be
+/// running a newer or different implementation, and dropping what we cannot
+/// name would silently widen the policy.
+pub mod feature_policy {
+    pub const UNSUPPORTED: i32 = 1 << 0;
+    pub const PUBLIC: i32 = 1 << 1;
+    pub const FOLLOWERS: i32 = 1 << 2;
+    pub const FOLLOWING: i32 = 1 << 3;
+    pub const DISABLED: i32 = 1 << 4;
+
+    /// The automatic sub-policy: who may feature without asking.
+    #[must_use]
+    pub fn automatic(bitmap: i32) -> i32 {
+        bitmap >> 16
+    }
+
+    /// The manual sub-policy: who may feature with the author's approval.
+    #[must_use]
+    pub fn manual(bitmap: i32) -> i32 {
+        bitmap & 0xFFFF
+    }
+
+    /// The audiences a sub-policy names, in the order Mastodon lists them.
+    #[must_use]
+    pub fn as_keys(sub_policy: i32) -> Vec<&'static str> {
+        [
+            (UNSUPPORTED, "unsupported_policy"),
+            (PUBLIC, "public"),
+            (FOLLOWERS, "followers"),
+            (FOLLOWING, "following"),
+            (DISABLED, "disabled"),
+        ]
+        .into_iter()
+        .filter(|(flag, _)| sub_policy & flag != 0)
+        .map(|(_, name)| name)
+        .collect()
+    }
+}
+
 /// Integer-to-text helpers for custom_filters.action (warn=0 hide=1).
 pub mod filter_action {
     pub const WARN: i32 = 0;

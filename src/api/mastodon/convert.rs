@@ -193,7 +193,115 @@ fn render_account_note(a: &models::Account) -> String {
     }
 }
 
+/// What a viewing account knows about its relationship to the account being
+/// serialized, which is what `feature_approval.current_user` turns on.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct AccountViewerContext {
+    /// The viewer is the account being serialized.
+    pub is_self: bool,
+    /// The account being serialized follows the viewer.
+    pub follows_viewer: bool,
+    /// The viewer follows the account being serialized.
+    pub followed_by_viewer: bool,
+}
+
+/// Mastodon's `feature_approval`, from `Account::InteractionPolicyConcern`.
+///
+/// A local account's policy is implied by its own settings rather than stored:
+/// an undiscoverable account allows nobody, a locked one allows its followers,
+/// and any other allows everyone — and Mastodon never offers local accounts the
+/// manual path. A remote account's comes from the bitmap it federated.
+fn build_feature_approval(
+    a: &models::Account,
+    viewer: Option<&AccountViewerContext>,
+) -> types::FeatureApproval {
+    use crate::db::models::feature_policy;
+
+    let local = a.domain.is_none();
+    let discoverable = a.discoverable.unwrap_or(false);
+
+    let (automatic, manual): (Vec<String>, Vec<String>) = if local {
+        let automatic = if !discoverable {
+            vec![]
+        } else if a.locked {
+            vec!["followers".to_string()]
+        } else {
+            vec!["public".to_string()]
+        };
+        (automatic, vec![])
+    } else {
+        let policy = a.feature_approval_policy;
+        (
+            feature_policy::as_keys(feature_policy::automatic(policy))
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            feature_policy::as_keys(feature_policy::manual(policy))
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+        )
+    };
+
+    let current_user = match viewer {
+        // Mastodon answers `denied` when nobody is asking.
+        None => "denied".to_string(),
+        Some(ctx) if local => {
+            if !discoverable {
+                "denied".to_string()
+            } else if a.locked && !ctx.follows_viewer && !ctx.is_self {
+                "denied".to_string()
+            } else {
+                "automatic".to_string()
+            }
+        }
+        Some(ctx) => {
+            let policy = a.feature_approval_policy;
+            let automatic_policy = feature_policy::automatic(policy);
+            let manual_policy = feature_policy::manual(policy);
+            let allows = |sub_policy: i32| {
+                sub_policy & feature_policy::PUBLIC != 0
+                    || (sub_policy & feature_policy::FOLLOWERS != 0 && ctx.follows_viewer)
+                    || (sub_policy & feature_policy::FOLLOWING != 0 && ctx.followed_by_viewer)
+            };
+
+            if ctx.is_self {
+                // An author may always feature themselves.
+                "automatic".to_string()
+            } else if policy == 0 {
+                // Nothing federated yet, so nothing can be said.
+                "missing".to_string()
+            } else if allows(automatic_policy) {
+                "automatic".to_string()
+            } else if allows(manual_policy) {
+                "manual".to_string()
+            } else if (automatic_policy | manual_policy) & feature_policy::UNSUPPORTED != 0 {
+                // A flag from a newer or different implementation: it may well
+                // permit this viewer, and saying `denied` would overstate what
+                // we know.
+                "unknown".to_string()
+            } else {
+                "denied".to_string()
+            }
+        }
+    };
+
+    types::FeatureApproval {
+        automatic,
+        manual,
+        current_user,
+    }
+}
+
 pub fn account_from_db(a: &models::Account) -> types::Account {
+    account_from_db_for_viewer(a, None)
+}
+
+/// As [`account_from_db`], for a request whose viewer is known.
+pub fn account_from_db_for_viewer(
+    a: &models::Account,
+    viewer: Option<&AccountViewerContext>,
+) -> types::Account {
     let (url, uri) = if a.domain.is_none() {
         // Local accounts: the human url is /@username; the AP uri follows the
         // account's id_scheme (/users/{username} or /ap/users/{id}).
@@ -259,6 +367,21 @@ pub fn account_from_db(a: &models::Account) -> types::Account {
         } else {
             account_header_url(a)
         },
+        // Mastodon blanks the alt text along with the image it describes.
+        avatar_description: if suspended {
+            String::new()
+        } else {
+            a.avatar_description.clone()
+        },
+        header_description: if suspended {
+            String::new()
+        } else {
+            a.header_description.clone()
+        },
+        show_media: a.show_media,
+        show_media_replies: a.show_media_replies,
+        show_featured: a.show_featured,
+        feature_approval: build_feature_approval(a, viewer),
         followers_count: 0,
         following_count: 0,
         statuses_count: 0,

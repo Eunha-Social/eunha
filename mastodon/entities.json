@@ -1,0 +1,310 @@
+{
+ "_comment": [
+  "What Mastodon's API entities carry. Regenerate with",
+  "scripts/build_entity_types.sh.",
+  "",
+  "Fields come from app/serializers/rest/*.rb, which decides what is",
+  "emitted; optionality from those plus app/javascript/mastodon/api_types",
+  "/*.ts, which states it plainly.",
+  "",
+  "`always` is present on every response; `conditional` depends on who is",
+  "asking, so its absence is not a difference."
+ ],
+ "account": {
+  "always": [
+   "acct",
+   "avatar",
+   "avatar_description",
+   "avatar_static",
+   "bot",
+   "created_at",
+   "display_name",
+   "emojis",
+   "feature_approval",
+   "fields",
+   "followers_count",
+   "following_count",
+   "group",
+   "header",
+   "header_description",
+   "header_static",
+   "hide_collections",
+   "id",
+   "indexable",
+   "last_status_at",
+   "locked",
+   "note",
+   "show_featured",
+   "show_media",
+   "show_media_replies",
+   "statuses_count",
+   "uri",
+   "username"
+  ],
+  "conditional": [
+   "discoverable",
+   "email_subscriptions",
+   "invalid_handle",
+   "limited",
+   "memorial",
+   "moved",
+   "noindex",
+   "roles",
+   "suspended",
+   "url"
+  ]
+ },
+ "announcement": {
+  "always": [
+   "all_day",
+   "content",
+   "emojis",
+   "ends_at",
+   "id",
+   "mentions",
+   "published_at",
+   "reactions",
+   "starts_at",
+   "statuses",
+   "tags",
+   "updated_at"
+  ],
+  "conditional": [
+   "read"
+  ]
+ },
+ "credential_account": {
+  "always": [
+   "acct",
+   "avatar",
+   "avatar_description",
+   "avatar_static",
+   "bot",
+   "created_at",
+   "display_name",
+   "emojis",
+   "feature_approval",
+   "fields",
+   "followers_count",
+   "following_count",
+   "group",
+   "header",
+   "header_description",
+   "header_static",
+   "hide_collections",
+   "id",
+   "indexable",
+   "last_status_at",
+   "locked",
+   "note",
+   "role",
+   "show_featured",
+   "show_media",
+   "show_media_replies",
+   "source",
+   "statuses_count",
+   "uri",
+   "username"
+  ],
+  "conditional": [
+   "discoverable",
+   "email_subscriptions",
+   "invalid_handle",
+   "limited",
+   "memorial",
+   "moved",
+   "noindex",
+   "roles",
+   "suspended",
+   "url"
+  ]
+ },
+ "custom_emoji": {
+  "always": [
+   "shortcode",
+   "static_url",
+   "url",
+   "visible_in_picker"
+  ],
+  "conditional": [
+   "category",
+   "featured"
+  ]
+ },
+ "instance": {
+  "always": [
+   "api_versions",
+   "configuration",
+   "contact",
+   "description",
+   "domain",
+   "icon",
+   "languages",
+   "registrations",
+   "rules",
+   "source_url",
+   "thumbnail",
+   "title",
+   "usage",
+   "version",
+   "wrapstodon"
+  ],
+  "conditional": []
+ },
+ "list": {
+  "always": [
+   "exclusive",
+   "id",
+   "replies_policy",
+   "title"
+  ],
+  "conditional": []
+ },
+ "marker": {
+  "always": [
+   "last_read_id",
+   "updated_at",
+   "version"
+  ],
+  "conditional": []
+ },
+ "media_attachment": {
+  "always": [
+   "blurhash",
+   "id",
+   "meta",
+   "preview_url",
+   "type",
+   "url"
+  ],
+  "conditional": [
+   "description",
+   "preview_remote_url",
+   "remote_url",
+   "text_url"
+  ]
+ },
+ "poll": {
+  "always": [
+   "emojis",
+   "expired",
+   "expires_at",
+   "id",
+   "multiple",
+   "options",
+   "voters_count",
+   "votes_count"
+  ],
+  "conditional": [
+   "own_votes",
+   "voted"
+  ]
+ },
+ "preview_card": {
+  "always": [
+   "author_name",
+   "author_url",
+   "authors",
+   "blurhash",
+   "description",
+   "embed_url",
+   "height",
+   "html",
+   "image",
+   "image_description",
+   "language",
+   "provider_name",
+   "provider_url",
+   "published_at",
+   "title",
+   "type",
+   "url",
+   "width"
+  ],
+  "conditional": [
+   "missing_attribution"
+  ]
+ },
+ "relationship": {
+  "always": [
+   "blocked_by",
+   "blocking",
+   "domain_blocking",
+   "endorsed",
+   "followed_by",
+   "following",
+   "id",
+   "languages",
+   "muting",
+   "muting_expires_at",
+   "muting_notifications",
+   "note",
+   "notifying",
+   "requested",
+   "requested_by",
+   "showing_reblogs"
+  ],
+  "conditional": []
+ },
+ "status": {
+  "always": [
+   "account",
+   "created_at",
+   "emojis",
+   "favourites_count",
+   "id",
+   "language",
+   "media_attachments",
+   "mentions",
+   "quotes_count",
+   "reblogs_count",
+   "replies_count",
+   "sensitive",
+   "tagged_collections",
+   "tags",
+   "uri",
+   "url",
+   "visibility"
+  ],
+  "conditional": [
+   "application",
+   "bookmarked",
+   "card",
+   "content",
+   "edited_at",
+   "favourited",
+   "filtered",
+   "in_reply_to_account_id",
+   "in_reply_to_id",
+   "muted",
+   "pinned",
+   "poll",
+   "quote",
+   "quote_approval",
+   "reblog",
+   "reblogged",
+   "spoiler_text",
+   "text"
+  ]
+ },
+ "suggestion": {
+  "always": [
+   "account",
+   "source",
+   "sources"
+  ],
+  "conditional": []
+ },
+ "tag": {
+  "always": [
+   "history",
+   "id",
+   "name",
+   "url"
+  ],
+  "conditional": [
+   "featuring",
+   "following"
+  ]
+ }
+}

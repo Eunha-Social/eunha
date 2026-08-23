@@ -216,14 +216,62 @@ struct TreeEntry {
 }
 
 /// Every migration shipped in `tag`, ordered by version.
+/// A Mastodon checkout to read tagged files from instead of the network.
+///
+/// Asking GitHub for one file at a time is slow and gets throttled, and a
+/// clone already has every tag. `MASTODON_REPO` overrides the usual location.
+/// Returns `None` when there is no clone, or it does not have the tag, in which
+/// case the caller falls back to fetching.
+fn local_checkout(tag: &str) -> Option<std::path::PathBuf> {
+    let repo = std::env::var("MASTODON_REPO")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            std::path::PathBuf::from(std::env::var("HOME").unwrap_or_default()).join("Git/mastodon")
+        });
+    if !repo.join(".git").exists() {
+        return None;
+    }
+    // Read the tag rather than the working tree, so whatever the clone happens
+    // to be checked out at cannot be recorded as upstream's.
+    let found = std::process::Command::new("git")
+        .args(["-C", repo.to_str()?, "rev-parse", "-q", "--verify"])
+        .arg(format!("refs/tags/{tag}"))
+        .output()
+        .ok()?;
+    found.status.success().then_some(repo)
+}
+
+fn git_output(repo: &std::path::Path, args: &[&str]) -> Option<String> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(args)
+        .output()
+        .ok()?;
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
 pub async fn migrations(tag: &str) -> Result<Vec<Migration>> {
+    let repo = local_checkout(tag);
     let mut all = Vec::new();
     for (dir, post_deploy) in [("db/migrate", false), ("db/post_migrate", true)] {
-        let url = format!("{API}/git/trees/{tag}:{}", dir.replace('/', "%2F"));
-        let tree: TreeResponse = get_json(&url).await?;
-        anyhow::ensure!(!tree.truncated, "{url} returned a truncated tree");
-        for entry in tree.tree {
-            let Some(stem) = entry.path.strip_suffix(".rb") else {
+        let paths: Vec<String> = if let Some(repo) = &repo {
+            let listing = git_output(repo, &["ls-tree", "-r", "--name-only", tag, dir])
+                .with_context(|| format!("listing {dir} at {tag}"))?;
+            listing
+                .lines()
+                .filter_map(|p| p.rsplit('/').next().map(str::to_owned))
+                .collect()
+        } else {
+            let url = format!("{API}/git/trees/{tag}:{}", dir.replace('/', "%2F"));
+            let tree: TreeResponse = get_json(&url).await?;
+            anyhow::ensure!(!tree.truncated, "{url} returned a truncated tree");
+            tree.tree.into_iter().map(|e| e.path).collect()
+        };
+        for path in paths {
+            let Some(stem) = path.strip_suffix(".rb") else {
                 continue;
             };
             let Some((version, name)) = stem.split_once('_') else {
@@ -248,6 +296,11 @@ pub async fn migrations(tag: &str) -> Result<Vec<Migration>> {
 /// # Errors
 /// Returns an error if the file cannot be fetched.
 pub async fn schema_rb(tag: &str) -> Result<String> {
+    if let Some(repo) = local_checkout(tag) {
+        if let Some(body) = git_output(&repo, &["show", &format!("{tag}:db/schema.rb")]) {
+            return Ok(body);
+        }
+    }
     let url = format!("{RAW}/{tag}/db/schema.rb");
     Ok(client()?
         .get(&url)
