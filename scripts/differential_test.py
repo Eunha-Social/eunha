@@ -233,6 +233,86 @@ def compare_writes(args, findings):
     return compared
 
 
+# Interactions need something to act on, and the two servers cannot share ids.
+# So each is given its own status and its own second account, and the *responses*
+# are compared — favouriting your own post should produce the same entity here
+# as there, whatever the ids inside it are.
+def compare_interactions(args, findings):
+    """Post, then act on what was posted, comparing each response."""
+    compared = 0
+
+    def on(server, token, method, path, body=None):
+        return request(server, path, token, method, body)
+
+    servers = [
+        ("eunha", args.eunha, args.eunha_token, args.eunha_other_id),
+        ("mastodon", args.mastodon, args.mastodon_token, args.mastodon_other_id),
+    ]
+
+    # A status on each, to act upon.
+    posted = {}
+    for name, base, token, _ in servers:
+        status, body, _ = on(base, token, "POST", "/api/v1/statuses",
+                             {"status": "something to react to"})
+        if status != 200:
+            findings.append(f"interactions: {name} would not accept a status ({status})")
+            return compared
+        posted[name] = body["id"]
+
+    # (verb, path template, name) — each acts on that server's own status.
+    status_verbs = [
+        ("favourite", "/api/v1/statuses/{id}/favourite"),
+        ("unfavourite", "/api/v1/statuses/{id}/unfavourite"),
+        ("reblog", "/api/v1/statuses/{id}/reblog"),
+        ("unreblog", "/api/v1/statuses/{id}/unreblog"),
+        ("bookmark", "/api/v1/statuses/{id}/bookmark"),
+        ("unbookmark", "/api/v1/statuses/{id}/unbookmark"),
+        ("pin", "/api/v1/statuses/{id}/pin"),
+        ("unpin", "/api/v1/statuses/{id}/unpin"),
+        ("mute conversation", "/api/v1/statuses/{id}/mute"),
+        ("unmute conversation", "/api/v1/statuses/{id}/unmute"),
+    ]
+    for verb, template in status_verbs:
+        results = {}
+        for name, base, token, _ in servers:
+            results[name] = on(base, token, "POST", template.format(id=posted[name]))
+        compared += 1
+        e_status, e_body, _ = results["eunha"]
+        m_status, m_body, _ = results["mastodon"]
+        if e_status != m_status:
+            findings.append(f"{verb}: eunha {e_status}, Mastodon {m_status}")
+        elif m_status < 400:
+            compare(verb, shape(e_body), shape(m_body), findings)
+
+    # And the verbs that act on an account.
+    account_verbs = [
+        ("follow", "/api/v1/accounts/{id}/follow"),
+        ("mute", "/api/v1/accounts/{id}/mute"),
+        ("unmute", "/api/v1/accounts/{id}/unmute"),
+        ("block", "/api/v1/accounts/{id}/block"),
+        ("unblock", "/api/v1/accounts/{id}/unblock"),
+        ("unfollow", "/api/v1/accounts/{id}/unfollow"),
+    ]
+    for verb, template in account_verbs:
+        results = {}
+        for name, base, token, other in servers:
+            if not other:
+                results = {}
+                break
+            results[name] = on(base, token, "POST", template.format(id=other))
+        if not results:
+            continue
+        compared += 1
+        e_status, e_body, _ = results["eunha"]
+        m_status, m_body, _ = results["mastodon"]
+        if e_status != m_status:
+            findings.append(f"{verb}: eunha {e_status}, Mastodon {m_status}")
+        elif m_status < 400:
+            compare(verb, shape(e_body), shape(m_body), findings)
+
+    return compared
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--eunha", required=True)
@@ -240,6 +320,8 @@ def main():
     parser.add_argument("--eunha-token", required=True)
     parser.add_argument("--mastodon-token", required=True)
     parser.add_argument("--only", help="compare just paths containing this")
+    parser.add_argument("--eunha-other-id", help="a second account on eunha, to follow and block")
+    parser.add_argument("--mastodon-other-id", help="the same, on Mastodon")
     args = parser.parse_args()
 
     findings, compared, skipped = [], 0, []
@@ -280,6 +362,7 @@ def main():
 
     if not args.only:
         compared += compare_writes(args, findings)
+        compared += compare_interactions(args, findings)
 
     print(f"compared {compared} endpoint(s)")
     for s in skipped:

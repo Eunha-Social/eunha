@@ -212,7 +212,14 @@ are compared.
 That brings up Mastodon in Docker — the official image, because building it from
 source on macOS means libidn, OpenSSL headers for `hiredis-client`, libvips, and
 a `pg` gem that segfaults against Postgres 18, all of which the image has already
-solved — mints a token, and compares 31 endpoints a client actually uses.
+solved — mints tokens, and compares what a client actually does: 31 reads, nine
+writes, and the interaction verbs (favourite, boost, bookmark, pin, follow,
+block, mute, and their undos).
+
+The stack runs Sidekiq as well as the web process. Without a worker nothing
+Mastodon defers ever happens, and some of that shows in the API — a home feed
+stays `regenerating?` and answers 206 forever — which reads as a difference from
+eunha when it is a missing worker. An unfaithful reference invents findings.
 
 Nothing in it encodes what the answer should be, which is the point: a rule
 misread while writing a test would be misread in the test too. It found seven

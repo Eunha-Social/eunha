@@ -1046,6 +1046,16 @@ pub async fn build_status_with_app(
             api.quote = Some(qi);
         }
     }
+    // The boosted status keeps its own attribution, which is the one a reader
+    // cares about: the boost itself was made by a client, the post was written
+    // by one.
+    if let Some(ref mut rb) = api.reblog {
+        if rb.application.is_none() {
+            if let Some(rid) = rb.id.parse::<i64>().ok() {
+                rb.application = fetch_status_applications(state, &[rid]).await.remove(&rid);
+            }
+        }
+    }
     if let Some(ref mut rb) = api.reblog {
         let rid: i64 = rb.id.parse().unwrap_or(0);
         let rb_account_id: i64 = rb.account.id.parse().unwrap_or(0);

@@ -141,7 +141,9 @@ pub struct Status {
     pub edited_at: Option<String>,
     pub content: String,
     pub reblog: Option<Box<Status>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Which application posted this. Serialized even when there is none, as
+    /// Mastodon does — a boost carries `"application": null` rather than
+    /// omitting the key, and a client testing for it finds it either way.
     pub application: Option<Application>,
     pub account: Account,
     pub media_attachments: Vec<MediaAttachment>,

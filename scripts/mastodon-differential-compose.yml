@@ -52,3 +52,30 @@ services:
       RAILS_LOG_LEVEL: warn
     ports:
       - "3000:3000"
+
+  # Without a worker, anything Mastodon defers never happens — and some of that
+  # is visible in the API. A home feed stays `regenerating?` forever, so the
+  # timeline answers 206 rather than 200, which reads as a difference from eunha
+  # when it is only a missing worker.
+  sidekiq:
+    image: ghcr.io/mastodon/mastodon:v4.7.0
+    command: bundle exec sidekiq
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    environment:
+      RAILS_ENV: production
+      SECRET_KEY_BASE: "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000a"
+      OTP_SECRET: "0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000b"
+      ACTIVE_RECORD_ENCRYPTION_PRIMARY_KEY: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ACTIVE_RECORD_ENCRYPTION_DETERMINISTIC_KEY: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      ACTIVE_RECORD_ENCRYPTION_KEY_DERIVATION_SALT: "cccccccccccccccccccccccccccccccc"
+      DB_HOST: db
+      DB_USER: mastodon
+      DB_PASS: mastodon
+      DB_NAME: mastodon
+      REDIS_HOST: redis
+      LOCAL_DOMAIN: localhost:3000
+      ES_ENABLED: "false"
+      SMTP_DELIVERY_METHOD: test
+      RAILS_LOG_LEVEL: warn
