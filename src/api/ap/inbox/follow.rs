@@ -526,21 +526,15 @@ pub(super) async fn handle_undo(
                                 original_id,
                             ).execute(&state.db).await?;
                         }
-                        // The boost was a status of the booster's, so undoing it
-                        // takes one off their total as any deletion does.
-                        if crate::db::models::vis::counted(row.visibility) {
-                            if let Err(e) = sqlx::query!(
-                                r#"UPDATE account_stats
-                                   SET statuses_count = GREATEST(statuses_count - 1, 0),
-                                       updated_at = now()
-                                   WHERE account_id = $1"#,
-                                row.account_id,
-                            )
-                            .execute(&state.db)
-                            .await
-                            {
-                                tracing::error!(error = %e, "failed to uncount an undone boost");
-                            }
+                        if let Err(e) = crate::counters::on_status_deleted(
+                            &state.db,
+                            row.account_id,
+                            row.visibility,
+                            None,
+                        )
+                        .await
+                        {
+                            tracing::error!(error = %e, "failed to uncount an undone boost");
                         }
                     }
                     None => delete_later(state, actor_uri, announce_uri).await,

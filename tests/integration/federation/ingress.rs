@@ -75,10 +75,11 @@ async fn test_queued_activity_is_processed_and_job_removed() {
     .unwrap();
     assert_eq!(follows, 1, "the queued Follow must take effect");
 
-    let remaining: i64 = sqlx::query_scalar!(r#"SELECT count(*) AS "count!" FROM eunha.inbox_jobs"#)
-        .fetch_one(&ctx.db)
-        .await
-        .unwrap();
+    let remaining: i64 =
+        sqlx::query_scalar!(r#"SELECT count(*) AS "count!" FROM eunha.inbox_jobs"#)
+            .fetch_one(&ctx.db)
+            .await
+            .unwrap();
     assert_eq!(remaining, 0, "a succeeded job must be deleted");
 }
 
@@ -123,9 +124,153 @@ async fn test_queue_respects_run_at() {
         "a backed-off job must not be claimed before its run_at"
     );
 
-    let remaining: i64 = sqlx::query_scalar!(r#"SELECT count(*) AS "count!" FROM eunha.inbox_jobs"#)
+    let remaining: i64 =
+        sqlx::query_scalar!(r#"SELECT count(*) AS "count!" FROM eunha.inbox_jobs"#)
+            .fetch_one(&ctx.db)
+            .await
+            .unwrap();
+    assert_eq!(remaining, 1, "the future job must still be queued");
+}
+
+/// A Delete that arrives before its Create is remembered, so the late Create is
+/// not honoured.
+///
+/// Federation does not promise order, and without this, deleting a post can be
+/// undone by the network redelivering the post that created it.
+///
+/// Two mechanisms answer this and only one is exercised here. For an actor this
+/// instance knows, the Delete writes a tombstone and the Create is refused
+/// against it — that is what this test covers, and it had none before. For an
+/// actor it does not know there is no row to hang a tombstone on, and the Delete
+/// is remembered in Redis instead (`delete_later`). That second path is still
+/// uncovered; it was noticed when a refactor removed the call and every test
+/// still passed.
+#[tokio::test]
+async fn test_a_delete_that_arrives_first_suppresses_a_late_create() {
+    let ctx = TestContext::new("ingress-delete-first").await;
+    let actor_uri = seed_remote_actor(&ctx, "mallory", "ingress-order.invalid").await;
+    let note_uri = "https://ingress-order.invalid/notes/raced";
+
+    // An inbox drops a status from an account nobody here follows, so without a
+    // follower this test would pass for the wrong reason — the control at the
+    // end is what proves it does not.
+    let actor_id: i64 = sqlx::query_scalar!("SELECT id FROM accounts WHERE uri = $1", actor_uri)
         .fetch_one(&ctx.db)
         .await
         .unwrap();
-    assert_eq!(remaining, 1, "the future job must still be queued");
+    sqlx::query!(
+        r#"INSERT INTO follows (id, account_id, target_account_id, created_at, updated_at)
+           VALUES ($1, $2, $3, now(), now())"#,
+        eunha::snowflake::next_id(),
+        ctx.alice_id.parse::<i64>().unwrap(),
+        actor_id,
+    )
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+
+    // The Delete arrives for a status this instance has never seen.
+    let delete = json!({
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "id": "https://ingress-order.invalid/activities/delete-1",
+        "type": "Delete",
+        "actor": actor_uri,
+        "object": {"id": note_uri, "type": "Tombstone"},
+    });
+    sqlx::query!(
+        r#"INSERT INTO eunha.inbox_jobs (activity, activity_type, actor_uri, created_at, updated_at)
+           VALUES ($1, 'Delete', $2, now(), now())"#,
+        delete,
+        actor_uri,
+    )
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+    eunha::api::ap::inbox::drain_inbox_queue(&ctx.state)
+        .await
+        .unwrap();
+
+    // The Create for the same object turns up afterwards.
+    let create = json!({
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "id": "https://ingress-order.invalid/activities/create-1",
+        "type": "Create",
+        "actor": actor_uri,
+        "to": ["https://www.w3.org/ns/activitystreams#Public"],
+        "object": {
+            "id": note_uri,
+            "type": "Note",
+            "attributedTo": actor_uri,
+            "content": "<p>already withdrawn</p>",
+            "to": ["https://www.w3.org/ns/activitystreams#Public"],
+            "published": "2026-01-01T00:00:00Z",
+        },
+    });
+    sqlx::query!(
+        r#"INSERT INTO eunha.inbox_jobs (activity, activity_type, actor_uri, created_at, updated_at)
+           VALUES ($1, 'Create', $2, now(), now())"#,
+        create,
+        actor_uri,
+    )
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+    eunha::api::ap::inbox::drain_inbox_queue(&ctx.state)
+        .await
+        .unwrap();
+
+    let live: i64 = sqlx::query_scalar!(
+        r#"SELECT count(*) AS "c!" FROM statuses WHERE uri = $1 AND deleted_at IS NULL"#,
+        note_uri,
+    )
+    .fetch_one(&ctx.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        live, 0,
+        "a Create arriving after its Delete must not bring the status back"
+    );
+
+    // The same Create, with no Delete before it, must be stored — otherwise the
+    // assertion above holds for a reason that has nothing to do with ordering.
+    let control_uri = "https://ingress-order.invalid/notes/control";
+    let control = json!({
+        "@context": "https://www.w3.org/ns/activitystreams",
+        "id": "https://ingress-order.invalid/activities/create-2",
+        "type": "Create",
+        "actor": actor_uri,
+        "to": ["https://www.w3.org/ns/activitystreams#Public"],
+        "object": {
+            "id": control_uri,
+            "type": "Note",
+            "attributedTo": actor_uri,
+            "content": "<p>never withdrawn</p>",
+            "to": ["https://www.w3.org/ns/activitystreams#Public"],
+            "published": "2026-01-01T00:00:00Z",
+        },
+    });
+    sqlx::query!(
+        r#"INSERT INTO eunha.inbox_jobs (activity, activity_type, actor_uri, created_at, updated_at)
+           VALUES ($1, 'Create', $2, now(), now())"#,
+        control,
+        actor_uri,
+    )
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+    eunha::api::ap::inbox::drain_inbox_queue(&ctx.state)
+        .await
+        .unwrap();
+
+    let control_live: i64 = sqlx::query_scalar!(
+        r#"SELECT count(*) AS "c!" FROM statuses WHERE uri = $1 AND deleted_at IS NULL"#,
+        control_uri,
+    )
+    .fetch_one(&ctx.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        control_live, 1,
+        "an ordinary Create from this actor must be stored, or the test above proves nothing"
+    );
 }

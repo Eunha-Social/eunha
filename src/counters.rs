@@ -8,8 +8,24 @@
 //!
 //! `follower` is the account doing the following; `target` is the account being
 //! followed. A follow bumps `target.followers_count` and `follower.following_count`.
+//!
+//! Status counters live here for a reason. Mastodon keeps them in
+//! `Status#increment_counter_caches`, a model callback that runs however the
+//! status came to exist — posted through the API, published from a schedule, or
+//! arrived in an inbox. eunha has no such callback, so every path had to
+//! remember, and the ones that arrived over ActivityPub did not: replies from
+//! other instances went uncounted, so did their authors' posts, their boosts,
+//! and their follows. Each was fixed where it was found, which is a poor way to
+//! be sure there are no others.
+//!
+//! So the rules are written once, here, and the call sites say only *what
+//! happened*. A new path that creates a status calls [`on_status_created`] and
+//! gets the conditions for free; one that does not call it is visibly missing a
+//! line rather than silently missing a rule.
 
 use sqlx::PgPool;
+
+use crate::db::models::vis;
 
 /// Record a new follow edge: increment the target's `followers_count` and the
 /// follower's `following_count`, creating the `account_stats` row if absent.
@@ -78,5 +94,98 @@ pub async fn recount_follows(db: &PgPool, account_id: i64) -> sqlx::Result<()> {
     )
     .execute(db)
     .await?;
+    Ok(())
+}
+
+/// A status came into existence, however it got here.
+///
+/// Mastodon's `Status#increment_counter_caches`, which is one method with two
+/// conditions worth stating plainly:
+///
+/// * `return if direct_visibility?` — a direct message moves no counter at all.
+///   The post count is on a profile anyone can read, and one that climbed
+///   whenever an account sent a private message would report that it had.
+/// * the parent's reply count moves only `if in_reply_to_id.present? &&
+///   distributable?` — a followers-only or direct reply leaves it alone, or the
+///   number visible to everyone would announce that someone replied privately.
+///
+/// `created_at` advances `last_status_at`, which only ever moves forward.
+///
+/// Call once, after the status row is committed, and only when the row was
+/// actually new — federation redelivers, and a second call counts twice.
+pub async fn on_status_created(
+    db: &PgPool,
+    account_id: i64,
+    visibility: i32,
+    in_reply_to_id: Option<i64>,
+    created_at: chrono::NaiveDateTime,
+) -> sqlx::Result<()> {
+    if !vis::counted(visibility) {
+        return Ok(());
+    }
+
+    sqlx::query!(
+        "INSERT INTO account_stats (account_id, statuses_count, last_status_at, created_at, updated_at)
+         VALUES ($1, 1, $2, now(), now())
+         ON CONFLICT (account_id) DO UPDATE
+           SET statuses_count = account_stats.statuses_count + 1,
+               last_status_at = GREATEST(account_stats.last_status_at, $2),
+               updated_at = now()",
+        account_id,
+        created_at,
+    )
+    .execute(db)
+    .await?;
+
+    if let Some(parent_id) = in_reply_to_id.filter(|_| vis::distributable(visibility)) {
+        sqlx::query!(
+            "INSERT INTO status_stats (status_id, replies_count, created_at, updated_at)
+             VALUES ($1, 1, now(), now())
+             ON CONFLICT (status_id) DO UPDATE
+               SET replies_count = status_stats.replies_count + 1, updated_at = now()",
+            parent_id,
+        )
+        .execute(db)
+        .await?;
+    }
+    Ok(())
+}
+
+/// A status stopped existing, however it went.
+///
+/// The mirror of [`on_status_created`] under the same conditions, so that what
+/// was never counted is never subtracted — a direct message that lowered the
+/// post count on deletion would walk it down one DM at a time.
+///
+/// Call only when a row was actually removed.
+pub async fn on_status_deleted(
+    db: &PgPool,
+    account_id: i64,
+    visibility: i32,
+    in_reply_to_id: Option<i64>,
+) -> sqlx::Result<()> {
+    if !vis::counted(visibility) {
+        return Ok(());
+    }
+
+    sqlx::query!(
+        "UPDATE account_stats
+         SET statuses_count = GREATEST(statuses_count - 1, 0), updated_at = now()
+         WHERE account_id = $1",
+        account_id,
+    )
+    .execute(db)
+    .await?;
+
+    if let Some(parent_id) = in_reply_to_id.filter(|_| vis::distributable(visibility)) {
+        sqlx::query!(
+            "UPDATE status_stats
+             SET replies_count = GREATEST(replies_count - 1, 0), updated_at = now()
+             WHERE status_id = $1",
+            parent_id,
+        )
+        .execute(db)
+        .await?;
+    }
     Ok(())
 }

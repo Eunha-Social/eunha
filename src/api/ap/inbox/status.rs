@@ -98,35 +98,15 @@ pub(super) async fn handle_delete(
                     .execute(&state.db)
                     .await?;
             if let Some(row) = &deleted_reply {
-                // The author's post count follows the same rule as on arrival.
-                if crate::db::models::vis::counted(row.visibility) {
-                    if let Err(e) = sqlx::query!(
-                        r#"UPDATE account_stats
-                           SET statuses_count = GREATEST(statuses_count - 1, 0), updated_at = now()
-                           WHERE account_id = $1"#,
-                        row.account_id,
-                    )
-                    .execute(&state.db)
-                    .await
-                    {
-                        tracing::error!(error = %e, "failed to uncount a deleted federated status");
-                    }
-                }
-            }
-            if let Some(parent_id) = deleted_reply.and_then(|r| {
-                r.in_reply_to_id
-                    .filter(|_| crate::db::models::vis::distributable(r.visibility))
-            }) {
-                if let Err(e) = sqlx::query!(
-                    r#"UPDATE status_stats
-                       SET replies_count = GREATEST(replies_count - 1, 0), updated_at = now()
-                       WHERE status_id = $1"#,
-                    parent_id,
+                if let Err(e) = crate::counters::on_status_deleted(
+                    &state.db,
+                    row.account_id,
+                    row.visibility,
+                    row.in_reply_to_id,
                 )
-                .execute(&state.db)
                 .await
                 {
-                    tracing::error!(parent_id, error = %e, "failed to uncount a deleted federated reply");
+                    tracing::error!(error = %e, "failed to uncount a deleted federated status");
                 }
             }
             // If the status isn't known yet (out-of-order delivery), remember the
@@ -253,22 +233,12 @@ pub(super) async fn handle_announce(
     .fetch_optional(&state.db)
     .await?;
 
-    // A boost is a status, so it counts towards the booster's own total, as any
-    // status does. `RETURNING` above is `None` when the announce was already
-    // recorded, which is how a redelivery avoids counting twice.
-    if inserted.is_some() && crate::db::models::vis::counted(visibility) {
-        if let Err(e) = sqlx::query!(
-            r#"INSERT INTO account_stats (account_id, statuses_count, last_status_at, created_at, updated_at)
-               VALUES ($1, 1, $2, now(), now())
-               ON CONFLICT (account_id) DO UPDATE
-                 SET statuses_count = account_stats.statuses_count + 1,
-                     last_status_at = GREATEST(account_stats.last_status_at, $2),
-                     updated_at = now()"#,
-            booster_id,
-            published,
-        )
-        .execute(&state.db)
-        .await
+    // A boost is a status of the booster's. `inserted` is `None` when the
+    // announce was already recorded, which is how a redelivery counts once.
+    if inserted.is_some() {
+        if let Err(e) =
+            crate::counters::on_status_created(&state.db, booster_id, visibility, None, published)
+                .await
         {
             tracing::error!(booster_id, error = %e, "failed to count a federated boost");
         }

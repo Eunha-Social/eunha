@@ -515,52 +515,43 @@ pub async fn delete_status(
 
     // Cascade-delete any reblogs of this status before soft-deleting the original.
     // Mastodon deletes reblogs when the original is removed.
-    let reblogger_ids: Vec<i64> = sqlx::query_scalar!(
-        "UPDATE statuses SET deleted_at = now() WHERE reblog_of_id = $1 AND deleted_at IS NULL RETURNING account_id",
+    let deleted_reblogs = sqlx::query!(
+        r#"UPDATE statuses SET deleted_at = now()
+           WHERE reblog_of_id = $1 AND deleted_at IS NULL
+           RETURNING account_id, visibility"#,
         id
     )
     .fetch_all(&state.db)
     .await?;
 
-    for reblogger_id in &reblogger_ids {
-        let _ = sqlx::query!(
-            r#"UPDATE account_stats SET
-                 statuses_count = GREATEST(statuses_count - 1, 0), updated_at = now()
-               WHERE account_id = $1"#,
-            reblogger_id
+    // Each of those boosts was a status of its author's, and stops being one.
+    for reblog in &deleted_reblogs {
+        if let Err(e) = crate::counters::on_status_deleted(
+            &state.db,
+            reblog.account_id,
+            reblog.visibility,
+            None,
         )
-        .execute(&state.db)
-        .await;
+        .await
+        {
+            tracing::error!(error = %e, "failed to uncount a cascaded reblog");
+        }
     }
+    let reblogger_ids: Vec<i64> = deleted_reblogs.iter().map(|r| r.account_id).collect();
 
     sqlx::query!("UPDATE statuses SET deleted_at = now() WHERE id = $1", id)
         .execute(&state.db)
         .await?;
 
-    // Only subtract what was added: a direct message never raised this count.
-    if crate::db::models::vis::counted(status.visibility) {
-        sqlx::query!(
-            r#"UPDATE account_stats SET statuses_count = GREATEST(statuses_count - 1, 0), updated_at = now()
-               WHERE account_id = $1"#,
-            account.id
-        )
-        .execute(&state.db)
-        .await?;
-    }
-
-    // Only decrement for a reply that was counted in the first place, or the
-    // count drifts down each time a private one is deleted.
-    if let Some(parent_id) = status
-        .in_reply_to_id
-        .filter(|_| crate::db::models::vis::distributable(status.visibility))
+    if let Err(e) = crate::counters::on_status_deleted(
+        &state.db,
+        account.id,
+        status.visibility,
+        status.in_reply_to_id,
+    )
+    .await
     {
-        let _ = sqlx::query!(
-            r#"UPDATE status_stats SET replies_count = GREATEST(replies_count - 1, 0), updated_at = now()
-               WHERE status_id = $1"#,
-            parent_id
-        )
-        .execute(&state.db)
-        .await;
+        tracing::error!(status_id = id, error = %e, "failed to uncount a deleted status");
     }
 
     // Decrement the quoted status's quotes_count if this was an accepted quote.
@@ -974,16 +965,18 @@ pub async fn reblog_status(
     .execute(&state.db)
     .await?;
 
-    sqlx::query!(
-        r#"INSERT INTO account_stats (account_id, statuses_count, created_at, updated_at)
-           VALUES ($1, 1, now(), now())
-           ON CONFLICT (account_id) DO UPDATE
-             SET statuses_count = account_stats.statuses_count + 1,
-                 updated_at = now()"#,
-        auth.account_id
+    // A boost is a status of the booster's, counted like any other.
+    if let Err(e) = crate::counters::on_status_created(
+        &state.db,
+        auth.account_id,
+        boost.visibility,
+        None,
+        boost.created_at,
     )
-    .execute(&state.db)
-    .await?;
+    .await
+    {
+        tracing::error!(error = %e, "failed to count a boost");
+    }
 
     // Notify original author
     push::create_and_push(

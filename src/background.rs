@@ -284,37 +284,16 @@ async fn publish_one(
         tracing::error!(scheduled_id, status_id = status.id, error = %e, "scheduled status published without its mentions");
     }
 
-    // Update last_status_at and statuses_count in account_stats
-    let stats = sqlx::query!(
-        r#"INSERT INTO account_stats (account_id, statuses_count, last_status_at, created_at, updated_at)
-           VALUES ($1, 1, $2, now(), now())
-           ON CONFLICT (account_id) DO UPDATE
-             SET statuses_count = account_stats.statuses_count + 1,
-                 last_status_at = GREATEST(account_stats.last_status_at, $2),
-                 updated_at = now()"#,
+    if let Err(e) = crate::counters::on_status_created(
+        &state.db,
         account.id,
+        visibility_int,
+        in_reply_to_id,
         status.created_at,
     )
-    .execute(&state.db)
-    .await;
-    if let Err(e) = stats {
-        tracing::error!(scheduled_id, status_id = status.id, error = %e, "failed to update account stats for scheduled status");
-    }
-
-    // Only a reply everyone can see counts, as when posting directly.
-    if let Some(parent_id) =
-        in_reply_to_id.filter(|_| crate::db::models::vis::distributable(visibility_int))
+    .await
     {
-        let _ = sqlx::query!(
-            r#"INSERT INTO status_stats (status_id, replies_count, created_at, updated_at)
-               VALUES ($1, 1, now(), now())
-               ON CONFLICT (status_id) DO UPDATE
-                 SET replies_count = status_stats.replies_count + 1,
-                     updated_at = now()"#,
-            parent_id,
-        )
-        .execute(&state.db)
-        .await;
+        tracing::error!(scheduled_id, error = %e, "failed to count a published status");
     }
 
     // Attach media ids if any

@@ -583,38 +583,17 @@ pub async fn post_status(
         }
     }
 
-    // Advance last_status_at and increment statuses_count in account_stats.
-    // A direct message moves neither, as in Mastodon.
-    if crate::db::models::vis::counted(visibility_int) {
-        sqlx::query!(
-            r#"INSERT INTO account_stats (account_id, statuses_count, last_status_at, created_at, updated_at)
-               VALUES ($1, 1, $2, now(), now())
-               ON CONFLICT (account_id) DO UPDATE
-                 SET statuses_count = account_stats.statuses_count + 1,
-                     last_status_at = GREATEST(account_stats.last_status_at, $2),
-                     updated_at = now()"#,
-            account.id,
-            status.created_at,
-        )
-        .execute(&state.db)
-        .await?;
-    }
-
-    // Increment parent's replies_count, but only for a reply everyone can see:
-    // Mastodon counts `if in_reply_to_id.present? && distributable?`.
-    if let Some(parent_id) =
-        in_reply_to_id.filter(|_| crate::db::models::vis::distributable(visibility_int))
+    // What happened, not what to count: the rules live in `counters`.
+    if let Err(e) = crate::counters::on_status_created(
+        &state.db,
+        account.id,
+        visibility_int,
+        in_reply_to_id,
+        status.created_at,
+    )
+    .await
     {
-        let _ = sqlx::query!(
-            r#"INSERT INTO status_stats (status_id, replies_count, created_at, updated_at)
-               VALUES ($1, 1, now(), now())
-               ON CONFLICT (status_id) DO UPDATE
-                 SET replies_count = status_stats.replies_count + 1,
-                     updated_at = now()"#,
-            parent_id
-        )
-        .execute(&state.db)
-        .await;
+        tracing::error!(status_id = status.id, error = %e, "failed to count a new status");
     }
 
     // Attach media (IDs already validated above)

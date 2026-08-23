@@ -251,46 +251,19 @@ pub(super) async fn handle_create(
         return Ok(()); // duplicate
     };
 
-    // Mastodon's counter callbacks sit on the Status model, so they run for a
-    // status that arrived in the inbox exactly as for one posted here. Without
-    // these a remote profile's post count stays at whatever it was when the
-    // account was first seen, and a local post replied to from across the
-    // network reads as having no replies at all.
-    if crate::db::models::vis::counted(visibility) {
-        if let Err(e) = sqlx::query!(
-            r#"INSERT INTO account_stats (account_id, statuses_count, last_status_at, created_at, updated_at)
-               VALUES ($1, 1, $2, now(), now())
-               ON CONFLICT (account_id) DO UPDATE
-                 SET statuses_count = account_stats.statuses_count + 1,
-                     last_status_at = GREATEST(account_stats.last_status_at, $2),
-                     updated_at = now()"#,
-            account_id,
-            created_at,
-        )
-        .execute(&state.db)
-        .await
-        {
-            tracing::error!(account_id, error = %e, "failed to count a federated status");
-        }
-    }
-
-    // Only a reply everyone can see is counted, as when posting locally.
-    if let Some(parent_id) =
-        in_reply_to_id.filter(|_| crate::db::models::vis::distributable(visibility))
+    // The same call the API path makes: a status is a status however it
+    // arrived, and the conditions belong to `counters`, not here. `inserted_id`
+    // is only `Some` for a row that was new, so a redelivered Create counts once.
+    if let Err(e) = crate::counters::on_status_created(
+        &state.db,
+        account_id,
+        visibility,
+        in_reply_to_id,
+        created_at,
+    )
+    .await
     {
-        if let Err(e) = sqlx::query!(
-            r#"INSERT INTO status_stats (status_id, replies_count, created_at, updated_at)
-               VALUES ($1, 1, now(), now())
-               ON CONFLICT (status_id) DO UPDATE
-                 SET replies_count = status_stats.replies_count + 1,
-                     updated_at = now()"#,
-            parent_id,
-        )
-        .execute(&state.db)
-        .await
-        {
-            tracing::error!(parent_id, error = %e, "failed to count a federated reply");
-        }
+        tracing::error!(account_id, error = %e, "failed to count a federated status");
     }
 
     // Record the FEP-044f quote. Matching Mastodon, fetch the quoted post when

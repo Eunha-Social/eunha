@@ -773,3 +773,71 @@ async fn test_a_federated_boost_counts_for_the_booster() {
         "undoing a boost takes it back off the booster's total"
     );
 }
+
+/// A scheduled post is counted under the same rules as an immediate one.
+///
+/// The path that publishes a schedule kept its own copy of the counter logic,
+/// and that copy never got the direct-message rule — so a scheduled DM raised
+/// the public post count after the same bug had been fixed for ordinary posts.
+/// It goes through `counters` now, which is the point of the module: a rule
+/// fixed once is fixed everywhere it applies.
+#[tokio::test]
+async fn test_a_scheduled_direct_message_is_not_counted() {
+    let ctx = TestContext::new("counters-scheduled-dm").await;
+    let alice_id: i64 = ctx.alice_id.parse().unwrap();
+
+    ctx.api
+        .post_status(&ctx.alice_token, "an ordinary post", "public")
+        .await;
+    let before = statuses_count(&ctx, &ctx.alice_id).await;
+
+    // A public one first, so the test proves the publisher ran at all: without
+    // this, a path that silently did nothing would pass the assertion below.
+    let public_id = eunha::snowflake::next_id();
+    sqlx::query!(
+        r#"INSERT INTO scheduled_statuses (id, account_id, scheduled_at, params)
+           VALUES ($1, $2, now() - interval '1 minute', $3)"#,
+        public_id,
+        alice_id,
+        serde_json::json!({"text": "scheduled and public", "visibility": "public", "sensitive": false}),
+    )
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+    eunha::background::publish_due_statuses(&ctx.state)
+        .await
+        .expect("publishing must not error");
+    assert_eq!(
+        statuses_count(&ctx, &ctx.alice_id).await,
+        before + 1,
+        "a scheduled public post should be counted"
+    );
+    let before = statuses_count(&ctx, &ctx.alice_id).await;
+
+    // A schedule due in the past, so draining publishes it immediately.
+    let scheduled_id = eunha::snowflake::next_id();
+    sqlx::query!(
+        r#"INSERT INTO scheduled_statuses (id, account_id, scheduled_at, params)
+           VALUES ($1, $2, now() - interval '1 minute', $3)"#,
+        scheduled_id,
+        alice_id,
+        serde_json::json!({
+            "text": "scheduled and private",
+            "visibility": "direct",
+            "sensitive": false,
+        }),
+    )
+    .execute(&ctx.db)
+    .await
+    .unwrap();
+
+    eunha::background::publish_due_statuses(&ctx.state)
+        .await
+        .expect("publishing must not error");
+
+    assert_eq!(
+        statuses_count(&ctx, &ctx.alice_id).await,
+        before,
+        "a scheduled direct message must not raise the public post count"
+    );
+}
