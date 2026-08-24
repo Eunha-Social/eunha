@@ -112,7 +112,11 @@ SQL
   local vapid vapid_priv vapid_pub
   vapid=$(openssl ecparam -genkey -name prime256v1 -noout 2>/dev/null)
   vapid_priv=$(printf '%s' "$vapid" | openssl pkcs8 -topk8 -nocrypt 2>/dev/null)
-  vapid_pub=$(printf '%s' "$vapid" | openssl ec -pubout -outform DER 2>/dev/null     | tail -c 65 | base64 | tr '+/' '-_' | tr -d '=')
+  # `tr -d '=\n'`, not just `=`: GNU base64 wraps at 76 columns, so on Linux
+  # the key arrives split over two lines and the TOML below fails to parse.
+  # macOS base64 does not wrap, which is why this only ever broke in CI.
+  vapid_pub=$(printf '%s' "$vapid" | openssl ec -pubout -outform DER 2>/dev/null \
+    | tail -c 65 | base64 | tr '+/' '-_' | tr -d '=\n')
 
   cat > "$WORK/config.toml" <<EOF
 database_url = "$url"
