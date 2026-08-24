@@ -424,6 +424,110 @@ def compare_interactions(args, findings):
     return compared
 
 
+def parse_fans(spec):
+    """`account_id:token` pairs, in the order they will act."""
+    fans = []
+    for part in (spec or "").split(","):
+        part = part.strip()
+        if part:
+            account_id, token = part.split(":", 1)
+            fans.append((account_id, token))
+    return fans
+
+
+# Grouping is the part of the notifications API that is not a straight
+# translation of a row. Mastodon collapses notifications into groups, and a
+# client renders "X and 2 others favourited your post" out of a group's
+# `notifications_count` and `sample_account_ids` — so a server that groups
+# differently shows a different sentence while every field is present and of the
+# right type. Shape cannot see it, and neither can a single-account fixture:
+# a group of one is a group either way.
+#
+# Account ids differ between the two servers, so the samples are compared by
+# *who* they name rather than by id. Each fan is known by the position it acts
+# in, and a group naming [fan3, fan2, fan1] here has to name [fan3, fan2, fan1]
+# there.
+def compare_notification_grouping(args, findings):
+    e_fans, m_fans = parse_fans(args.eunha_fans), parse_fans(args.mastodon_fans)
+    if len(e_fans) < 2 or len(e_fans) != len(m_fans):
+        return 0
+
+    def on(base, path, token, method="GET", body=None):
+        headers = mastodon_headers(args) if base == args.mastodon else None
+        return request(base, path, token, method, body, extra_headers=headers)
+
+    summaries = {}
+    for name, base, token, fans in (
+        ("eunha", args.eunha, args.eunha_token, e_fans),
+        ("mastodon", args.mastodon, args.mastodon_token, m_fans),
+    ):
+        status, me, _ = on(base, "/api/v1/accounts/verify_credentials", token)
+        if status != 200:
+            findings.append(f"grouping: {name} would not identify itself ({status})")
+            return 0
+
+        # From the same state on both sides. eunha gets a scratch database every
+        # run while the Mastodon container is left up between them, so anything
+        # a previous run left behind shows up as eunha differing.
+        #
+        # Two things have to be reset, and the second is easy to miss. Clearing
+        # the notifications is not enough: a repeat follow produces no
+        # notification at all, so on a second run only the server with a fresh
+        # database would report a follow group — which reads as eunha inventing
+        # one. Unfollowing first makes the follow new on both.
+        for _, fan_token in fans:
+            on(base, f"/api/v1/accounts/{me['id']}/unfollow", fan_token, "POST")
+        on(base, "/api/v1/notifications/clear", token, "POST")
+
+        status, posted, _ = on(
+            base, "/api/v1/statuses", token, "POST",
+            {"status": "something to group", "visibility": "public"},
+        )
+        if status != 200:
+            findings.append(f"grouping: {name} would not accept a status ({status})")
+            return 0
+
+        # The same verb from several accounts, which is what a group is made of.
+        # Two kinds: favourites group by the status they are about, follows have
+        # no status and group by type alone.
+        for _, fan_token in fans:
+            on(base, f"/api/v1/statuses/{posted['id']}/favourite", fan_token, "POST")
+        for _, fan_token in fans:
+            on(base, f"/api/v1/accounts/{me['id']}/follow", fan_token, "POST")
+
+        status, body, _ = on(base, "/api/v2/notifications", token)
+        if status != 200:
+            findings.append(
+                f"grouping: {name} answered {status} for /api/v2/notifications"
+            )
+            return 0
+        label = {acct: f"fan{i + 1}" for i, (acct, _) in enumerate(fans)}
+        summaries[name] = [
+            {
+                "type": g.get("type"),
+                "notifications_count": g.get("notifications_count"),
+                "sample_accounts": [
+                    label.get(a, "unknown") for a in (g.get("sample_account_ids") or [])
+                ],
+            }
+            for g in ((body or {}).get("notification_groups") or [])
+        ]
+
+    left, right = summaries["eunha"], summaries["mastodon"]
+    if len(left) != len(right):
+        findings.append(
+            f"grouping: eunha returned {len(left)} group(s), Mastodon {len(right)}"
+        )
+    for i, (e_group, m_group) in enumerate(zip(left, right)):
+        for field in ("type", "notifications_count", "sample_accounts"):
+            if e_group[field] != m_group[field]:
+                findings.append(
+                    f"grouping: group {i} `{field}` is {e_group[field]!r} on eunha, "
+                    f"{m_group[field]!r} on Mastodon"
+                )
+    return 1
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--eunha", required=True)
@@ -432,6 +536,8 @@ def main():
     parser.add_argument("--mastodon-token", required=True)
     parser.add_argument("--only", help="compare just paths containing this")
     parser.add_argument("--eunha-other-id", help="a second account on eunha, to follow and block")
+    parser.add_argument("--eunha-fans", help="`id:token` pairs on eunha that act together, for grouping")
+    parser.add_argument("--mastodon-fans", help="the same, on Mastodon")
     parser.add_argument("--mastodon-other-id", help="the same, on Mastodon")
     parser.add_argument(
         "--mastodon-host",
@@ -486,6 +592,9 @@ def main():
     if not args.only:
         compared += compare_writes(args, findings)
         compared += compare_interactions(args, findings)
+        # Last, because it is the only comparison that depends on what the
+        # account's notification list already holds.
+        compared += compare_notification_grouping(args, findings)
 
     print(f"compared {compared} endpoint(s)")
     for s in skipped:

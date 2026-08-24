@@ -94,19 +94,30 @@ start_own_eunha() {
   ( cd "$WORK" && DATABASE_URL="$url" "$ROOT/target/release/eunha" migrate )
 
   # Two accounts, because the interaction verbs need someone to follow and
-  # block, and a token to act as the first of them. No signing keys: nothing
+  # block, and a token to act as the first of them. Three more, because a
+  # notification group of one is a group on any server — telling two groupings
+  # apart takes several accounts doing the same thing. No signing keys: nothing
   # here federates.
   psql -q -d "$EUNHA_DB" -v ON_ERROR_STOP=1 >/dev/null <<'SQL'
 INSERT INTO accounts (id, username, domain, display_name, note, created_at, updated_at)
 VALUES (1, 'differ', NULL, 'Differ', '', now(), now()),
-       (2, 'other',  NULL, 'Other',  '', now(), now());
+       (2, 'other',  NULL, 'Other',  '', now(), now()),
+       (3, 'fan1',   NULL, 'Fan One',   '', now(), now()),
+       (4, 'fan2',   NULL, 'Fan Two',   '', now(), now()),
+       (5, 'fan3',   NULL, 'Fan Three', '', now(), now());
 INSERT INTO users (id, email, account_id, created_at, updated_at, confirmed_at, approved, encrypted_password)
 VALUES (1, 'differ@localhost', 1, now(), now(), now(), true, 'x'),
-       (2, 'other@localhost',  2, now(), now(), now(), true, 'x');
+       (2, 'other@localhost',  2, now(), now(), now(), true, 'x'),
+       (3, 'fan1@localhost',   3, now(), now(), now(), true, 'x'),
+       (4, 'fan2@localhost',   4, now(), now(), now(), true, 'x'),
+       (5, 'fan3@localhost',   5, now(), now(), now(), true, 'x');
 INSERT INTO oauth_applications (id, name, uid, secret, redirect_uri, scopes, created_at, updated_at)
 VALUES (1, 'differential', 'u', 's', 'urn:ietf:wg:oauth:2.0:oob', 'read write follow push', now(), now());
 INSERT INTO oauth_access_tokens (id, token, resource_owner_id, application_id, scopes, created_at)
-VALUES (1, 'eunha-differential-token', 1, 1, 'read write follow push', now());
+VALUES (1, 'eunha-differential-token', 1, 1, 'read write follow push', now()),
+       (3, 'eunha-fan1-token', 3, 1, 'read write follow push', now()),
+       (4, 'eunha-fan2-token', 4, 1, 'read write follow push', now()),
+       (5, 'eunha-fan3-token', 5, 1, 'read write follow push', now());
 SQL
 
   local vapid vapid_priv vapid_pub
@@ -167,6 +178,7 @@ EOF
   EUNHA_URL="http://127.0.0.1:$EUNHA_PORT"
   EUNHA_TOKEN="eunha-differential-token"
   EUNHA_OTHER_ID=2
+  EUNHA_FANS="3:eunha-fan1-token,4:eunha-fan2-token,5:eunha-fan3-token"
 }
 
 [ -n "$OWN_EUNHA" ] && start_own_eunha
@@ -220,7 +232,7 @@ echo "==> Minting tokens"
 # status codes, so approve it explicitly.
 # Two accounts: the interaction comparison needs someone to follow and block.
 CREDS=$(docker compose -f "$COMPOSE" exec -T web bin/rails runner '
-  %w(differ other).each do |name|
+  %w(differ other fan1 fan2 fan3).each do |name|
     account = Account.find_or_create_by!(username: name) { |a| a.domain = nil }
     user = User.find_by(email: "#{name}@localhost") || User.create!(
       email: "#{name}@localhost", password: SecureRandom.hex(16), account: account,
@@ -241,9 +253,16 @@ CREDS=$(docker compose -f "$COMPOSE" exec -T web bin/rails runner '
 ' | tr -d '\r')
 TOKEN=$(echo "$CREDS" | grep '^differ:' | cut -d: -f2)
 OTHER_ID=$(echo "$CREDS" | grep '^other:' | cut -d: -f3)
+# `account_id:token` per fan, in the order they act, so the two servers' samples
+# can be compared by who they name rather than by ids that cannot match.
+MASTODON_FANS=$(for n in fan1 fan2 fan3; do
+  line=$(echo "$CREDS" | grep "^$n:")
+  printf '%s:%s,' "$(echo "$line" | cut -d: -f3)" "$(echo "$line" | cut -d: -f2)"
+done | sed 's/,$//')
 
 echo "==> Comparing"
 python3 "$ROOT/scripts/differential_test.py" \
   --eunha "$EUNHA_URL" --mastodon http://localhost:3000 \
   --eunha-token "$EUNHA_TOKEN" --mastodon-token "$TOKEN" \
-  --eunha-other-id "${EUNHA_OTHER_ID:-}" --mastodon-other-id "$OTHER_ID"
+  --eunha-other-id "${EUNHA_OTHER_ID:-}" --mastodon-other-id "$OTHER_ID" \
+  --eunha-fans "${EUNHA_FANS:-}" --mastodon-fans "$MASTODON_FANS"

@@ -306,6 +306,26 @@ It runs in CI, as its own job, for the reason everything else here does: the two
 ways it broke — a reference with no worker, and a compose file another harness
 had edited out from under it — were both invisible to anyone not running it.
 
+One comparison is built rather than observed. **Notification grouping** is the
+part of that API which is not a straight translation of a row: Mastodon
+collapses notifications into groups, and a client renders “X and 2 others
+favourited your post” out of a group's `notifications_count` and
+`sample_account_ids`. A server that groups differently shows a different
+sentence with every field present and of the right type, so shape cannot see it
+— and neither can one account, because a group of one is a group on any server.
+Three further accounts favourite the same status and follow the same account,
+and the groups are compared. Account ids cannot match between two servers, so
+the samples are compared by *who* they name: each fan is known by the position
+it acts in, and a group naming `[fan3, fan2, fan1]` here has to name
+`[fan3, fan2, fan1]` there. It agrees, on both the count and the order.
+
+Getting there needed the fixture reset on both sides, and the second reset is
+the one worth remembering: eunha gets a scratch database every run while the
+Mastodon container is left up between them, so clearing the notifications is not
+enough. A repeat follow produces no notification at all, so on a second run only
+the server with a fresh database reports a follow group — which reads exactly
+like eunha inventing one. The fans unfollow before they follow.
+
 ### Federating with a live Mastodon
 
 The differential harness asks whether the two servers answer a client the same

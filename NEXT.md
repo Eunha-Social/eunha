@@ -34,6 +34,11 @@ while the feed rebuilds rather than report it.
 Mastodon fetches them. Harmless to the handshake — 24/24 checks pass with it
 happening — and never chased down.
 
+**Notification grouping agrees with Mastodon.** Compared end to end against a
+live 4.7.0 for the same fixture — three accounts favouriting one status and
+following one account — and both a group's `notifications_count` and the
+identity *and order* of its `sample_account_ids` match. See `README.md`.
+
 **`sharedInbox` delivery is exercised now, and works.** eunha delivers to
 `https://mastodon.test/inbox` rather than the per-actor inbox, and Mastodon
 stores what arrives. Mastodon delivers to eunha's per-actor inbox — its own
@@ -64,13 +69,15 @@ Thirty were found in the work leading here, and they clustered:
 Things worth doing
 ------------------
 
-1.  **Compare notification *grouping* end to end**, not just the key format. The
-    rules are known and implemented; what is untested is a group's
-    `notifications_count` and `sample_account_ids` against Mastodon's for the
-    same fixture.
-2.  **Run the harnesses against the deployed build**, not a local one. Nothing
-    has ever checked that production matches what the tests claim.
-3.  **`sharedInbox` delivery**, per above.
+1.  **Run the harnesses against the deployed build**, not a local one. Nothing
+    has ever checked that production matches what the tests claim. Read the
+    warning below first: the differential harness *writes*.
+2.  **eunha's inbound `sharedInbox`**, per above — the outbound half is proven
+    now, but Mastodon uses the per-actor inbox when a single recipient is on the
+    far side, so nothing has ever posted to eunha's shared one.
+3.  **Group more than three accounts.** `SAMPLE_ACCOUNTS_SIZE` is 8, and the
+    grouping fixture uses three — so the sample being *capped* at eight, and
+    what a group of twenty reports, is still untested.
 4.  **Decide whether the federation gate belongs on every push.** It is in CI
     now, and it is the slowest gate by some way: a release build of eunha
     inside Docker before Mastodon has even booted. If it starts hurting, a
@@ -80,7 +87,7 @@ Things worth doing
 How not to be fooled
 --------------------
 
-Seven failures in this work were the tooling rather than eunha, and each cost
+Eight failures in this work were the tooling rather than eunha, and each cost
 real time:
 
  -  A commit shipped tests without the definitions they needed, because a
@@ -109,6 +116,12 @@ real time:
     rejected every inbound activity with a 401 — which reads as a signature bug.
     A commit message said it passed every check; what passed was a laptop with
     state nobody wrote down. Both servers live in the network now.
+ -  **Mastodon rate-limits, and a throttled reference invents findings.** Three
+    runs back to back against the same container answered 429, and the run
+    before them reported a follow group of 3 against 2 — which looked like a
+    real grouping difference and was a rate limit eating one follow. If a run
+    disagrees in a way that looks almost right, `down -v` the stack and run it
+    once before believing anything.
  -  This file claimed six green CI gates while CI had been red on `main` for at
     least two commits, because nobody had opened the Actions tab. The failures
     were *stacked*: CI ran `postgres:16`, which cannot execute
