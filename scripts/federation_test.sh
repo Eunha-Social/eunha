@@ -229,18 +229,30 @@ compose run --rm --no-deps eunha ./eunha migrate
 # an account created through its own API.
 ALICE_KEY=$(openssl genrsa 2048 2>/dev/null)
 ALICE_PUB=$(printf '%s' "$ALICE_KEY" | openssl rsa -pubout 2>/dev/null)
+# Bob exists so that a shared-inbox delivery has more than one local recipient.
+# Mastodon posts a status to eunha's `/inbox` whether one account follows or
+# two, so that path was never unexercised — but with a single follower, fanning
+# a delivery out to everyone it concerns and handing it to that one account are
+# the same act, and only one of them is being tested.
+BOB_KEY=$(openssl genrsa 2048 2>/dev/null)
+BOB_PUB=$(printf '%s' "$BOB_KEY" | openssl rsa -pubout 2>/dev/null)
 compose exec -T eunha-db psql -q -U eunha -d eunha -v ON_ERROR_STOP=1 >/dev/null <<SQL
 INSERT INTO accounts (id, username, domain, display_name, note, created_at, updated_at)
-VALUES (1, 'alice', NULL, 'Alice', '', now(), now()) ON CONFLICT DO NOTHING;
+VALUES (1, 'alice', NULL, 'Alice', '', now(), now()),
+       (2, 'bob',   NULL, 'Bob',   '', now(), now()) ON CONFLICT DO NOTHING;
 INSERT INTO users (id, email, account_id, created_at, updated_at, confirmed_at, approved, encrypted_password)
-VALUES (1, 'alice@localhost', 1, now(), now(), now(), true, 'x') ON CONFLICT DO NOTHING;
+VALUES (1, 'alice@localhost', 1, now(), now(), now(), true, 'x'),
+       (2, 'bob@localhost',   2, now(), now(), now(), true, 'x') ON CONFLICT DO NOTHING;
 INSERT INTO oauth_applications (id, name, uid, secret, redirect_uri, scopes, created_at, updated_at)
 VALUES (1, 'fed', 'u', 's', 'urn:ietf:wg:oauth:2.0:oob', 'read write follow push', now(), now())
 ON CONFLICT DO NOTHING;
 INSERT INTO oauth_access_tokens (id, token, resource_owner_id, application_id, scopes, created_at)
-VALUES (1, 'eunha-federation-token', 1, 1, 'read write follow push', now()) ON CONFLICT DO NOTHING;
+VALUES (1, 'eunha-federation-token', 1, 1, 'read write follow push', now()),
+       (2, 'eunha-federation-bob-token', 2, 1, 'read write follow push', now()) ON CONFLICT DO NOTHING;
 UPDATE accounts SET private_key = \$P\$$ALICE_KEY\$P\$, public_key = \$U\$$ALICE_PUB\$U\$
 WHERE id = 1;
+UPDATE accounts SET private_key = \$P\$$BOB_KEY\$P\$, public_key = \$U\$$BOB_PUB\$U\$
+WHERE id = 2;
 SQL
 
 # No peer seeding. eunha resolves Mastodon's actor over the wire, webfinger and
@@ -256,11 +268,35 @@ compose exec -T redis sh -c \
   'redis-cli --scan --pattern "*stoplight*" | xargs -r redis-cli del' >/dev/null 2>&1 || true
 
 echo "==> Federating"
+STATUS=0
 python3 "$ROOT/scripts/federation_test.py" \
   --eunha "http://localhost:$EUNHA_HOST_PORT" \
   --eunha-token "eunha-federation-token" \
   --eunha-acct "alice@$EUNHA_DOMAIN" \
+  --eunha-second-token "eunha-federation-bob-token" \
   --mastodon "http://localhost:$MASTODON_HOST_PORT" \
   --mastodon-host "$MASTODON_DOMAIN" \
   --mastodon-token "$MASTODON_TOKEN" \
-  --mastodon-acct "masto@$MASTODON_DOMAIN"
+  --mastodon-acct "masto@$MASTODON_DOMAIN" || STATUS=$?
+
+# The checks above prove both accounts received the status; this proves it came
+# through the shared inbox rather than two personal ones. It does not prove the
+# fan-out had two recipients — Mastodon uses the shared inbox for a single
+# follower too — so it is a floor, not a ceiling: if eunha ever stops
+# advertising `sharedInbox`, or Mastodon stops honouring it, this says so.
+echo
+echo "==> Which inbox Mastodon used"
+# `grep -c`, not `grep -q`: under `pipefail` a `grep -q` exits on the first match
+# and SIGPIPEs the process feeding it, so the pipeline reports failure precisely
+# when the thing it looks for is found. This check called itself a failure while
+# four deliveries sat in the log.
+SHARED_HITS=$(compose logs eunha 2>/dev/null | grep -c "inbox=/inbox" || true)
+if [ "${SHARED_HITS:-0}" -gt 0 ]; then
+  echo "  [ok  ] $SHARED_HITS deliveries reached eunha's shared inbox"
+else
+  echo "  [FAIL] nothing reached eunha's shared inbox: Mastodon addressed the" >&2
+  echo "         personal ones, so that path was not exercised" >&2
+  STATUS=1
+fi
+
+exit $STATUS

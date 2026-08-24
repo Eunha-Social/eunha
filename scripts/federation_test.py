@@ -278,12 +278,83 @@ def run_direction(sender, receiver, sender_acct, receiver_acct, report):
                  "the status is still there")
 
 
+# Mastodon distributes a status to a peer's *shared* inbox whenever that peer
+# advertises one — it does not wait for a second follower — and uses the personal
+# inbox for directed activities like Follow and Accept. So eunha's `/inbox` was
+# already receiving deliveries; the earlier note here that it never had was
+# simply wrong, and measuring it is what showed that.
+#
+# What a single follower cannot test is the part that makes a shared inbox worth
+# having: one delivery, addressed to nobody in particular, fanned out by the
+# *receiving* side to every local account it concerns. With one follower that is
+# indistinguishable from delivering to that account. Bob makes it two.
+def check_shared_inbox(eunha, mastodon, second, mastodon_acct, report):
+    direction = "mastodon→eunha"
+    remote = until(lambda: find_account(second, mastodon_acct), seconds=30)
+    if not remote:
+        report.check(direction, "shared inbox: second account resolves the sender",
+                     False, f"eunha could not find {mastodon_acct}")
+        return
+    status, _ = second.call("POST", f"/api/v1/accounts/{remote['id']}/follow")
+    if status != 200:
+        report.check(direction, "shared inbox: a second local account follows",
+                     False, f"status {status}")
+        return
+
+    def both_follow():
+        st, body = mastodon.call("GET", "/api/v1/accounts/verify_credentials")
+        if st != 200:
+            return False
+        st, followers = mastodon.call(
+            "GET", f"/api/v1/accounts/{body['id']}/followers?limit=40"
+        )
+        if st != 200:
+            return False
+        local = [a for a in (followers or []) if "@" in (a.get("acct") or "")]
+        return len(local) >= 2
+
+    if not until(both_follow, seconds=30):
+        report.check(direction, "shared inbox: a second local account follows",
+                     False, "Mastodon still sees one follower, so it would not "
+                            "use the shared inbox")
+        return
+    report.check(direction, "shared inbox: a second local account follows", True)
+
+    marker = f"shared-{int(time.time() * 1000)}"
+    status, _ = mastodon.call(
+        "POST", "/api/v1/statuses",
+        {"status": f"hello {marker}", "visibility": "public"},
+    )
+    if status != 200:
+        report.check(direction, "shared inbox: post a status", False, f"status {status}")
+        return
+
+    def seen_by(server):
+        def check():
+            st, body = server.call("GET", "/api/v1/timelines/home?limit=40")
+            if st != 200 or not body:
+                return False
+            return any(marker in (s.get("content") or "") for s in body)
+        return check
+
+    for who, server in (("first", eunha), ("second", second)):
+        report.check(
+            direction, f"shared inbox: {who} follower receives it",
+            bool(until(seen_by(server), seconds=45)),
+            "not on that account's home timeline",
+        )
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--eunha", required=True)
     parser.add_argument("--eunha-token", required=True)
     parser.add_argument("--eunha-acct", required=True,
                         help="the eunha account's full handle, e.g. alice@host:3002")
+    parser.add_argument("--eunha-second-token",
+                        help="a second eunha account's token. Mastodon only uses a "
+                             "peer's shared inbox when two accounts there follow the "
+                             "same actor, so without one that path is never taken.")
     parser.add_argument("--mastodon", required=True)
     parser.add_argument(
         "--mastodon-host",
@@ -311,6 +382,10 @@ def main():
     if args.only != "to-eunha":
         print("\neunha → Mastodon")
         run_direction(eunha, mastodon, args.eunha_acct, args.mastodon_acct, report)
+    if args.eunha_second_token and args.only != "to-mastodon":
+        print("\nShared inbox")
+        second = Server("eunha", args.eunha, args.eunha_second_token)
+        check_shared_inbox(eunha, mastodon, second, args.mastodon_acct, report)
 
     failures = report.failed()
     print(f"\n{len(report.results) - len(failures)}/{len(report.results)} checks passed")

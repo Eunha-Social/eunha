@@ -179,8 +179,14 @@ pub async fn shared_inbox(
 
     let activity_type = activity.get("type").and_then(|t| t.as_str()).unwrap_or("");
 
+    // The path as well as the activity: this one handler serves both
+    // `/users/{username}/inbox` and the instance-wide `/inbox`, and which of
+    // them a peer chose is otherwise invisible. Mastodon only picks the shared
+    // inbox when two accounts here follow the same actor there, so without this
+    // there is no way to tell whether that path has ever been exercised.
     tracing::debug!(
         instance = %instance.domain,
+        inbox = %uri.path(),
         activity_type,
         body = %activity,
         "received ActivityPub activity"

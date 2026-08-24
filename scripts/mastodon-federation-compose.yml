@@ -153,6 +153,9 @@ services:
     environment:
       SSL_CERT_FILE: /certs/ca-bundle.crt
       RUST_LOG: eunha=debug,tower_http=info,sqlx=warn
+      # Plain text in the log. `tracing` colours field names, so `inbox=/inbox`
+      # is not those characters in that order and nothing greps for it.
+      NO_COLOR: "1"
     volumes:
       - ./eunha-config.toml:/app/config.toml:ro
       - ./ca-bundle.crt:/certs/ca-bundle.crt:ro

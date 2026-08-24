@@ -41,11 +41,18 @@ live 4.7.0 for the same fixture — three accounts favouriting one status and
 following one account — and both a group's `notifications_count` and the
 identity *and order* of its `sample_account_ids` match. See `README.md`.
 
-**`sharedInbox` delivery is exercised now, and works.** eunha delivers to
-`https://mastodon.test/inbox` rather than the per-actor inbox, and Mastodon
-stores what arrives. Mastodon delivers to eunha's per-actor inbox — its own
-choice when a single recipient is on the far side — so eunha's *inbound* shared
-inbox is still the untested half.
+**`sharedInbox` works in both directions.** eunha delivers to
+`https://mastodon.test/inbox`, and Mastodon delivers to eunha's `/inbox` — four
+times in a run. The earlier note here, that Mastodon uses the per-actor inbox
+when a single recipient is on the far side, was wrong: it prefers the shared
+inbox for distributing a status whenever the peer advertises one, and keeps the
+personal inbox for directed activities like Follow and Accept. Measuring it is
+what showed that.
+
+What a single follower could not test is the point of a shared inbox — one
+delivery, addressed to nobody in particular, fanned out by the *receiving* side
+to every local account it concerns. A second eunha account now follows the same
+remote actor, and both see the status.
 
 
 Where bugs have actually been
@@ -81,9 +88,10 @@ Things worth doing
 1.  **Run the harnesses against the deployed build**, not a local one. Nothing
     has ever checked that production matches what the tests claim. Read the
     warning below first: the differential harness *writes*.
-2.  **eunha's inbound `sharedInbox`**, per above — the outbound half is proven
-    now, but Mastodon uses the per-actor inbox when a single recipient is on the
-    far side, so nothing has ever posted to eunha's shared one.
+2.  **Fan a shared-inbox delivery out to more than two accounts.** Two proves
+    the mechanism; it does not prove the addressing scales, or that a follower
+    who should *not* receive something is left out. A private status delivered
+    to a shared inbox is the interesting case.
 3.  **Group more than three accounts.** `SAMPLE_ACCOUNTS_SIZE` is 8, and the
     grouping fixture uses three — so the sample being *capped* at eight, and
     what a group of twenty reports, is still untested.
@@ -96,7 +104,7 @@ Things worth doing
 How not to be fooled
 --------------------
 
-Eight failures in this work were the tooling rather than eunha, and each cost
+Nine failures in this work were the tooling rather than eunha, and each cost
 real time:
 
  -  A commit shipped tests without the definitions they needed, because a
@@ -125,6 +133,12 @@ real time:
     rejected every inbound activity with a 401 — which reads as a signature bug.
     A commit message said it passed every check; what passed was a laptop with
     state nobody wrote down. Both servers live in the network now.
+ -  **`grep -q` under `set -o pipefail` reports failure when it succeeds.** It
+    exits on the first match and SIGPIPEs whatever feeds it, so the pipeline's
+    status is the writer's death, not the match. A new check called itself a
+    failure while four of the deliveries it was looking for sat in the log —
+    and the obvious reading was that the feature was broken. `grep -c` and
+    compare the number.
  -  **Mastodon rate-limits, and a throttled reference invents findings.** Three
     runs back to back against the same container answered 429, and the run
     before them reported a follow group of 3 against 2 — which looked like a
