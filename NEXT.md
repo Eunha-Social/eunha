@@ -4,7 +4,8 @@ Where to pick this up
 State at handoff: `main` is deployed to seoul.earth and healthy. Schema matches
 Mastodon 4.7.0 across 974 constraints. 856 integration tests, 70 unit tests, CI
 green on seven gates — the differential harness is one of them now, and runs
-clean against a live Mastodon 4.7.0.
+clean against a live Mastodon 4.7.0. Verified by looking at the run, not by
+assuming: CI had in fact been red for at least two commits.
 
 Three harnesses verify parity, described in `README.md` and in each script's
 header. Read those headers before believing a failure — most of what they report
@@ -75,7 +76,7 @@ Things worth doing
 How not to be fooled
 --------------------
 
-Five failures in this work were the tooling rather than eunha, and each cost
+Six failures in this work were the tooling rather than eunha, and each cost
 real time:
 
  -  A commit shipped tests without the definitions they needed, because a
@@ -97,6 +98,14 @@ real time:
  -  A deploy reported success having shipped nothing, because the push went to a
     branch that did not have the commits. Check the deployed *behaviour*, not
     the deploy's exit code — the 0.81s build was the tell.
+ -  This file claimed six green CI gates while CI had been red on `main` for at
+    least two commits, because nobody had opened the Actions tab. The failures
+    were *stacked*: CI ran `postgres:16`, which cannot execute
+    `001_initial.sql` — its `pg_dump` preamble sets `transaction_timeout`, a
+    parameter Postgres 17 introduced — so the first step died and hid a clippy
+    error behind it. Development and production both run 18; CI was the only
+    Postgres anywhere that was not. A red first gate means every gate after it
+    has told you nothing.
 
 The general form: a passing check is not evidence until you have seen it fail.
 Disable the fix and confirm the test notices.
