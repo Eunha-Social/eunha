@@ -3,27 +3,41 @@ Eunha
 
 Rust re-implementation of Mastodon.
 
-Eunha aims for 100% Mastodon database schema compatibility, so that Eunha can be a drop-in replacement on top of your existing Mastodon database.
+Eunha aims for 100% Mastodon database schema compatibility, so that Eunha can
+be a drop-in replacement on top of your existing Mastodon database.
 
-We track the latest Mastodon release, and provide migration path from old Eunha database schema to updated Mastodon database schema.
+We track the latest Mastodon release, and provide migration path from old Eunha
+database schema to updated Mastodon database schema.
 
-It's not Eunha's goal to completely mimic Mastodon's feature set or its implementation detail, and Eunha may contain behavioral differences.
+It's not Eunha's goal to completely mimic Mastodon's feature set or its
+implementation detail, and Eunha may contain behavioral differences.
 
 
 Contributing
 ------------
 
-All Mastodon tables should go in the `public` schema, while tables needed for Eunha goes in the `eunha` schema.
+All Mastodon tables should go in the `public` schema, while tables needed for
+Eunha goes in the `eunha` schema.
 
 Use mise for all tasks. See `mise.toml`.
 
-Use [shadcn/ui](https://ui.shadcn.com) CLI when adding components. Don't hand-roll components.
+Use [shadcn/ui] CLI when adding components. Don't hand-roll components.
+
+[shadcn/ui]: https://ui.shadcn.com
 
 
 Federation
 ----------
 
-For all federation related tasks, we use [feder](https://github.com/limeburst/feder), and extend it when necessary.
+For all federation related tasks, we use [feder], and extend it when necessary.
+
+The extension eunha designs for the places ActivityPub scales badly is recorded
+in [PROTOCOL.md](./PROTOCOL.md): the dereference storm a boost sets off, the
+absence of backfill, and identity that cannot outlive a hostname. It is a design
+record rather than a description of what eunha does today, and it says which is
+which.
+
+[feder]: https://github.com/limeburst/feder
 
 
 Tracking Mastodon
@@ -33,7 +47,9 @@ The Mastodon release eunha implements is recorded in `mastodon.toml` and
 repeated as build metadata in `Cargo.toml`'s version, which `build.rs` checks
 the two agree on. Releases are tagged the same way:
 
-    v0.2.0+mastodon.4.7.0
+~~~~
+v0.2.0+mastodon.4.7.0
+~~~~
 
 Eunha's own version moves independently; the part after `+` names the Mastodon
 release whose schema and API that build implements, and is what
@@ -42,9 +58,11 @@ release whose schema and API that build implements, and is what
 `eunha-schema` (`mise run mastodon:status`, `mastodon:plan`, `schema:check`)
 does the tracking:
 
-    mise run mastodon:status                 # is there a newer Mastodon release?
-    mise run mastodon:plan --to v4.8.0       # what would adopting it involve?
-    mise run schema:check                    # does this database match the target?
+~~~~
+mise run mastodon:status                 # is there a newer Mastodon release?
+mise run mastodon:plan --to v4.8.0       # what would adopting it involve?
+mise run schema:check                    # does this database match the target?
+~~~~
 
 `schema:check` reads the live database back out of Postgres and compares it
 against a **reference**: the structure of a database that Mastodon's own
@@ -58,26 +76,26 @@ parser of ours believes a Ruby file means. It is the test for the
 Two things are deliberately not compared, because they record how a database
 came to be rather than what it is, and `schema.rb` cannot express either:
 
-* **Sequences left behind by dropped tables.** Mastodon creates one sequence per
-  snowflake-id table by hand, so nothing owns it and dropping the table leaves it
-  behind — `encrypted_messages_id_seq` has outlived its table since 2022. Every
-  Mastodon that migrated through that period has it; one installed fresh today
-  does not. Eunha matches the former, because that is what it stands in for. A
-  sequence whose table *does* exist, or one the reference has and the database
-  lacks, is still reported.
-* **Sequence ownership.** `quotes` was created with a serial id and later moved
-  to `timestamp_id`, so a migrated Mastodon owns that sequence and a freshly
-  loaded one does not.
+ -  **Sequences left behind by dropped tables.** Mastodon creates one sequence
+    per snowflake-id table by hand, so nothing owns it and dropping the table
+    leaves it behind — `encrypted_messages_id_seq` has outlived its table since
+    2022. Every Mastodon that migrated through that period has it; one
+    installed fresh today does not. Eunha matches the former, because that is
+    what it stands in for. A sequence whose table *does* exist, or one the
+    reference has and the database lacks, is still reported.
+ -  **Sequence ownership.** `quotes` was created with a serial id and later
+    moved to `timestamp_id`, so a migrated Mastodon owns that sequence and a
+    freshly loaded one does not.
 
 Three files under `mastodon/` support it, all regenerated together by
 `mise run schema:build-reference`:
 
-* `schema.rb` — upstream's own file, vendored verbatim.
-* `schema.sql` — a `pg_dump` of a database built from it, for reading and
-  diffing.
-* `schema.json` — the same database's structure as the checker sees it, which
-  is what the test compares against so that it needs neither Ruby nor a
-  database of its own.
+ -  `schema.rb` — upstream's own file, vendored verbatim.
+ -  `schema.sql` — a `pg_dump` of a database built from it, for reading and
+    diffing.
+ -  `schema.json` — the same database's structure as the checker sees it, which
+    is what the test compares against so that it needs neither Ruby nor a
+    database of its own.
 
 Building the reference runs Mastodon's `schema.rb` through the real ActiveRecord
 schema DSL. That needs Ruby, but not Mastodon: `activerecord` and `pg`, not its
@@ -85,29 +103,36 @@ thousand-gem bundle.
 
 ### Adopting a release
 
-1. `mise run mastodon:plan --to vX.Y.Z` lists the Rails migrations upstream
-   added since the tracked release, and the deliberate divergences that now need
-   re-examining against it.
-2. Write one eunha migration reproducing them, ending with an
-   `INSERT INTO public.schema_migrations` of the versions it covers — a
-   migration eunha deliberately does not implement is left out of that list, so
-   that a Mastodon booted on the database still runs it. `--sql` prints the
-   insert.
-3. Update `mastodon.toml` and `Cargo.toml`, replace `mastodon/schema.rb` with
-   that release's, and run `mise run schema:build-reference`. The reference's
-   diff is the schema delta you are adopting.
-4. Re-examine each divergence and move its `reviewed_for` forward in
-   `divergences.toml`; the suite fails until every entry has been looked at.
-5. `mise run schema:check` against a database that has run the new migration.
-6. Rehearse it against real data before deploying. An instance gets one attempt
-   at a migration:
+1.  `mise run mastodon:plan --to vX.Y.Z` lists the Rails migrations upstream
+    added since the tracked release, and the deliberate divergences that now
+    need re-examining against it.
 
-       scripts/rehearse_migration.sh postgres://user@localhost/seoul_earth
+2.  Write one eunha migration reproducing them, ending with an
+    `INSERT INTO public.schema_migrations` of the versions it covers — a
+    migration eunha deliberately does not implement is left out of that list, so
+    that a Mastodon booted on the database still runs it. `--sql` prints the
+    insert.
 
-   That clones the database (reading only), runs the pending migrations over
-   the clone as the server would, and reports every table whose row count
-   changed plus the schema check. Anything that moves rows it should not is
-   visible there rather than in production.
+3.  Update `mastodon.toml` and `Cargo.toml`, replace `mastodon/schema.rb` with
+    that release's, and run `mise run schema:build-reference`. The reference's
+    diff is the schema delta you are adopting.
+
+4.  Re-examine each divergence and move its `reviewed_for` forward in
+    `divergences.toml`; the suite fails until every entry has been looked at.
+
+5.  `mise run schema:check` against a database that has run the new migration.
+
+6.  Rehearse it against real data before deploying. An instance gets one attempt
+    at a migration:
+
+    ~~~~
+    scripts/rehearse_migration.sh postgres://user@localhost/seoul_earth
+    ~~~~
+
+    That clones the database (reading only), runs the pending migrations over
+    the clone as the server would, and reports every table whose row count
+    changed plus the schema check. Anything that moves rows it should not is
+    visible there rather than in production.
 
 ### Migrations
 
@@ -138,8 +163,10 @@ private half encrypted the way Rails encrypts columns. Give eunha the same
 secrets that Mastodon requires and it reads and writes that form, moving any
 keys still in the old `accounts` columns on startup:
 
-    ACTIVE_RECORD_ENCRYPTION__PRIMARY_KEY=...
-    ACTIVE_RECORD_ENCRYPTION__KEY_DERIVATION_SALT=...
+~~~~
+ACTIVE_RECORD_ENCRYPTION__PRIMARY_KEY=...
+ACTIVE_RECORD_ENCRYPTION__KEY_DERIVATION_SALT=...
+~~~~
 
 Without them, keys stay in `accounts.private_key`, which upstream still reads
 (`Keypair.from_legacy_account`) — but a database whose keys have already moved
@@ -163,7 +190,6 @@ from the header list it is given — but emitting what the rest of the network
 emits keeps eunha clear of anything that verifies more strictly than it should.
 
 [RFC 9421]: https://www.rfc-editor.org/rfc/rfc9421.html
-[feder]: https://github.com/limeburst/feder
 
 ### Update notices
 
@@ -193,7 +219,9 @@ conditions. 4.7.0's instance serializer emits `icon` and `wrapstodon` that the
 TypeScript does not mention, so the serializers are the authority on what
 exists.
 
-    mise run entities:build        # re-record from a Mastodon checkout
+~~~~
+mise run entities:build        # re-record from a Mastodon checkout
+~~~~
 
 That reads a clone at `~/Git/mastodon` (`MASTODON_REPO` to point elsewhere) at
 the tracked tag rather than its working tree, fetching tags if the tag is
@@ -207,14 +235,16 @@ The entity check compares eunha to what upstream's serializers *say*. This one
 asks upstream directly: the same request goes to both servers and the responses
 are compared.
 
-    scripts/differential_test.sh http://localhost:3001 SOME_TOKEN
+~~~~
+scripts/differential_test.sh http://localhost:3001 SOME_TOKEN
+~~~~
 
 That brings up Mastodon in Docker — the official image, because building it from
 source on macOS means libidn, OpenSSL headers for `hiredis-client`, libvips, and
-a `pg` gem that segfaults against Postgres 18, all of which the image has already
-solved — mints tokens, and compares what a client actually does: 31 reads, nine
-writes, and the interaction verbs (favourite, boost, bookmark, pin, follow,
-block, mute, and their undos).
+a `pg` gem that segfaults against Postgres 18, all of which the image has
+already solved — mints tokens, and compares what a client actually does: 31
+reads, nine writes, and the interaction verbs (favourite, boost, bookmark, pin,
+follow, block, mute, and their undos).
 
 The stack runs Sidekiq as well as the web process. Without a worker nothing
 Mastodon defers ever happens, and some of that shows in the API — a home feed
