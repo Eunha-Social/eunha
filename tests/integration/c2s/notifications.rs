@@ -964,11 +964,19 @@ async fn test_v2_notifications_group_favourites() {
         Some(2),
         "group should sample both favouriting accounts",
     );
+    // Mastodon's key is `{type}-{status_id}-{hour_bucket}`, checked against a
+    // running 4.7.0. The bucket is what stops a group reaching back for ever:
+    // favourites more than twelve hours apart are separate groups, so the same
+    // status has more than one key over time.
     let group_key = fav_group["group_key"].as_str().unwrap();
-    assert_eq!(
-        group_key,
-        format!("favourite-{sid}"),
-        "group key should be favourite-<status_id>"
+    let prefix = format!("favourite-{sid}-");
+    assert!(
+        group_key.starts_with(&prefix),
+        "group key should be favourite-<status_id>-<bucket>, got {group_key}"
+    );
+    assert!(
+        group_key[prefix.len()..].parse::<i64>().is_ok(),
+        "the bucket should be an hour number, got {group_key}"
     );
 
     // The group_key resolves via the single-group endpoint.
@@ -1909,7 +1917,7 @@ async fn test_v2_clear_notifications() {
     assert!(
         after["notification_groups"]
             .as_array()
-            .map_or(true, |g| g.is_empty()),
+            .is_none_or(|g| g.is_empty()),
         "notifications not cleared after POST /api/v2/notifications/clear",
     );
 }

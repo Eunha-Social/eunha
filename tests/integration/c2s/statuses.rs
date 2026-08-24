@@ -4154,7 +4154,7 @@ async fn test_status_mentions_field() {
             "/api/v1/statuses",
             Some(&ctx.alice_token),
             &json!({
-                "status": &format!("@bob hello there"),
+                "status": &"@bob hello there".to_string(),
                 "visibility": "public"
             }),
         )
@@ -5596,7 +5596,7 @@ async fn test_status_mentions_populated() {
     let ctx = TestContext::new("status-mentions").await;
 
     // Alice mentions bob by username (local mention)
-    let text = format!("@bob hello");
+    let text = "@bob hello".to_string();
     let status = ctx.api.post_status(&ctx.alice_token, &text, "public").await;
     let sid = status["id"].as_str().unwrap();
 

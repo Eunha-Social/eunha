@@ -307,3 +307,94 @@ async fn test_an_ordinary_co_mention_still_notifies() {
         "and everyone else mentioned should hear about it too"
     );
 }
+
+/// A group does not reach back for ever.
+///
+/// Mastodon's `MAXIMUM_GROUP_SPAN_HOURS` is 12: a notification joins the
+/// previous group unless that group already began more than twelve hours ago,
+/// in which case it starts a new one. eunha's key had no time in it at all, so
+/// every favourite of a status joined one group however far apart they were —
+/// a post favourited today and again next week read as a single "2 people".
+///
+/// Checked against a running Mastodon 4.7.0, which puts two favourites twenty
+/// hours apart into different groups.
+#[tokio::test]
+async fn test_a_group_key_carries_an_hour_bucket() {
+    let ctx = TestContext::new("notify-group-span").await;
+
+    let status = ctx
+        .api
+        .post_status(&ctx.alice_token, "favourite me", "public")
+        .await;
+    let sid = status["id"].as_str().unwrap();
+
+    let favourited = ctx
+        .api
+        .post_json(
+            &format!("/api/v1/statuses/{sid}/favourite"),
+            Some(&ctx.bob_token),
+            &serde_json::json!({}),
+        )
+        .await;
+    assert_eq!(favourited.status().as_u16(), 200);
+
+    let stored: Option<String> = sqlx::query_scalar!(
+        r#"SELECT group_key FROM notifications
+           WHERE account_id = $1 AND type = 'favourite' ORDER BY id DESC LIMIT 1"#,
+        ctx.alice_id.parse::<i64>().unwrap(),
+    )
+    .fetch_one(&ctx.db)
+    .await
+    .unwrap();
+
+    let key = stored.expect("a favourite is groupable, so it is given a key");
+    let prefix = format!("favourite-{sid}-");
+    assert!(
+        key.starts_with(&prefix),
+        "the key names what is grouped and when: {key}"
+    );
+
+    let bucket: i64 = key[prefix.len()..]
+        .parse()
+        .unwrap_or_else(|_| panic!("the bucket should be an hour number: {key}"));
+    let now_bucket = chrono::Utc::now().timestamp() / 3600;
+    assert!(
+        (bucket - now_bucket).abs() <= 1,
+        "the bucket should be this hour, got {bucket} against {now_bucket}"
+    );
+}
+
+/// A type Mastodon does not group is not given a key.
+///
+/// `GROUPABLE_NOTIFICATION_TYPES` is favourite, reblog, follow and admin.sign_up
+/// — a mention is not among them, and gets no group key at all.
+#[tokio::test]
+async fn test_an_ungroupable_type_has_no_key() {
+    let ctx = TestContext::new("notify-group-ungroupable").await;
+
+    let response = ctx
+        .api
+        .post_json(
+            "/api/v1/statuses",
+            Some(&ctx.bob_token),
+            &serde_json::json!({"status": "@alice hello", "visibility": "public"}),
+        )
+        .await;
+    assert_eq!(response.status().as_u16(), 200);
+
+    let stored: Option<Option<String>> = sqlx::query_scalar!(
+        r#"SELECT group_key FROM notifications
+           WHERE account_id = $1 AND type = 'mention' ORDER BY id DESC LIMIT 1"#,
+        ctx.alice_id.parse::<i64>().unwrap(),
+    )
+    .fetch_optional(&ctx.db)
+    .await
+    .unwrap();
+
+    if let Some(key) = stored {
+        assert!(
+            key.is_none(),
+            "a mention is not groupable and should carry no key, got {key:?}"
+        );
+    }
+}

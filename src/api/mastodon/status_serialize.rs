@@ -1051,7 +1051,7 @@ pub async fn build_status_with_app(
     // by one.
     if let Some(ref mut rb) = api.reblog {
         if rb.application.is_none() {
-            if let Some(rid) = rb.id.parse::<i64>().ok() {
+            if let Ok(rid) = rb.id.parse::<i64>() {
                 rb.application = fetch_status_applications(state, &[rid]).await.remove(&rid);
             }
         }

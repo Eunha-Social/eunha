@@ -88,13 +88,13 @@ async fn test_status_served_as_ap_note() {
     assert_eq!(note["attributedTo"].as_str(), Some(actor_url.as_str()));
     assert!(note["content"].as_str().unwrap_or("").contains("world"));
     assert!(
-        note["to"].as_array().map_or(false, |a| a
+        note["to"].as_array().is_some_and(|a| a
             .iter()
             .any(|v| v.as_str() == Some("https://www.w3.org/ns/activitystreams#Public"))),
         "public note should address the Public collection: {note}"
     );
     // The hashtag is carried in the tag array for remote indexing.
-    let has_hashtag = note["tag"].as_array().map_or(false, |a| {
+    let has_hashtag = note["tag"].as_array().is_some_and(|a| {
         a.iter()
             .any(|t| t["type"].as_str() == Some("Hashtag") && t["name"].as_str() == Some("#world"))
     });
@@ -168,9 +168,9 @@ async fn test_followers_following_collections() {
         .unwrap();
     let alice_uri = format!("https://{}/users/alice", ctx.domain);
     assert!(
-        page["orderedItems"].as_array().map_or(false, |a| a
-            .iter()
-            .any(|v| v.as_str() == Some(alice_uri.as_str()))),
+        page["orderedItems"]
+            .as_array()
+            .is_some_and(|a| a.iter().any(|v| v.as_str() == Some(alice_uri.as_str()))),
         "alice should appear in bob's followers page: {page}"
     );
 
@@ -211,9 +211,9 @@ async fn test_featured_collection_lists_pins() {
     assert_eq!(featured["type"].as_str(), Some("OrderedCollection"));
     let note_uri = format!("https://{}/users/alice/statuses/{id}", ctx.domain);
     assert!(
-        featured["orderedItems"].as_array().map_or(false, |a| a
-            .iter()
-            .any(|v| v.as_str() == Some(note_uri.as_str()))),
+        featured["orderedItems"]
+            .as_array()
+            .is_some_and(|a| a.iter().any(|v| v.as_str() == Some(note_uri.as_str()))),
         "pinned status should appear in featured collection: {featured}"
     );
 }

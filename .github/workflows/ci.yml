@@ -1,0 +1,84 @@
+# What has to hold before a change lands.
+#
+# Three of these exist because something drifted when nothing was watching:
+# formatting went unenforced until thirteen files had moved and a commit shipped
+# broken while separating real changes from the churn; the sqlx cache went stale
+# and would have failed the deploy's offline build rather than the tests; the
+# schema check is the 100%-compatibility claim, and a claim nothing checks stops
+# being true.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: eunha
+          POSTGRES_PASSWORD: eunha
+          POSTGRES_DB: eunha_test
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 20
+        ports: ["5432:5432"]
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s
+          --health-timeout 5s --health-retries 20
+        ports: ["6379:6379"]
+
+    env:
+      DATABASE_URL: postgres://eunha:eunha@localhost/eunha_test
+      REDIS_URL: redis://127.0.0.1:6379/15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Formatting
+        run: cargo fmt --check
+
+      - name: Prepare the database
+        run: |
+          psql "$DATABASE_URL" -c "CREATE SCHEMA IF NOT EXISTS eunha"
+          cargo install sqlx-cli --no-default-features --features postgres,rustls --locked
+          DATABASE_URL="$DATABASE_URL?options=-c%20search_path%3Deunha,public" \
+            cargo sqlx migrate run
+
+      # The deploy builds offline, so a query missing from `.sqlx` fails there
+      # rather than here unless this runs — and it fails after the migrations
+      # have already been applied.
+      - name: Offline build matches the committed query cache
+        env:
+          SQLX_OFFLINE: "true"
+        run: cargo build --locked
+
+      - name: Tests
+        run: cargo test --locked
+
+      # eunha exists to be a drop-in for a Mastodon database. This is the test
+      # for that, and it needs neither Ruby nor the network: it compares the
+      # database the migrations just built against a recorded reference.
+      - name: Schema matches the tracked Mastodon release
+        env:
+          SQLX_OFFLINE: "true"
+        run: cargo run --locked --bin eunha-schema -- check
+
+      - name: Lints
+        run: cargo clippy --locked --all-targets -- -D warnings

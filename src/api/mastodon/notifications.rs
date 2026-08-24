@@ -446,7 +446,12 @@ pub async fn get_notifications(
             id: n.id.to_string(),
             notification_type: n.r#type.clone().unwrap_or_default(),
             created_at: super::convert::mastodon_date(n.created_at),
-            group_key: format!("ungrouped-{}", n.id),
+            // Mastodon serializes the notification's own group key here too, so
+            // a client can tell which group a single notification belongs to.
+            group_key: n
+                .group_key
+                .clone()
+                .unwrap_or_else(|| format!("ungrouped-{}", n.id)),
             account: notif_account,
             status,
             report,
@@ -542,18 +547,33 @@ const SAMPLE_ACCOUNTS_SIZE: usize = 8;
 /// `follow`/`admin.sign_up` group by type, everything else stays ungrouped.
 /// (The 12h hour-bucket split Mastodon adds is omitted; same-target
 /// notifications simply share one group.)
+/// Mastodon's `MAXIMUM_GROUP_SPAN_HOURS`: how far a single group may reach.
+pub const MAXIMUM_GROUP_SPAN_HOURS: i64 = 12;
+
+/// The part of a group key that identifies *what* is being grouped, before the
+/// time bucket. `None` for a type Mastodon does not group.
+///
+/// Mastodon groups four types and no others — `GROUPABLE_NOTIFICATION_TYPES` —
+/// and keys a favourite or boost by the status it concerns, so two people
+/// favouriting different posts never share a group.
+pub fn group_type_prefix(notif_type: &str, target_status_id: Option<i64>) -> Option<String> {
+    match notif_type {
+        "favourite" | "reblog" => target_status_id.map(|sid| format!("{notif_type}-{sid}")),
+        "follow" | "admin.sign_up" => Some(notif_type.to_string()),
+        _ => None,
+    }
+}
+
 fn notification_group_key(
     notif_type: &str,
     target_status_id: Option<i64>,
     notif_id: i64,
 ) -> String {
-    match notif_type {
-        "favourite" | "reblog" => match target_status_id {
-            Some(sid) => format!("{notif_type}-{sid}"),
-            None => format!("ungrouped-{notif_id}"),
-        },
-        "follow" | "admin.sign_up" => notif_type.to_string(),
-        _ => format!("ungrouped-{notif_id}"),
+    // Only reached for rows written before group keys were stored; a stored key
+    // is preferred wherever one exists.
+    match group_type_prefix(notif_type, target_status_id) {
+        Some(prefix) => prefix,
+        None => format!("ungrouped-{notif_id}"),
     }
 }
 
@@ -575,35 +595,37 @@ async fn notifications_for_group_key(
                 .await?,
         );
     }
-    if group_key == "follow" || group_key == "admin.sign_up" {
-        return Ok(sqlx::query_as(
-            "SELECT * FROM notifications WHERE account_id = $1 AND type = $2 ORDER BY id DESC",
-        )
-        .bind(account_id)
-        .bind(group_key)
-        .fetch_all(&state.db)
-        .await?);
+    // A stored key identifies its members directly; matching by type and status
+    // instead would gather every group of that shape, ignoring the time bucket
+    // that separated them.
+    let stored: Vec<DbNotification> = sqlx::query_as(
+        "SELECT * FROM notifications
+         WHERE account_id = $1 AND group_key = $2 ORDER BY id DESC",
+    )
+    .bind(account_id)
+    .bind(group_key)
+    .fetch_all(&state.db)
+    .await?;
+    if !stored.is_empty() {
+        return Ok(stored);
     }
-    if let Some((ntype, sid_str)) = group_key.split_once('-') {
-        if ntype == "favourite" || ntype == "reblog" {
-            if let Ok(target_sid) = sid_str.parse::<i64>() {
-                let candidates: Vec<DbNotification> = sqlx::query_as(
-                    "SELECT * FROM notifications WHERE account_id = $1 AND type = $2 ORDER BY id DESC",
-                )
-                .bind(account_id)
-                .bind(ntype)
-                .fetch_all(&state.db)
-                .await?;
-                let ids: Vec<i64> = candidates.iter().map(|n| n.id).collect();
-                let smap = batch_notification_status_ids(state, &ids).await;
-                return Ok(candidates
-                    .into_iter()
-                    .filter(|n| smap.get(&n.id) == Some(&target_sid))
-                    .collect());
-            }
+
+    // Rows written before keys were stored have none, so fall back to the shape
+    // the key describes.
+    if let Some(prefix) = group_key.rsplit_once('-').map(|(head, _)| head) {
+        if prefix == "follow" || prefix == "admin.sign_up" {
+            return Ok(sqlx::query_as(
+                "SELECT * FROM notifications
+                 WHERE account_id = $1 AND type = $2 AND group_key IS NULL
+                 ORDER BY id DESC",
+            )
+            .bind(account_id)
+            .bind(prefix)
+            .fetch_all(&state.db)
+            .await?);
         }
     }
-    Err(AppError::NotFound)
+    Ok(Vec::new())
 }
 
 pub async fn get_notifications_v2(
@@ -901,7 +923,13 @@ pub async fn get_notifications_v2(
                 continue;
             }
         }
-        let gk = notification_group_key(n.r#type.as_deref().unwrap_or(""), target_sid, n.id);
+        // The key written when the notification arrived. Computing one now
+        // would lose the time bucket, which depends on what had arrived before
+        // and cannot be recovered from the row alone; the fallback is only for
+        // rows written before keys were stored.
+        let gk = n.group_key.clone().unwrap_or_else(|| {
+            notification_group_key(n.r#type.as_deref().unwrap_or(""), target_sid, n.id)
+        });
         if let Some(a) = acc_map.get_mut(&gk) {
             a.count += 1;
             if a.sample_account_ids.len() < SAMPLE_ACCOUNTS_SIZE {

@@ -81,13 +81,10 @@ async fn test_streaming_public_receives_new_status() {
 
     let payload: serde_json::Value =
         serde_json::from_str(event["payload"].as_str().unwrap()).unwrap();
-    assert_eq!(
-        payload["content"]
-            .as_str()
-            .unwrap()
-            .contains("Hello streaming world"),
-        true
-    );
+    assert!(payload["content"]
+        .as_str()
+        .unwrap()
+        .contains("Hello streaming world"));
 
     let _ = tx.close().await;
 }

@@ -247,13 +247,11 @@ fn build_feature_approval(
         // Mastodon answers `denied` when nobody is asking.
         None => "denied".to_string(),
         Some(ctx) if local => {
-            if !discoverable {
-                "denied".to_string()
-            } else if a.locked && !ctx.follows_viewer && !ctx.is_self {
-                "denied".to_string()
-            } else {
-                "automatic".to_string()
-            }
+            // Two ways to be refused, and they give the same answer: an account
+            // nobody can discover, or a locked one being read by someone who
+            // neither follows it nor is it.
+            let refused = !discoverable || (a.locked && !ctx.follows_viewer && !ctx.is_self);
+            if refused { "denied" } else { "automatic" }.to_string()
         }
         Some(ctx) => {
             let policy = a.feature_approval_policy;

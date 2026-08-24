@@ -50,6 +50,10 @@ struct PushPayload<'a> {
 /// Deliver a push notification to all subscriptions registered for `recipient_id`
 /// where the corresponding alert type is enabled.
 /// Failures are logged and swallowed — push is best-effort.
+// A push carries what the payload needs — recipient, sender, type, subject, and
+// the three display fields. Threading them through a struct would name the same
+// eight things one level further away.
+#[allow(clippy::too_many_arguments)]
 pub async fn deliver(
     state: AppState,
     recipient_id: i64,
@@ -76,6 +80,10 @@ pub async fn deliver(
     }
 }
 
+// A push carries what the payload needs — recipient, sender, type, subject, and
+// the three display fields. Threading them through a struct would name the same
+// eight things one level further away.
+#[allow(clippy::too_many_arguments)]
 async fn try_deliver(
     state: &AppState,
     recipient_id: i64,
@@ -223,6 +231,53 @@ async fn send_with_reqwest(
 // ── Notification creation helper ───────────────────────────────────────────
 
 /// Insert a notification record and fire push delivery in a background task.
+/// The group a new notification belongs to, or `None` for a type that does not
+/// group.
+///
+/// Mastodon's `Notification::Groups#set_group_key!`. The key is a prefix — what
+/// is being grouped — and an hour bucket, and the bucket is where the behaviour
+/// is: a new notification joins the previous group rather than starting its own,
+/// *unless* that group already reaches back more than `MAXIMUM_GROUP_SPAN_HOURS`.
+/// So a post favourited twice in an afternoon reads as one group, and favourited
+/// again the next day reads as two.
+///
+/// The running bucket lives in Redis under the same key Mastodon uses, with the
+/// same expiry, so the window slides rather than being a fixed clock division.
+async fn notification_group_key(
+    redis: &mut redis::aio::ConnectionManager,
+    recipient_id: i64,
+    notification_type: &str,
+    status_id: Option<i64>,
+) -> Option<String> {
+    use crate::api::mastodon::notifications::{group_type_prefix, MAXIMUM_GROUP_SPAN_HOURS};
+
+    let prefix = group_type_prefix(notification_type, status_id)?;
+    let redis_key = format!("notif-group/{recipient_id}/{prefix}");
+    let hour = 3600;
+    let mut bucket = chrono::Utc::now().timestamp() / hour;
+
+    let previous: Option<i64> = redis::cmd("GET")
+        .arg(&redis_key)
+        .query_async(redis)
+        .await
+        .ok()
+        .flatten();
+    if let Some(previous) = previous {
+        if bucket < previous + MAXIMUM_GROUP_SPAN_HOURS {
+            bucket = previous;
+        }
+    }
+    let _: redis::RedisResult<()> = redis::cmd("SET")
+        .arg(&redis_key)
+        .arg(bucket)
+        .arg("EX")
+        .arg(MAXIMUM_GROUP_SPAN_HOURS * hour)
+        .query_async(redis)
+        .await;
+
+    Some(format!("{prefix}-{bucket}"))
+}
+
 /// Resolve a notification's polymorphic activity (`activity_type`, `activity_id`).
 /// Both columns are NOT NULL in the schema, so a notification without a
 /// resolvable activity is dropped rather than inserted with NULLs.
@@ -477,15 +532,26 @@ pub async fn create_and_push(
         return;
     }
 
+    // Mastodon decides a notification's group when it is created, not when it is
+    // read, because the decision depends on when the previous one arrived.
+    let group_key = notification_group_key(
+        &mut state.redis.clone(),
+        recipient_id,
+        notification_type,
+        status_id,
+    )
+    .await;
+
     let row = sqlx::query!(
-        r#"INSERT INTO notifications (account_id, from_account_id, "type", activity_type, activity_id, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, now(), now())
+        r#"INSERT INTO notifications (account_id, from_account_id, "type", activity_type, activity_id, group_key, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, now(), now())
            RETURNING id"#,
         recipient_id,
         from_account_id,
         notification_type,
         activity_type_val,
         activity_id_val,
+        group_key,
     )
     .fetch_one(&db)
     .await;

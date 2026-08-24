@@ -251,9 +251,7 @@ impl Recipient {
 
     /// Mastodon's `should_notify_about_end_of_support?`, defaulting to on.
     fn wants_end_of_support_email(&self) -> bool {
-        self.notification_setting("end_of_support")
-            .as_deref()
-            .map_or(true, |value| value != "false")
+        self.notification_setting("end_of_support").as_deref() != Some("false")
     }
 }
 

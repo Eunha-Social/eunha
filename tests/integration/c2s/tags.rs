@@ -433,7 +433,7 @@ async fn test_followed_tags_pagination_link_header_is_parseable() {
     let max_id_val = link
         .split("max_id=")
         .nth(1)
-        .and_then(|s| s.split(|c| c == '>' || c == '&').next())
+        .and_then(|s| s.split(['>', '&']).next())
         .unwrap_or("");
     assert!(
         max_id_val.parse::<i64>().is_ok(),

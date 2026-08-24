@@ -17,7 +17,7 @@ async fn test_annual_reports_empty() {
     let body: Value = resp.json().await.unwrap();
     assert!(body["annual_reports"]
         .as_array()
-        .map_or(false, |a| a.is_empty()));
+        .is_some_and(|a| a.is_empty()));
     assert!(body["accounts"].as_array().is_some());
     assert!(body["statuses"].as_array().is_some());
 }

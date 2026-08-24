@@ -245,7 +245,7 @@ pub async fn actor_json(
         None
     };
 
-    let assertion_method = crate::federation::keypair::assertion_multikey(&state, account.id)
+    let assertion_method = crate::federation::keypair::assertion_multikey(state, account.id)
         .await
         .unwrap_or_default()
         .map(|multikey| {
@@ -263,7 +263,7 @@ pub async fn actor_json(
 
     // Since 4.7.0 the key may live in `keypairs`; an account without one
     // advertises an empty key rather than none, as it did before.
-    let public_key = crate::federation::keypair::public_key(&state, account.id)
+    let public_key = crate::federation::keypair::public_key(state, account.id)
         .await
         .unwrap_or_default()
         .unwrap_or_default();
