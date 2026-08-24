@@ -1,12 +1,13 @@
 # What has to hold before a change lands.
 #
-# Four of these exist because something drifted when nothing was watching:
+# Five of these exist because something drifted when nothing was watching:
 # formatting went unenforced until thirteen files had moved and a commit shipped
 # broken while separating real changes from the churn; the sqlx cache went stale
 # and would have failed the deploy's offline build rather than the tests; the
 # schema check is the 100%-compatibility claim, and a claim nothing checks stops
 # being true; and the differential harness, which nothing ran, spent weeks
-# reporting ten differences that were entirely its own.
+# reporting ten differences that were entirely its own. The federation
+# harness had never run from a clean checkout at all.
 name: CI
 
 on:
@@ -169,3 +170,22 @@ jobs:
       # a developer runs rather than one only CI knows how to set up.
       - name: Compare against a live Mastodon 4.7.0
         run: scripts/differential_test.sh
+
+  # Federation: the two servers talking to each other, rather than each being
+  # compared to a client's view of the other. This became runnable here at all
+  # by moving eunha into the container network — it used to run on the host,
+  # where it could not resolve `mastodon.test` and so rejected every inbound
+  # activity. Nothing below sets anything up, because the harness now needs no
+  # `/etc/hosts` entry, no trusted certificate and no eunha built for the host.
+  #
+  # The slowest gate: a release build of eunha inside Docker, then a Mastodon
+  # boot, before a single check runs.
+  federation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Federate with a live Mastodon 4.7.0
+        run: scripts/federation_test.sh

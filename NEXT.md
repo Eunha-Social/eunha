@@ -3,8 +3,8 @@ Where to pick this up
 
 State at handoff: `main` is deployed to seoul.earth and healthy. Schema matches
 Mastodon 4.7.0 across 974 constraints. 856 integration tests, 70 unit tests, CI
-green on seven gates — the differential harness is one of them now, and runs
-clean against a live Mastodon 4.7.0. Verified by looking at the run, not by
+green on eight gates — both live-Mastodon harnesses are among them now, and
+run clean against Mastodon 4.7.0. Verified by looking at the run, not by
 assuming: CI had in fact been red for at least two commits. The federation
 harness passes 24/24 from a clean checkout, both servers inside the container
 network.
@@ -71,11 +71,10 @@ Things worth doing
 2.  **Run the harnesses against the deployed build**, not a local one. Nothing
     has ever checked that production matches what the tests claim.
 3.  **`sharedInbox` delivery**, per above.
-4.  **Put the federation harness in CI.** It is why it was moved into the
-    container network: it now needs nothing the laptop has that a runner does
-    not. The cost is a `docker build` of eunha on top of the Mastodon boot, so
-    it is the slowest gate by some way — worth deciding whether it belongs on
-    every pull request or on a schedule.
+4.  **Decide whether the federation gate belongs on every push.** It is in CI
+    now, and it is the slowest gate by some way: a release build of eunha
+    inside Docker before Mastodon has even booted. If it starts hurting, a
+    schedule is the alternative, or caching the image layers.
 
 
 How not to be fooled
