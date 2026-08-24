@@ -23,7 +23,14 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        # 18, because seoul.earth runs 18.3 and development runs 18.4 — and
+        # because `001_initial.sql` is a `pg_dump` of the schema, whose preamble
+        # sets `transaction_timeout`, a parameter Postgres 17 introduced. On 16
+        # the very first migration fails and every gate after it never runs,
+        # which is what had CI red on `main` while this file claimed six green
+        # gates. The migration cannot lose the line: sqlx checksums it, and it
+        # has already been applied to production.
+        image: postgres:18
         env:
           POSTGRES_USER: eunha
           POSTGRES_PASSWORD: eunha
@@ -99,7 +106,14 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        # 18, because seoul.earth runs 18.3 and development runs 18.4 — and
+        # because `001_initial.sql` is a `pg_dump` of the schema, whose preamble
+        # sets `transaction_timeout`, a parameter Postgres 17 introduced. On 16
+        # the very first migration fails and every gate after it never runs,
+        # which is what had CI red on `main` while this file claimed six green
+        # gates. The migration cannot lose the line: sqlx checksums it, and it
+        # has already been applied to production.
+        image: postgres:18
         env:
           POSTGRES_USER: eunha
           POSTGRES_PASSWORD: eunha
