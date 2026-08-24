@@ -1,11 +1,12 @@
 # What has to hold before a change lands.
 #
-# Three of these exist because something drifted when nothing was watching:
+# Four of these exist because something drifted when nothing was watching:
 # formatting went unenforced until thirteen files had moved and a commit shipped
 # broken while separating real changes from the churn; the sqlx cache went stale
 # and would have failed the deploy's offline build rather than the tests; the
 # schema check is the 100%-compatibility claim, and a claim nothing checks stops
-# being true.
+# being true; and the differential harness, which nothing ran, spent weeks
+# reporting ten differences that were entirely its own.
 name: CI
 
 on:
@@ -82,3 +83,63 @@ jobs:
 
       - name: Lints
         run: cargo clippy --locked --all-targets -- -D warnings
+
+  # The differential harness compares eunha against a real Mastodon rather than
+  # against a reading of one, and until now nothing ran it. It spent weeks
+  # reporting ten differences that were its own Mastodon booting without a
+  # Sidekiq worker, and a stretch before that unable to start at all, because
+  # the federation work had grown TLS proxies onto the compose file the two
+  # shared. Neither is the sort of thing anyone notices by not looking.
+  #
+  # Slower than the rest — it pulls the Mastodon image and waits for
+  # `db:prepare` — so it is a job of its own and runs alongside them.
+  differential:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: eunha
+          POSTGRES_PASSWORD: eunha
+          POSTGRES_DB: eunha
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 20
+        ports: ["5432:5432"]
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping" --health-interval 5s
+          --health-timeout 5s --health-retries 20
+        ports: ["6379:6379"]
+
+    env:
+      # `createdb`, `dropdb` and `psql` take the connection from these; eunha
+      # takes it from the URL. Both have to name the same database.
+      PGHOST: localhost
+      PGUSER: eunha
+      PGPASSWORD: eunha
+      EUNHA_DATABASE_URL: postgres://eunha:eunha@localhost/eunha_differential
+      EUNHA_REDIS_URL: redis://127.0.0.1:6379/14
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      # The harness wants a built binary rather than building one itself, the
+      # same as `federation_test.sh`. Offline, because the compile-time database
+      # this checkout points at is not the one the services provide.
+      - name: Build eunha
+        env:
+          SQLX_OFFLINE: "true"
+        run: cargo build --release --locked --bin eunha
+
+      # No arguments: the harness brings up its own eunha, so this runs the path
+      # a developer runs rather than one only CI knows how to set up.
+      - name: Compare against a live Mastodon 4.7.0
+        run: scripts/differential_test.sh

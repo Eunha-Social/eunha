@@ -311,9 +311,9 @@ def compare_writes(args, findings):
 
 
 # Interactions need something to act on, and the two servers cannot share ids.
-# So each is given its own status and its own second account, and the *responses*
-# are compared — favouriting your own post should produce the same entity here
-# as there, whatever the ids inside it are.
+# So each is given its own statuses and its own second account, and the
+# *responses* are compared — favouriting your own post should produce the same
+# entity here as there, whatever the ids inside it are.
 def compare_interactions(args, findings):
     """Post, then act on what was posted, comparing each response."""
     compared = 0
@@ -327,30 +327,61 @@ def compare_interactions(args, findings):
         ("mastodon", args.mastodon, args.mastodon_token, args.mastodon_other_id),
     ]
 
-    # A status on each, to act upon.
-    posted = {}
-    for name, base, token, _ in servers:
-        status, body, _ = on(base, token, "POST", "/api/v1/statuses",
-                             {"status": "something to react to"})
-        if status != 200:
-            findings.append(f"interactions: {name} would not accept a status ({status})")
-            return compared
-        posted[name] = body["id"]
+    def post_status(text):
+        """A status on each server, or None if either would not take one."""
+        posted = {}
+        for name, base, token, _ in servers:
+            status, body, _ = on(base, token, "POST", "/api/v1/statuses", {"status": text})
+            if status != 200:
+                findings.append(
+                    f"interactions: {name} would not accept a status ({status})"
+                )
+                return None
+            posted[name] = body["id"]
+        return posted
 
-    # (verb, path template, name) — each acts on that server's own status.
-    status_verbs = [
-        ("favourite", "/api/v1/statuses/{id}/favourite"),
-        ("unfavourite", "/api/v1/statuses/{id}/unfavourite"),
-        ("reblog", "/api/v1/statuses/{id}/reblog"),
-        ("unreblog", "/api/v1/statuses/{id}/unreblog"),
-        ("bookmark", "/api/v1/statuses/{id}/bookmark"),
-        ("unbookmark", "/api/v1/statuses/{id}/unbookmark"),
-        ("pin", "/api/v1/statuses/{id}/pin"),
-        ("unpin", "/api/v1/statuses/{id}/unpin"),
-        ("mute conversation", "/api/v1/statuses/{id}/mute"),
-        ("unmute conversation", "/api/v1/statuses/{id}/unmute"),
+    # Each do/undo pair acts on a status of its own, rather than ten verbs
+    # sharing one.
+    #
+    # Mastodon does some of an undo in a worker: `unfavourite` queues
+    # `UnfavouriteWorker` and `unreblog` discards the reblog and queues
+    # `RemovalWorker`, each forcing the flag false in *its own* response while
+    # the row itself outlives the request. Any other request touching that
+    # status in the meantime reads the row and reports `favourited: true` on a
+    # status that was just unfavourited — so with one shared status, one pair's
+    # deferred work showed up as a difference in every verb that followed it.
+    # That is what nine `favourited` findings and one `reblogged` were, and
+    # eunha was blamed for all ten.
+    #
+    # `unreblog` is the sharper case, because the window is one Mastodon
+    # disagrees with itself in: `Status.reblogs_map` is `unscoped` and counts
+    # the discarded reblog, while `Account#reblogged?` goes through
+    # `default_scope { recent.kept }` and does not. Which of the two a response
+    # uses depends on whether its controller passes a relationships presenter,
+    # so two endpoints answered differently about the same status.
+    #
+    # A pair per status leaves nothing to leak: the only state a verb depends on
+    # is what its own pair put there.
+    status_verb_pairs = [
+        [("favourite", "/api/v1/statuses/{id}/favourite"),
+         ("unfavourite", "/api/v1/statuses/{id}/unfavourite")],
+        [("reblog", "/api/v1/statuses/{id}/reblog"),
+         ("unreblog", "/api/v1/statuses/{id}/unreblog")],
+        [("bookmark", "/api/v1/statuses/{id}/bookmark"),
+         ("unbookmark", "/api/v1/statuses/{id}/unbookmark")],
+        [("pin", "/api/v1/statuses/{id}/pin"),
+         ("unpin", "/api/v1/statuses/{id}/unpin")],
+        [("mute conversation", "/api/v1/statuses/{id}/mute"),
+         ("unmute conversation", "/api/v1/statuses/{id}/unmute")],
     ]
-    for verb, template in status_verbs:
+    status_verbs = []
+    for pair in status_verb_pairs:
+        posted = post_status(f"something to {pair[0][0]}")
+        if posted is None:
+            return compared
+        status_verbs.extend((verb, template, posted) for verb, template in pair)
+
+    for verb, template, posted in status_verbs:
         results = {}
         for name, base, token, _ in servers:
             results[name] = on(base, token, "POST", template.format(id=posted[name]))
