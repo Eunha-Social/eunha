@@ -184,7 +184,15 @@ pub async fn post_status(
     // Mastodon forces sensitive when a content warning is present
     // (PostStatusService: `sensitive || spoiler_text.present?`).
     let sensitive = form.sensitive.unwrap_or(defaults.sensitive) || spoiler_was_present;
-    let language = form.language.clone().or(defaults.language);
+    // Mastodon's `valid_locale_cascade(options[:language], user's preferred
+    // posting language, I18n.default_locale)` — a status always ends up with a
+    // language, so a client offering a translation or filtering by one has
+    // something to read. eunha stopped at the user's setting and left it null.
+    let language = form
+        .language
+        .clone()
+        .or(defaults.language)
+        .or_else(|| Some(crate::api::mastodon::DEFAULT_LOCALE.to_string()));
     let in_reply_to_id = form
         .in_reply_to_id
         .as_deref()

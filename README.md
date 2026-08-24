@@ -256,7 +256,15 @@ misread while writing a test would be misread in the test too. It found seven
 differences the source-reading had missed, all of them fields nested inside
 objects the entity extraction never descended into.
 
-It compares values too, but only under `configuration.*` — the limits an
+It compares values on writes and interactions, where both servers act on the
+same input so a count or a flag that differs is a real difference — that is
+where `poll.voted` was `false` for a poll's own author, `noindex` told every
+account to hide from search engines, and a status came back with no language at
+all. Identifiers, hostnames, timestamps and totals over an instance's whole
+history are excluded, because two servers cannot agree on those however
+identical the request, and comparing them buries everything else.
+
+For reads it compares values only under `configuration.*` — the limits an
 instance states about itself, where two servers genuinely should agree. That
 came second, after a shape-only comparison passed `max_display_name_length: 30`
 against Mastodon's 40, both being integers. Comparing values found the media

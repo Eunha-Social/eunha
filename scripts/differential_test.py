@@ -67,7 +67,7 @@ ENDPOINTS = [
 ]
 
 
-def request(base, path, token, method="GET", body=None):
+def request(base, path, token, method="GET", body=None, extra_headers=None):
     """Returns (status, parsed_body_or_None, header_names)."""
     data = None
     if body is not None:
@@ -82,6 +82,8 @@ def request(base, path, token, method="GET", body=None):
     # answer 301 to a plain request. This is what a reverse proxy in front of it
     # would send, and is how it is actually deployed.
     req.add_header("X-Forwarded-Proto", "https")
+    for key, value in (extra_headers or {}).items():
+        req.add_header(key, value)
     try:
         with urllib.request.urlopen(req, timeout=30) as response:
             raw = response.read()
@@ -108,6 +110,72 @@ COMPARED_VALUES = (
     "configuration.translation.",
     "configuration.reactions.",
 )
+
+
+# Field names whose values two servers cannot agree on, however identical the
+# request: identifiers, the hostnames they are built from, and times. Matched on
+# the last segment of the path, so `poll.id` and `account.id` are both covered.
+VOLATILE_FIELDS = frozenset({
+    "id", "uri", "url", "in_reply_to_id", "in_reply_to_account_id",
+    "account_id", "status_id", "reblog_of_id", "quoted_status_id",
+    "created_at", "updated_at", "edited_at", "expires_at", "last_status_at",
+    "published_at", "scheduled_at", "muting_expires_at", "verified_at",
+    "acct", "username", "display_name", "domain", "name", "website",
+    "token", "client_id", "client_secret", "vapid_key", "public_key",
+    "href", "src", "preview_url", "remote_url", "preview_remote_url",
+    "text_url", "avatar", "avatar_static", "header", "header_static",
+    "blurhash", "group_key", "most_recent_notification_id",
+    "sample_account_ids", "page_min_id", "page_max_id",
+    "latest_page_notification_at", "content", "text", "emojis", "meta",
+    # Totals over everything an instance has ever done, rather than anything
+    # this request decided. The two databases hold different histories, so these
+    # differ by construction and would drown the fields that do not.
+    "statuses_count", "followers_count", "following_count", "favourites_count",
+    "reblogs_count", "replies_count", "quotes_count", "votes_count",
+    "voters_count", "notifications_count", "usage", "user_count", "status_count",
+    "domain_count",
+})
+
+
+def comparable_value(path):
+    """Whether two servers, given the same request, should produce the same value.
+
+    Used for writes and interactions, where both servers act on identical input
+    — so a count, a flag or a limit that differs is a real difference. This is
+    where `voted` and `voters_count` were wrong on a poll, both invisible to a
+    comparison that only checked which fields exist and of what type.
+    """
+    last = path.rsplit(".", 1)[-1].removesuffix("[]")
+    return last not in VOLATILE_FIELDS
+
+
+def values_for_comparison(value, prefix="", out=None):
+    """Flatten a response to {path: scalar}, keeping only comparable fields."""
+    out = {} if out is None else out
+    if isinstance(value, dict):
+        for k, v in value.items():
+            values_for_comparison(v, f"{prefix}.{k}" if prefix else k, out)
+    elif isinstance(value, list):
+        # Only the first element: two servers may legitimately hold different
+        # numbers of things, and that shows up as a shape difference already.
+        if value:
+            values_for_comparison(value[0], f"{prefix}[]", out)
+    elif comparable_value(prefix):
+        out[prefix] = value
+    return out
+
+
+def compare_values(name, left, right, findings):
+    left_values, right_values = (
+        values_for_comparison(left),
+        values_for_comparison(right),
+    )
+    for field in sorted(set(left_values) & set(right_values)):
+        if left_values[field] != right_values[field]:
+            findings.append(
+                f"{name}: `{field}` is {left_values[field]!r} on eunha, "
+                f"{right_values[field]!r} on Mastodon"
+            )
 
 
 def compares_value(path):
@@ -213,12 +281,20 @@ WRITES = [
 ]
 
 
+def mastodon_headers(args):
+    """The Host Mastodon expects, when it answers on a name we cannot resolve."""
+    return {"Host": args.mastodon_host} if args.mastodon_host else None
+
+
 def compare_writes(args, findings):
     """Send each write to both servers and compare what comes back."""
     compared = 0
     for method, path, body, name in WRITES:
         e_status, e_body, _ = request(args.eunha, path, args.eunha_token, method, body)
-        m_status, m_body, _ = request(args.mastodon, path, args.mastodon_token, method, body)
+        m_status, m_body, _ = request(
+            args.mastodon, path, args.mastodon_token, method, body,
+            extra_headers=mastodon_headers(args),
+        )
 
         if e_status is None or m_status is None:
             continue
@@ -230,6 +306,7 @@ def compare_writes(args, findings):
         # differently; the status code is the part a client acts on.
         if m_status < 400:
             compare(name, shape(e_body), shape(m_body), findings)
+            compare_values(name, e_body, m_body, findings)
     return compared
 
 
@@ -242,7 +319,8 @@ def compare_interactions(args, findings):
     compared = 0
 
     def on(server, token, method, path, body=None):
-        return request(server, path, token, method, body)
+        headers = mastodon_headers(args) if server == args.mastodon else None
+        return request(server, path, token, method, body, extra_headers=headers)
 
     servers = [
         ("eunha", args.eunha, args.eunha_token, args.eunha_other_id),
@@ -283,6 +361,7 @@ def compare_interactions(args, findings):
             findings.append(f"{verb}: eunha {e_status}, Mastodon {m_status}")
         elif m_status < 400:
             compare(verb, shape(e_body), shape(m_body), findings)
+            compare_values(verb, e_body, m_body, findings)
 
     # And the verbs that act on an account.
     account_verbs = [
@@ -309,6 +388,7 @@ def compare_interactions(args, findings):
             findings.append(f"{verb}: eunha {e_status}, Mastodon {m_status}")
         elif m_status < 400:
             compare(verb, shape(e_body), shape(m_body), findings)
+            compare_values(verb, e_body, m_body, findings)
 
     return compared
 
@@ -322,6 +402,14 @@ def main():
     parser.add_argument("--only", help="compare just paths containing this")
     parser.add_argument("--eunha-other-id", help="a second account on eunha, to follow and block")
     parser.add_argument("--mastodon-other-id", help="the same, on Mastodon")
+    parser.add_argument(
+        "--mastodon-host",
+        help="Host header for Mastodon, when it answers on a name this machine "
+        "cannot resolve. Rails refuses a request whose Host is not its "
+        "LOCAL_DOMAIN, with a 403 on every endpoint including the ones that "
+        "need no authentication — which reads as eunha being wrong about all "
+        "of them at once.",
+    )
     args = parser.parse_args()
 
     findings, compared, skipped = [], 0, []
@@ -332,7 +420,11 @@ def main():
             args.eunha, path, args.eunha_token if needs_auth else None, method
         )
         m_status, m_body, _ = request(
-            args.mastodon, path, args.mastodon_token if needs_auth else None, method
+            args.mastodon,
+            path,
+            args.mastodon_token if needs_auth else None,
+            method,
+            extra_headers=mastodon_headers(args),
         )
 
         if e_status is None or m_status is None:

@@ -408,8 +408,15 @@ pub fn account_from_db_for_viewer(
         } else {
             None
         },
+        // Mastodon reads the user's `noindex` setting, which asks search
+        // engines to stay away, and it defaults to false. `indexable` is a
+        // different question — whether this account's posts may appear in
+        // *Mastodon's* search — and deriving one from the other told every
+        // account that had not opted into search indexing to hide from Google
+        // as well. eunha offers no way to set `noindex`, so it is the default
+        // until it does.
         noindex: if a.domain.is_none() {
-            Some(!a.indexable)
+            Some(false)
         } else {
             None
         },
