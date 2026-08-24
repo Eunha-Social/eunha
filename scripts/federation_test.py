@@ -71,6 +71,11 @@ class Server:
         req = urllib.request.Request(f"{self.base}{path}", method=method, data=data)
         req.add_header("Authorization", f"Bearer {token or self.token}")
         req.add_header("Accept", "application/json")
+        # Mastodon's production environment sets `config.force_ssl` and would
+        # answer 301 to a plain request. Both servers are driven over plain
+        # published ports here — the certificates they federate with stay inside
+        # the container network — so this is what a proxy in front would send.
+        req.add_header("X-Forwarded-Proto", "https")
         if data is not None:
             req.add_header("Content-Type", "application/json")
         for k, v in self.extra_headers.items():
@@ -181,13 +186,28 @@ def run_direction(sender, receiver, sender_acct, receiver_acct, report):
         return
 
     def follows_back():
+        """Both sides, because they commit at different moments.
+
+        The sender listing the receiver as a follower is what makes it
+        *deliver*. The receiver having committed the follow is what makes it
+        *keep* what arrives — Mastodon drops an activity from an account no
+        local account follows yet, and it only counts the follow once it has
+        processed the sender's Accept. Waiting on the sender alone leaves a gap
+        of a few milliseconds in which a status is delivered, accepted with a
+        2xx, and silently discarded: one run missed by 2.9ms.
+        """
         st, body = sender.call("GET", "/api/v1/accounts/verify_credentials")
         if st != 200:
             return False
         st, followers = sender.call("GET", f"/api/v1/accounts/{body['id']}/followers")
-        return st == 200 and any(
+        if st != 200 or not any(
             a.get("acct") == receiver_acct for a in (followers or [])
+        ):
+            return False
+        st, rels = receiver.call(
+            "GET", f"/api/v1/accounts/relationships?id[]={back['id']}"
         )
+        return st == 200 and bool(rels) and rels[0].get("following") is True
 
     if not until(follows_back):
         report.check(direction, "receiver follows the sender", False,
@@ -265,13 +285,24 @@ def main():
     parser.add_argument("--eunha-acct", required=True,
                         help="the eunha account's full handle, e.g. alice@host:3002")
     parser.add_argument("--mastodon", required=True)
+    parser.add_argument(
+        "--mastodon-host",
+        help="Host header for Mastodon, when it answers on a name this machine "
+        "cannot resolve. Rails refuses a request whose Host is not its "
+        "LOCAL_DOMAIN, with a 403 on every endpoint including the ones that "
+        "need no authentication — which reads as Mastodon being broken rather "
+        "than as being addressed by the wrong name.",
+    )
     parser.add_argument("--mastodon-token", required=True)
     parser.add_argument("--mastodon-acct", required=True)
     parser.add_argument("--only", choices=["to-eunha", "to-mastodon"])
     args = parser.parse_args()
 
     eunha = Server("eunha", args.eunha, args.eunha_token)
-    mastodon = Server("mastodon", args.mastodon, args.mastodon_token)
+    mastodon = Server(
+        "mastodon", args.mastodon, args.mastodon_token,
+        extra_headers={"Host": args.mastodon_host} if args.mastodon_host else None,
+    )
 
     report = Report()
     if args.only != "to-mastodon":

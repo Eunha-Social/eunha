@@ -5,8 +5,15 @@
 # segfaults against Postgres 18 — are our problem. Everything lives in this
 # stack: its own Postgres and Redis, nothing shared with the host.
 #
+# Both servers run inside this network, and reach each other by the aliases on
+# the two proxies. eunha used to run on the host behind a host-side Caddy, which
+# cannot work: `mastodon.test` is a network alias, so a host process cannot
+# resolve it, and eunha could not fetch the actor key to verify a single inbound
+# activity. In here they simply resolve each other, no `/etc/hosts` entry, no
+# certificate in anyone's keychain, and CI needs nothing the laptop does not.
+#
 # `federation_test.sh` copies this into its scratch directory and generates the
-# Caddyfiles and certificates the proxies mount next to it. Those are not in the
+# Caddyfiles, certificates and eunha's config next to it. Those are not in the
 # repository, so this file only comes up from there — which is why differential
 # testing has a compose file of its own rather than sharing this one.
 services:
@@ -61,8 +68,13 @@ services:
       # what lets it deliver to an eunha running on the host. Without it every
       # federation test fails as PrivateNetworkAddressError.
       ALLOWED_PRIVATE_ADDRESSES: "0.0.0.0/0"
-    expose:
-      - "3000"
+    ports:
+      # Plain HTTP on the host, for the script only. Driving both servers over
+      # plain ports is what lets the certificates below stay entirely inside the
+      # network — nothing on the host has to trust them, so nothing has to be
+      # installed into a keychain. Rails still wants `X-Forwarded-Proto: https`,
+      # which the script sends, or `force_ssl` answers 301 to everything.
+      - "3005:3000"
     volumes:
       - ./ca-bundle.crt:/certs/ca-bundle.crt:ro
 
@@ -108,6 +120,47 @@ services:
       ALLOWED_PRIVATE_ADDRESSES: "0.0.0.0/0"
       SSL_CERT_FILE: /certs/ca-bundle.crt
 
+  # eunha's database, separate from Mastodon's and on 18 rather than 16.
+  # `001_initial.sql` is a `pg_dump` whose preamble sets `transaction_timeout`,
+  # a parameter Postgres 17 introduced, so eunha's first migration cannot run on
+  # the image Mastodon uses. Production and development are both on 18.
+  eunha-db:
+    image: postgres:18
+    environment:
+      POSTGRES_USER: eunha
+      POSTGRES_PASSWORD: eunha
+      POSTGRES_DB: eunha
+    healthcheck:
+      # `-U eunha`: a healthcheck runs as the image's user, the Postgres image
+      # sets none, so bare `pg_isready` asks for a `root` role that does not
+      # exist and logs a FATAL every interval.
+      test: ["CMD-SHELL", "pg_isready -U eunha"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  # eunha itself, built from this repository's Dockerfile.
+  #
+  # Its configuration is a file rather than environment variables because
+  # `allowed_private_networks` is a list, and the environment source has no
+  # separator for one. `SSL_CERT_FILE` is what makes it trust the local CA:
+  # reqwest is built on rustls with native roots, which reads that variable.
+  eunha:
+    image: eunha:federation
+    depends_on:
+      eunha-db: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    environment:
+      SSL_CERT_FILE: /certs/ca-bundle.crt
+      RUST_LOG: eunha=debug,tower_http=info,sqlx=warn
+    volumes:
+      - ./eunha-config.toml:/app/config.toml:ro
+      - ./ca-bundle.crt:/certs/ca-bundle.crt:ro
+    ports:
+      # Plain HTTP on the host, for the script. Peers reach it through the proxy
+      # below, on 443 under its own name.
+      - "3001:3000"
+
   # TLS for eunha, inside the network and on 443.
   #
   # The port matters: Mastodon webfingers an account by the *host* of its actor
@@ -118,6 +171,7 @@ services:
   eunha-proxy:
     image: caddy:2-alpine
     command: caddy run --config /etc/caddy/Caddyfile
+    depends_on: [eunha]
     volumes:
       - ./Caddyfile.eunha:/etc/caddy/Caddyfile:ro
       - ./eunha.pem:/certs/eunha.pem:ro
@@ -140,6 +194,7 @@ services:
       - ./eunha.pem:/certs/eunha.pem:ro
       - ./eunha-key.pem:/certs/eunha-key.pem:ro
     ports:
-      # 443 inside the network under the alias above; 3000 on the host so the
-      # script can drive it without binding a privileged port.
+      # 443 inside the network under the alias above. Published on the host only
+      # so a person can poke at it; the script uses `web`'s plain port, because
+      # this one serves a certificate the host has no reason to trust.
       - "3000:443"

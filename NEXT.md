@@ -5,7 +5,9 @@ State at handoff: `main` is deployed to seoul.earth and healthy. Schema matches
 Mastodon 4.7.0 across 974 constraints. 856 integration tests, 70 unit tests, CI
 green on seven gates — the differential harness is one of them now, and runs
 clean against a live Mastodon 4.7.0. Verified by looking at the run, not by
-assuming: CI had in fact been red for at least two commits.
+assuming: CI had in fact been red for at least two commits. The federation
+harness passes 24/24 from a clean checkout, both servers inside the container
+network.
 
 Three harnesses verify parity, described in `README.md` and in each script's
 header. Read those headers before believing a failure — most of what they report
@@ -27,13 +29,16 @@ it stays `regenerating?` forever — so it may already be gone. If it comes back
 with a worker running, it is real, and the harness should skip the comparison
 while the feed rebuilds rather than report it.
 
-**eunha returns 503 for `/ap/users/:id/collections/featured`.** Seen while
-Mastodon fetched it during federation. Harmless to the handshake and never
-chased down.
+**eunha returns 503 for `/ap/users/:id/collections/featured`** and for
+`/ap/users/:id/collections`. Still reproduces on every federation run, while
+Mastodon fetches them. Harmless to the handshake — 24/24 checks pass with it
+happening — and never chased down.
 
-**Actor resolution over the wire is exercised; `sharedInbox` delivery is not.**
-Mastodon prefers the shared inbox and eunha advertises one, but the federation
-harness only ever drives per-actor inboxes.
+**`sharedInbox` delivery is exercised now, and works.** eunha delivers to
+`https://mastodon.test/inbox` rather than the per-actor inbox, and Mastodon
+stores what arrives. Mastodon delivers to eunha's per-actor inbox — its own
+choice when a single recipient is on the far side — so eunha's *inbound* shared
+inbox is still the untested half.
 
 
 Where bugs have actually been
@@ -66,17 +71,17 @@ Things worth doing
 2.  **Run the harnesses against the deployed build**, not a local one. Nothing
     has ever checked that production matches what the tests claim.
 3.  **`sharedInbox` delivery**, per above.
-4.  **Give `federation_test.sh` the worker gate too.** It has the same boot race
-    — now fixed in its compose file — and depends on Sidekiq for every delivery,
-    so a dead worker there reports eunha as unreachable. The gate is eight lines
-    in `differential_test.sh`; it was not copied across because the federation
-    harness could not be run from here to prove the change.
+4.  **Put the federation harness in CI.** It is why it was moved into the
+    container network: it now needs nothing the laptop has that a runner does
+    not. The cost is a `docker build` of eunha on top of the Mastodon boot, so
+    it is the slowest gate by some way — worth deciding whether it belongs on
+    every pull request or on a schedule.
 
 
 How not to be fooled
 --------------------
 
-Six failures in this work were the tooling rather than eunha, and each cost
+Seven failures in this work were the tooling rather than eunha, and each cost
 real time:
 
  -  A commit shipped tests without the definitions they needed, because a
@@ -98,6 +103,13 @@ real time:
  -  A deploy reported success having shipped nothing, because the push went to a
     branch that did not have the commits. Check the deployed *behaviour*, not
     the deploy's exit code — the 0.81s build was the tell.
+ -  The federation harness had never worked from a clean checkout either, and
+    for a reason no amount of re-reading would have found: eunha ran on the
+    host, `mastodon.test` is a container-network alias, and a host process
+    cannot resolve one. eunha could not fetch an actor's public key, so it
+    rejected every inbound activity with a 401 — which reads as a signature bug.
+    A commit message said it passed every check; what passed was a laptop with
+    state nobody wrote down. Both servers live in the network now.
  -  This file claimed six green CI gates while CI had been red on `main` for at
     least two commits, because nobody had opened the Actions tab. The failures
     were *stacked*: CI ran `postgres:16`, which cannot execute
