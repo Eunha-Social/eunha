@@ -47,7 +47,7 @@ cleanup() {
 trap cleanup EXIT
 
 mkdir -p "$WORK"
-cp "$ROOT/scripts/mastodon-differential-compose.yml" "$WORK/docker-compose.yml"
+cp "$ROOT/scripts/mastodon-federation-compose.yml" "$WORK/docker-compose.yml"
 
 echo "==> Certificates"
 # A local CA in the *login* keychain: `mkcert -install` wants root for the system

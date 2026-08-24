@@ -4,6 +4,13 @@
 # by hand on macOS — libidn, OpenSSL headers, libvips, and a `pg` gem that
 # segfaults against Postgres 18 — are our problem. Everything lives in this
 # stack: its own Postgres and Redis, nothing shared with the host.
+#
+# Deliberately separate from `mastodon-federation-compose.yml`, which the two
+# once shared. Federation needs TLS on 443 under a resolvable name, so that file
+# grew Caddy proxies mounting certificates its script generates in a scratch
+# directory — and this harness, which runs its compose file in place from
+# `scripts/`, stopped coming up at all from a clean checkout. Nothing here needs
+# TLS: the comparison drives the API over plain HTTP on the host.
 services:
   db:
     image: postgres:16-alpine
@@ -44,22 +51,14 @@ services:
       DB_PASS: mastodon
       DB_NAME: mastodon
       REDIS_HOST: redis
-      LOCAL_DOMAIN: mastodon.test
+      LOCAL_DOMAIN: localhost:3000
       RAILS_SERVE_STATIC_FILES: "true"
       # No mail, no search, no S3 — this instance only has to answer the API.
       ES_ENABLED: "false"
       SMTP_DELIVERY_METHOD: test
       RAILS_LOG_LEVEL: warn
-      SSL_CERT_FILE: /certs/ca-bundle.crt
-      # Mastodon refuses to deliver to private addresses, as eunha does. This is
-      # its own supported exception, meant for self-hosting behind one, and it is
-      # what lets it deliver to an eunha running on the host. Without it every
-      # federation test fails as PrivateNetworkAddressError.
-      ALLOWED_PRIVATE_ADDRESSES: "0.0.0.0/0"
-    expose:
-      - "3000"
-    volumes:
-      - ./ca-bundle.crt:/certs/ca-bundle.crt:ro
+    ports:
+      - "3000:3000"
 
   # Without a worker, anything Mastodon defers never happens — and some of that
   # is visible in the API. A home feed stays `regenerating?` forever, so the
@@ -68,8 +67,14 @@ services:
   sidekiq:
     image: ghcr.io/mastodon/mastodon:v4.7.0
     command: bundle exec sidekiq
-    volumes:
-      - ./ca-bundle.crt:/certs/ca-bundle.crt:ro
+    # Sidekiq boots as soon as Postgres answers, but the schema is created by
+    # `web`'s `db:prepare` — so on a cold database it starts first, dies on
+    # `relation "users" does not exist`, and compose does not bring it back.
+    # Every run then compares against a Mastodon with no worker, which is the
+    # one thing the comment above says must not happen. Restarting until the
+    # schema exists is the fix; the harness also refuses to compare until a
+    # worker has registered, because this failed silently for a long time.
+    restart: on-failure
     depends_on:
       db: {condition: service_healthy}
       redis: {condition: service_healthy}
@@ -85,49 +90,7 @@ services:
       DB_PASS: mastodon
       DB_NAME: mastodon
       REDIS_HOST: redis
-      LOCAL_DOMAIN: mastodon.test
+      LOCAL_DOMAIN: localhost:3000
       ES_ENABLED: "false"
       SMTP_DELIVERY_METHOD: test
       RAILS_LOG_LEVEL: warn
-      # Deliveries run here, not in web, so this is the process that has to be
-      # allowed to reach a private address. Without it every delivery fails
-      # before a request is made, and Mastodon's circuit breaker trips the inbox
-      # to red — after which it stops trying and reports nothing at all.
-      ALLOWED_PRIVATE_ADDRESSES: "0.0.0.0/0"
-      SSL_CERT_FILE: /certs/ca-bundle.crt
-
-  # TLS for eunha, inside the network and on 443.
-  #
-  # The port matters: Mastodon webfingers an account by the *host* of its actor
-  # URI and drops any port, so `alice@eunha.test:3002` is looked up as
-  # `alice@eunha.test` on 443. Serving eunha on a non-standard port makes every
-  # inbound delivery fail verification, which looks like a signature problem and
-  # is not one. Real instances are always on 443; this matches that.
-  eunha-proxy:
-    image: caddy:2-alpine
-    command: caddy run --config /etc/caddy/Caddyfile
-    volumes:
-      - ./Caddyfile.eunha:/etc/caddy/Caddyfile:ro
-      - ./eunha.pem:/certs/eunha.pem:ro
-      - ./eunha-key.pem:/certs/eunha-key.pem:ro
-    networks:
-      default:
-        aliases: [eunha.test]
-
-  # TLS for Mastodon. Its own URIs are https, so a peer fetching an actor or an
-  # object needs a certificate on the other end; plain HTTP is not an option
-  # even locally.
-  proxy:
-    image: caddy:2-alpine
-    depends_on: [web]
-    networks:
-      default:
-        aliases: [mastodon.test]
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./eunha.pem:/certs/eunha.pem:ro
-      - ./eunha-key.pem:/certs/eunha-key.pem:ro
-    ports:
-      # 443 inside the network under the alias above; 3000 on the host so the
-      # script can drive it without binding a privileged port.
-      - "3000:443"
