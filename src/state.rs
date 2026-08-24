@@ -32,6 +32,27 @@ impl AppState {
             .build()
             .expect("failed to build HTTP client");
 
+        // Declared before the client is built, so the resolver it installs is
+        // already answering with the operator's ranges in mind.
+        let allowed: Vec<ipnet::IpNet> = config
+            .allowed_private_networks
+            .iter()
+            .filter_map(|cidr| match cidr.parse() {
+                Ok(net) => Some(net),
+                Err(e) => {
+                    tracing::error!(cidr, error = %e, "ignoring unparseable allowed_private_networks entry");
+                    None
+                }
+            })
+            .collect();
+        if !allowed.is_empty() {
+            tracing::warn!(
+                networks = ?allowed,
+                "federation may reach these private networks; this relaxes an SSRF protection"
+            );
+        }
+        crate::federation::safe_fetch::set_allowed_private_networks(allowed);
+
         let fetch = crate::federation::safe_fetch::build_client();
 
         let storage = Arc::new(Storage::from_config(&config.media_storage).await);

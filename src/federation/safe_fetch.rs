@@ -77,15 +77,43 @@ pub fn validate_url(url: &str) -> anyhow::Result<()> {
         .host_str()
         .ok_or_else(|| anyhow::anyhow!("URL has no host: {url:?}"))?;
     if let Ok(ip) = host.parse::<IpAddr>() {
-        if !is_global_ip(ip) {
+        if !is_reachable(ip) {
             anyhow::bail!("refusing request to non-public IP {ip}");
         }
     }
     Ok(())
 }
 
-/// A reqwest DNS resolver that only yields globally-routable addresses, refusing
-/// the lookup entirely when a name resolves solely into private space.
+/// Networks an operator has declared reachable despite being private.
+///
+/// Mastodon has the same setting, `ALLOWED_PRIVATE_ADDRESSES`, and for the same
+/// reason: an instance may legitimately need to reach a peer inside its own
+/// network — split-horizon DNS, a reverse proxy on a LAN, a mesh network — and
+/// without this it simply cannot federate there.
+///
+/// Empty by default. This weakens an SSRF protection exactly as far as it is
+/// told to and no further, so it is set deliberately or not at all.
+static ALLOWED_PRIVATE: std::sync::OnceLock<Vec<ipnet::IpNet>> = std::sync::OnceLock::new();
+
+/// Declare the private networks this instance may reach. Call once at startup.
+pub fn set_allowed_private_networks(nets: Vec<ipnet::IpNet>) {
+    let _ = ALLOWED_PRIVATE.set(nets);
+}
+
+fn is_allowed_private(ip: IpAddr) -> bool {
+    ALLOWED_PRIVATE
+        .get()
+        .is_some_and(|nets| nets.iter().any(|net| net.contains(&ip)))
+}
+
+/// Whether an address may be connected to: globally routable, or inside a
+/// network the operator has declared reachable.
+fn is_reachable(ip: IpAddr) -> bool {
+    is_global_ip(ip) || is_allowed_private(ip)
+}
+
+/// A reqwest DNS resolver that only yields reachable addresses, refusing the
+/// lookup entirely when a name resolves solely into space it may not touch.
 #[derive(Debug, Default)]
 pub struct PublicOnlyResolver;
 
@@ -95,7 +123,7 @@ impl Resolve for PublicOnlyResolver {
             let host = name.as_str().to_owned();
             // Port 0: we only need address resolution, reqwest overrides the port.
             let resolved = tokio::net::lookup_host((host.as_str(), 0)).await?;
-            let public: Vec<SocketAddr> = resolved.filter(|addr| is_global_ip(addr.ip())).collect();
+            let public: Vec<SocketAddr> = resolved.filter(|addr| is_reachable(addr.ip())).collect();
             if public.is_empty() {
                 let err: Box<dyn std::error::Error + Send + Sync> =
                     format!("{host} resolved only to non-public addresses").into();
@@ -146,6 +174,35 @@ pub fn build_client() -> reqwest::Client {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A private address is refused unless the operator has named its network,
+    /// and naming one network does not open the others.
+    #[test]
+    fn allowed_networks_open_only_what_they_name() {
+        // Nothing declared: the default, and the answer for every private range.
+        assert!(!is_reachable("10.0.0.5".parse().unwrap()));
+        assert!(!is_reachable("192.168.1.1".parse().unwrap()));
+        assert!(is_reachable("93.184.216.34".parse().unwrap()));
+
+        set_allowed_private_networks(vec!["10.0.0.0/8".parse().unwrap()]);
+
+        assert!(
+            is_reachable("10.0.0.5".parse().unwrap()),
+            "the named network"
+        );
+        assert!(
+            !is_reachable("192.168.1.1".parse().unwrap()),
+            "a private network that was not named stays refused"
+        );
+        assert!(
+            !is_reachable("127.0.0.1".parse().unwrap()),
+            "loopback is not covered by 10.0.0.0/8"
+        );
+        assert!(
+            is_reachable("93.184.216.34".parse().unwrap()),
+            "public is unaffected"
+        );
+    }
 
     #[test]
     fn rejects_private_and_special_v4() {

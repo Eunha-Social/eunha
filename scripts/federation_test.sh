@@ -17,9 +17,18 @@ WORK="${FEDERATION_WORK_DIR:-/tmp/eunha-federation}"
 KEEP=""
 [ "${1:-}" = "--keep" ] && KEEP=1
 
-EUNHA_DOMAIN="host.docker.internal:3002"   # what the container can reach
+# `eunha.test` on 443, resolved inside the compose network by an alias on the
+# proxy. The port is not a detail: Mastodon webfingers an account by the *host*
+# of its actor URI and drops any port, so eunha on :3002 is looked up on :443
+# and every delivery fails as what looks like a signature error.
+EUNHA_DOMAIN="eunha.test"
 EUNHA_PLAIN_PORT=3003                       # eunha itself, behind the proxy
-MASTODON_DOMAIN="localhost:3000"            # what the host can reach
+# Mastodon gets a port-free hostname for the same reason eunha does. Webfinger
+# drops the port, so a peer on `localhost:3000` is recorded as `@localhost` —
+# the account works, but its handle no longer matches what anyone asked for.
+# Both sides on 443 keeps handles symmetric and the confusion out.
+MASTODON_DOMAIN="mastodon.test"
+MASTODON_HOST_PORT=3000                     # how this script reaches it
 
 for tool in docker mkcert caddy psql; do
   command -v "$tool" >/dev/null || { echo "!! $tool is not on PATH" >&2; exit 1; }
@@ -51,12 +60,21 @@ if ! security verify-cert -c "$CAROOT/rootCA.pem" -p ssl >/dev/null 2>&1; then
     -k "$HOME/Library/Keychains/login.keychain-db" "$CAROOT/rootCA.pem" 2>/dev/null || true
 fi
 mkcert -cert-file "$WORK/fed.pem" -key-file "$WORK/fed-key.pem" \
-  host.docker.internal localhost 127.0.0.1 >/dev/null 2>&1
+  "$EUNHA_DOMAIN" "$MASTODON_DOMAIN" host.docker.internal localhost 127.0.0.1 >/dev/null 2>&1
 cp "$CAROOT/rootCA.pem" "$WORK/mkcert-rootCA.crt"
+# Ruby reads `SSL_CERT_FILE`, and the image runs unprivileged so its trust store
+# cannot be written. The bundle is the image's own roots with the local CA
+# appended — appended, not replacing, or Mastodon would trust this CA and no
+# public one, and anything reaching the wider internet would fail obscurely.
+docker run --rm ghcr.io/mastodon/mastodon:v4.7.0 \
+  cat /etc/ssl/certs/ca-certificates.crt > "$WORK/ca-bundle.crt"
+cat "$CAROOT/rootCA.pem" >> "$WORK/ca-bundle.crt"
 cp "$WORK/fed.pem" "$WORK/eunha.pem"
 cp "$WORK/fed-key.pem" "$WORK/eunha-key.pem"
 
-cat > "$WORK/Caddyfile.eunha" <<EOF
+# Two faces on the same eunha: 3002 on the host for this script to drive, and
+# 443 inside the network for Mastodon to federate with.
+cat > "$WORK/Caddyfile.eunha.host" <<EOF
 {
 	admin off
 	auto_https off
@@ -66,12 +84,26 @@ cat > "$WORK/Caddyfile.eunha" <<EOF
 	reverse_proxy 127.0.0.1:$EUNHA_PLAIN_PORT
 }
 EOF
+cat > "$WORK/Caddyfile.eunha" <<EOF
+{
+	admin off
+	auto_https off
+}
+:443 {
+	tls /certs/eunha.pem /certs/eunha-key.pem
+	log {
+		output stdout
+		format console
+	}
+	reverse_proxy host.docker.internal:$EUNHA_PLAIN_PORT
+}
+EOF
 cat > "$WORK/Caddyfile" <<'EOF'
 {
 	admin off
 	auto_https off
 }
-:3000 {
+:443 {
 	tls /certs/eunha.pem /certs/eunha-key.pem
 	reverse_proxy web:3000 {
 		header_up X-Forwarded-Proto https
@@ -81,7 +113,7 @@ EOF
 
 echo "==> Mastodon"
 docker compose -f "$WORK/docker-compose.yml" up -d
-until curl -sf -m 3 -o /dev/null https://$MASTODON_DOMAIN/api/v1/instance; do sleep 5; done
+until curl -sf -m 3 -o /dev/null "https://localhost:$MASTODON_HOST_PORT/api/v1/instance"; do sleep 5; done
 
 MASTODON_TOKEN=$(docker compose -f "$WORK/docker-compose.yml" exec -T web bin/rails runner '
   a = Account.find_or_create_by!(username: "masto") { |x| x.domain = nil }
@@ -116,11 +148,31 @@ INSERT INTO oauth_access_tokens (id, token, resource_owner_id, application_id, s
 VALUES (1, 'eunha-federation-token', 1, 1, 'read write follow push', now()) ON CONFLICT DO NOTHING;
 SQL
 
+# eunha refuses to deliver an unsigned activity, and an account seeded straight
+# into SQL has no key — so give alice one. eunha would generate this itself for
+# an account created through its own API.
+ALICE_KEY=$(openssl genrsa 2048 2>/dev/null)
+ALICE_PUB=$(printf '%s' "$ALICE_KEY" | openssl rsa -pubout 2>/dev/null)
+psql -q -d eunha_federation -v ON_ERROR_STOP=1 >/dev/null <<SQL
+UPDATE accounts SET private_key = \$P\$$ALICE_KEY\$P\$, public_key = \$U\$$ALICE_PUB\$U\$
+WHERE id = 1;
+SQL
+
+# No peer seeding. eunha resolves Mastodon's actor over the wire, webfinger and
+# all, because `allowed_private_networks` below lets it reach the container's
+# address — so actor resolution is exercised rather than worked around.
+
 VAPID_KEY=$(openssl ecparam -genkey -name prime256v1 -noout 2>/dev/null)
 VAPID_PRIV=$(printf '%s' "$VAPID_KEY" | openssl pkcs8 -topk8 -nocrypt 2>/dev/null)
 VAPID_PUB=$(printf '%s' "$VAPID_KEY" | openssl ec -pubout -outform DER 2>/dev/null | tail -c 65 | base64 | tr '+/' '-_' | tr -d '=')
 cat > "$WORK/config.toml" <<EOF
 database_url = "postgres://$(whoami)@localhost/eunha_federation"
+
+# The pair lives on a container network, whose addresses are private. Federation
+# refuses those by default — rightly, since otherwise a peer could name an
+# address and have this server probe its own network — so the ranges are named
+# here, exactly as an instance behind split-horizon DNS or a mesh network would.
+allowed_private_networks = ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.0/8", "::1/128", "fc00::/7"]
 redis_url = "redis://127.0.0.1:6379/13"
 bind_address = "127.0.0.1:$EUNHA_PLAIN_PORT"
 
@@ -153,14 +205,21 @@ from = "alice@localhost"
 EOF
 
 ( cd "$WORK" && nohup "$ROOT/target/release/eunha" > "$WORK/eunha.log" 2>&1 & )
-nohup caddy run --config "$WORK/Caddyfile.eunha" > "$WORK/caddy.log" 2>&1 &
+nohup caddy run --config "$WORK/Caddyfile.eunha.host" > "$WORK/caddy.log" 2>&1 &
 until curl -sf -m 3 -o /dev/null "https://localhost:3002/api/v1/instance"; do sleep 2; done
+
+# Mastodon's circuit breaker remembers failures, and an inbox it has tripped to
+# red is one it stops attempting entirely — no request, no error, empty queues.
+# A run that begins with a red breaker from a previous run reports that eunha is
+# unreachable, which is not true and takes a long time to disbelieve.
+docker compose -f "$WORK/docker-compose.yml" exec -T redis sh -c \
+  'redis-cli --scan --pattern "*stoplight*" | xargs -r redis-cli del' >/dev/null 2>&1 || true
 
 echo "==> Federating"
 python3 "$ROOT/scripts/federation_test.py" \
   --eunha "https://localhost:3002" \
   --eunha-token "eunha-federation-token" \
   --eunha-acct "alice@$EUNHA_DOMAIN" \
-  --mastodon "https://$MASTODON_DOMAIN" \
+  --mastodon "https://localhost:$MASTODON_HOST_PORT" \
   --mastodon-token "$MASTODON_TOKEN" \
   --mastodon-acct "masto@$MASTODON_DOMAIN"

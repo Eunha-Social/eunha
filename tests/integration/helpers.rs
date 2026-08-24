@@ -504,6 +504,9 @@ impl TestContext {
         let config = eunha::config::Config {
             database_url: db_url,
             redis_url,
+            // Nothing declared: the tests exercise the default, which refuses
+            // every private address.
+            allowed_private_networks: Vec::new(),
             bind_address: "127.0.0.1:0".into(),
             media_storage: eunha::config::MediaStorageConfig {
                 bucket: "test-bucket".into(),

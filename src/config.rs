@@ -19,6 +19,16 @@ pub struct Config {
     /// the server Mastodon itself asks.
     #[serde(default = "default_software_update_url")]
     pub software_update_url: Option<String>,
+
+    /// Private networks this instance may nonetheless reach, as CIDR blocks.
+    ///
+    /// Federation refuses private addresses by default, because a peer that can
+    /// name an address can otherwise make this server probe its own network.
+    /// An instance that legitimately federates inside one — split-horizon DNS, a
+    /// proxy on a LAN, a mesh network — names those ranges here and no others.
+    /// Mastodon's `ALLOWED_PRIVATE_ADDRESSES` is the same setting.
+    #[serde(default)]
+    pub allowed_private_networks: Vec<String>,
     /// Attach FEP-8b32 integrity proofs to outgoing activities, so that a
     /// relayed or forwarded copy can still be attributed.
     ///

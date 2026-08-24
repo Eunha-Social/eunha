@@ -51,6 +51,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
 toml = "1"
+ipnet = "2"
 
 # IDs
 uuid = { version = "1", features = ["v4", "serde"] }

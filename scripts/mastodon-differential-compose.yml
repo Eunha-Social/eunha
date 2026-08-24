@@ -44,7 +44,7 @@ services:
       DB_PASS: mastodon
       DB_NAME: mastodon
       REDIS_HOST: redis
-      LOCAL_DOMAIN: localhost:3000
+      LOCAL_DOMAIN: mastodon.test
       RAILS_SERVE_STATIC_FILES: "true"
       # No mail, no search, no S3 — this instance only has to answer the API.
       ES_ENABLED: "false"
@@ -56,8 +56,10 @@ services:
       # what lets it deliver to an eunha running on the host. Without it every
       # federation test fails as PrivateNetworkAddressError.
       ALLOWED_PRIVATE_ADDRESSES: "0.0.0.0/0"
-    ports:
-      - "3000:3000"
+    expose:
+      - "3000"
+    volumes:
+      - ./ca-bundle.crt:/certs/ca-bundle.crt:ro
 
   # Without a worker, anything Mastodon defers never happens — and some of that
   # is visible in the API. A home feed stays `regenerating?` forever, so the
@@ -83,7 +85,7 @@ services:
       DB_PASS: mastodon
       DB_NAME: mastodon
       REDIS_HOST: redis
-      LOCAL_DOMAIN: localhost:3000
+      LOCAL_DOMAIN: mastodon.test
       ES_ENABLED: "false"
       SMTP_DELIVERY_METHOD: test
       RAILS_LOG_LEVEL: warn
@@ -111,3 +113,21 @@ services:
     networks:
       default:
         aliases: [eunha.test]
+
+  # TLS for Mastodon. Its own URIs are https, so a peer fetching an actor or an
+  # object needs a certificate on the other end; plain HTTP is not an option
+  # even locally.
+  proxy:
+    image: caddy:2-alpine
+    depends_on: [web]
+    networks:
+      default:
+        aliases: [mastodon.test]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./eunha.pem:/certs/eunha.pem:ro
+      - ./eunha-key.pem:/certs/eunha-key.pem:ro
+    ports:
+      # 443 inside the network under the alias above; 3000 on the host so the
+      # script can drive it without binding a privileged port.
+      - "3000:443"

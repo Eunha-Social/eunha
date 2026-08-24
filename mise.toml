@@ -3,6 +3,7 @@ node = "lts"
 pnpm = "latest"
 rust = "latest"
 "cargo:cargo-watch" = "latest"
+"npm:hongdown" = "latest"
 "cargo:sqlx-cli" = "latest"
 
 [tasks.dev]
@@ -23,11 +24,22 @@ run = "SQLX_OFFLINE=true cargo run --quiet --bin eunha-schema -- plan"
 
 [tasks.fmt]
 description = "Format the tree"
-run = "cargo fmt"
+run = [
+    "cargo fmt",
+    # -type f skips AGENTS.md and CLAUDE.md, which are symlinks to README.md.
+    "hongdown --write $(find . -maxdepth 1 -name '*.md' -type f)",
+]
 
 [tasks."fmt:check"]
 description = "Fail if anything is unformatted (run before committing)"
-run = "cargo fmt --check"
+run = [
+    "cargo fmt --check",
+    "hongdown --check $(find . -maxdepth 1 -name '*.md' -type f)",
+]
+
+[tasks."federation"]
+description = "Federate eunha with a real Mastodon in Docker, both directions"
+run = "scripts/federation_test.sh"
 
 [tasks."differential"]
 description = "Compare eunha against a live Mastodon in Docker (needs eunha running)"
