@@ -4,10 +4,10 @@ Where to pick this up
 State at handoff: `main` is deployed to seoul.earth and healthy. Schema matches
 Mastodon 4.7.0 across 974 constraints. 856 integration tests, 70 unit tests, CI
 green on eight gates — both live-Mastodon harnesses are among them now, and
-run clean against Mastodon 4.7.0. Verified by looking at the run, not by
-assuming: CI had in fact been red for at least two commits. The federation
-harness passes 24/24 from a clean checkout, both servers inside the container
-network.
+run clean against Mastodon 4.7.0. 857 integration tests. Verified by looking at
+the run, not by assuming: CI had in fact been red for at least two commits. The
+federation harness passes 24/24 from a clean checkout, both servers inside the
+container network.
 
 Three harnesses verify parity, described in `README.md` and in each script's
 header. Read those headers before believing a failure — most of what they report
@@ -29,10 +29,12 @@ it stays `regenerating?` forever — so it may already be gone. If it comes back
 with a worker running, it is real, and the harness should skip the comparison
 while the feed rebuilds rather than report it.
 
-**eunha returns 503 for `/ap/users/:id/collections/featured`** and for
-`/ap/users/:id/collections`. Still reproduces on every federation run, while
-Mastodon fetches them. Harmless to the handshake — 24/24 checks pass with it
-happening — and never chased down.
+**The 503 on `/ap/users/:id/collections/featured` is fixed.** It was a missing
+route, not an error: under the numeric AP-ID scheme only `followers` and
+`following` had been mirrored, so the two collection URLs an actor advertises
+had no handler and fell through to the SPA — an HTML page where the frontend is
+built, a 503 where it is not. A regression test fetches exactly what the actor
+says it has.
 
 **Notification grouping agrees with Mastodon.** Compared end to end against a
 live 4.7.0 for the same fixture — three accounts favouriting one status and
@@ -61,6 +63,13 @@ Thirty were found in the work leading here, and they clustered:
     this from model callbacks that fire however a record came to exist.
     `src/counters.rs` now owns those rules; keep new paths calling it rather
     than writing their own.
+ -  **Sub-resources of the second URI scheme.** A local actor is served under
+    `/users/{username}` or `/ap/users/{id}`, and every sub-resource is the actor
+    URI with a suffix. The numeric block mirrored `followers` and `following`
+    and stopped, while a comment above it said it mirrored the lot — so
+    `featured` and `collections` were advertised at URLs with no handler. When a
+    scheme is added, the question is which suffixes it owes, and the answer is
+    all of them.
  -  **Values that are the right type.** `voted` false where Mastodon says true,
     `noindex` derived from an unrelated column, a limit advertised as 1500
     instead of 10000. A shape comparison passes all of these.

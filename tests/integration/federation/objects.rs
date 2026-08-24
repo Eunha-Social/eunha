@@ -218,6 +218,96 @@ async fn test_featured_collection_lists_pins() {
     );
 }
 
+/// An account on the numeric scheme advertises its collections beneath
+/// `/ap/users/{id}`, and those URLs have to answer with collections.
+///
+/// They did not. Only the username scheme had routes for `collections/featured`
+/// and `collections`, so a peer following the actor's own `featured` link fell
+/// through to the SPA fallback and got an HTML page — or a 503 where the
+/// frontend was not built. Mastodon fetches both on every federation handshake.
+#[tokio::test]
+async fn test_numeric_scheme_serves_its_advertised_collections() {
+    let ctx = TestContext::new("ap-numeric-collections").await;
+
+    sqlx::query("UPDATE accounts SET id_scheme = 1 WHERE id = $1")
+        .bind(ctx.alice_id.parse::<i64>().unwrap())
+        .execute(&ctx.db)
+        .await
+        .unwrap();
+
+    let id = post_status(&ctx, &json!({ "status": "pin me", "visibility": "public" })).await;
+    let resp = ctx
+        .api
+        .post_json(
+            &format!("/api/v1/statuses/{id}/pin"),
+            Some(&ctx.alice_token),
+            &json!({}),
+        )
+        .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    // Whatever the actor says it has, fetched exactly as a peer would.
+    let actor: Value = ctx
+        .api
+        .get(&format!("/ap/users/{}", ctx.alice_id), None)
+        .await
+        .json()
+        .await
+        .unwrap();
+    let base = format!("https://{}/ap/users/{}", ctx.domain, ctx.alice_id);
+    assert_eq!(
+        actor["featured"].as_str(),
+        Some(format!("{base}/collections/featured").as_str())
+    );
+    assert_eq!(
+        actor["featuredCollections"].as_str(),
+        Some(format!("{base}/collections").as_str())
+    );
+
+    for path in [
+        format!("/ap/users/{}/collections/featured", ctx.alice_id),
+        format!("/ap/users/{}/collections", ctx.alice_id),
+    ] {
+        let resp = ctx.api.get(&path, None).await;
+        let status = resp.status();
+        // Read as text first: without the route this is the SPA's index.html,
+        // and `json()` would panic on the decode rather than say what arrived.
+        let text = resp.text().await.unwrap();
+        assert_eq!(status, StatusCode::OK, "{path} should answer: {text}");
+        let body: Value = serde_json::from_str(&text).unwrap_or_else(|_| {
+            panic!("{path} should be a collection, not the web frontend: {text:.120}")
+        });
+        assert_eq!(
+            body["type"].as_str(),
+            Some("OrderedCollection"),
+            "{path} should be a collection: {body}"
+        );
+        assert_eq!(
+            body["id"].as_str(),
+            Some(format!("https://{}{path}", ctx.domain).as_str()),
+            "a collection's id is the URL it was advertised at: {body}"
+        );
+    }
+
+    let featured: Value = ctx
+        .api
+        .get(
+            &format!("/ap/users/{}/collections/featured", ctx.alice_id),
+            None,
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    let note_uri = format!("{base}/statuses/{id}");
+    assert!(
+        featured["orderedItems"]
+            .as_array()
+            .is_some_and(|a| a.iter().any(|v| v.as_str() == Some(note_uri.as_str()))),
+        "pinned status should appear, under the numeric scheme: {featured}"
+    );
+}
+
 /// The actor document exposes profile metadata fields as `PropertyValue`
 /// attachments and uses the human `/@username` url, so profile edits federate.
 #[tokio::test]

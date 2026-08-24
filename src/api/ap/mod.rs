@@ -65,6 +65,20 @@ pub fn router() -> Router<AppState> {
             "/ap/users/{id}/following",
             get(collections::get_following_by_id),
         )
+        // The actor advertises `featured` and `featuredCollections` beneath its
+        // own URI, so under this scheme those are the URLs a peer fetches.
+        // Without these two routes the request fell through to the SPA
+        // fallback: Mastodon asked for a collection on every federation
+        // handshake and got an HTML page, or a 503 where the frontend was not
+        // built. Harmless to the handshake, which is why it went unnoticed.
+        .route(
+            "/ap/users/{id}/collections/featured",
+            get(collections::get_featured_by_id),
+        )
+        .route(
+            "/ap/users/{id}/collections",
+            get(collections::get_account_collections_by_id),
+        )
         .route("/collections/{id}", get(collections::get_collection))
         .route("/actor", get(objects::get_instance_actor))
         .route("/inbox", post(inbox::shared_inbox))

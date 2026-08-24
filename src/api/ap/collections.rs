@@ -232,13 +232,24 @@ pub async fn get_account_collections(
     Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
     Path(username): Path<String>,
 ) -> AppResult<Response> {
-    let account = sqlx::query!(
-        "SELECT id FROM accounts WHERE username = $1 AND domain IS NULL",
-        username,
-    )
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or(AppError::NotFound)?;
+    account_collections(&state, &instance.domain, AccountRef::Username(&username)).await
+}
+
+/// Numeric-scheme collections (`/ap/users/{id}/collections`).
+pub async fn get_account_collections_by_id(
+    State(state): State<AppState>,
+    Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
+    Path(id): Path<i64>,
+) -> AppResult<Response> {
+    account_collections(&state, &instance.domain, AccountRef::Id(id)).await
+}
+
+async fn account_collections(
+    state: &AppState,
+    domain: &str,
+    who: AccountRef<'_>,
+) -> AppResult<Response> {
+    let account = super::objects::load_local_account(state, who).await?;
 
     let ids = sqlx::query_scalar!(
         "SELECT id FROM collections WHERE account_id = $1 AND discoverable = true ORDER BY created_at DESC",
@@ -249,12 +260,15 @@ pub async fn get_account_collections(
 
     let items: Vec<String> = ids
         .into_iter()
-        .map(|id| collection_uri(&instance.domain, id))
+        .map(|id| collection_uri(domain, id))
         .collect();
 
     let body = json!({
         "@context": "https://www.w3.org/ns/activitystreams",
-        "id": format!("{}/collections", actor_uri(&instance.domain, &username)),
+        "id": format!(
+            "{}/collections",
+            crate::federation::tag::account_uri_of(domain, &account)
+        ),
         "type": "OrderedCollection",
         "totalItems": items.len(),
         "orderedItems": items,
@@ -609,13 +623,24 @@ pub async fn get_featured(
     Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
     Path(username): Path<String>,
 ) -> AppResult<Response> {
-    let account = sqlx::query!(
-        "SELECT id FROM accounts WHERE username = $1 AND domain IS NULL",
-        username,
-    )
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or(AppError::NotFound)?;
+    featured_collection(&state, &instance.domain, AccountRef::Username(&username)).await
+}
+
+/// Numeric-scheme featured collection (`/ap/users/{id}/collections/featured`).
+pub async fn get_featured_by_id(
+    State(state): State<AppState>,
+    Extension(ResolvedInstance(instance)): Extension<ResolvedInstance>,
+    Path(id): Path<i64>,
+) -> AppResult<Response> {
+    featured_collection(&state, &instance.domain, AccountRef::Id(id)).await
+}
+
+async fn featured_collection(
+    state: &AppState,
+    domain: &str,
+    who: AccountRef<'_>,
+) -> AppResult<Response> {
+    let account = super::objects::load_local_account(state, who).await?;
 
     // Pinned, publicly-visible statuses, newest pin first (mirrors Mastodon).
     let rows = sqlx::query!(
@@ -628,7 +653,9 @@ pub async fn get_featured(
     .fetch_all(&state.db)
     .await?;
 
-    let actor = actor_uri(&instance.domain, &username);
+    // The account's own scheme, not the one it was asked under: an actor has a
+    // single canonical URI, and the collection has to be a path beneath it.
+    let actor = crate::federation::tag::account_uri_of(domain, &account);
     let items: Vec<String> = rows
         .iter()
         .map(|r| {
