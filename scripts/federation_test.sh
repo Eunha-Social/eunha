@@ -164,7 +164,10 @@ SQL
 
 VAPID_KEY=$(openssl ecparam -genkey -name prime256v1 -noout 2>/dev/null)
 VAPID_PRIV=$(printf '%s' "$VAPID_KEY" | openssl pkcs8 -topk8 -nocrypt 2>/dev/null)
-VAPID_PUB=$(printf '%s' "$VAPID_KEY" | openssl ec -pubout -outform DER 2>/dev/null | tail -c 65 | base64 | tr '+/' '-_' | tr -d '=')
+# `tr -d '=\n'`: GNU base64 wraps at 76 columns and the key would arrive split
+# over two lines, breaking the TOML. Latent here — this harness is only run on
+# macOS, whose base64 does not wrap — and found by the differential job in CI.
+VAPID_PUB=$(printf '%s' "$VAPID_KEY" | openssl ec -pubout -outform DER 2>/dev/null | tail -c 65 | base64 | tr '+/' '-_' | tr -d '=\n')
 cat > "$WORK/config.toml" <<EOF
 database_url = "postgres://$(whoami)@localhost/eunha_federation"
 
