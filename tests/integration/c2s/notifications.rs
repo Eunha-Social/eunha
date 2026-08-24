@@ -77,7 +77,7 @@ async fn test_reply_creates_mention_notification() {
             "/api/v1/statuses",
             Some(&ctx.bob_token),
             &json!({
-                "status": format!("@alice reply here"),
+                "status": "@alice reply here",
                 "in_reply_to_id": parent_id,
                 "visibility": "public"
             }),
