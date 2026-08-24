@@ -35,8 +35,14 @@ jobs:
           POSTGRES_USER: eunha
           POSTGRES_PASSWORD: eunha
           POSTGRES_DB: eunha_test
+        # `-U eunha`, because Docker runs a healthcheck as the image's user and
+        # the Postgres image sets none — so it runs as root, `pg_isready`
+        # defaults `-U` to the OS user, and there is no `root` role. It still
+        # reports the server up, since any answer proves that, but it logs a
+        # FATAL every interval: 284 of them in a 24-minute run, dumped into
+        # "Stop containers" at the end where they read as a job going wrong.
         options: >-
-          --health-cmd pg_isready --health-interval 5s
+          --health-cmd "pg_isready -U eunha" --health-interval 5s
           --health-timeout 5s --health-retries 20
         ports: ["5432:5432"]
       redis:
@@ -118,8 +124,14 @@ jobs:
           POSTGRES_USER: eunha
           POSTGRES_PASSWORD: eunha
           POSTGRES_DB: eunha
+        # `-U eunha`, because Docker runs a healthcheck as the image's user and
+        # the Postgres image sets none — so it runs as root, `pg_isready`
+        # defaults `-U` to the OS user, and there is no `root` role. It still
+        # reports the server up, since any answer proves that, but it logs a
+        # FATAL every interval: 284 of them in a 24-minute run, dumped into
+        # "Stop containers" at the end where they read as a job going wrong.
         options: >-
-          --health-cmd pg_isready --health-interval 5s
+          --health-cmd "pg_isready -U eunha" --health-interval 5s
           --health-timeout 5s --health-retries 20
         ports: ["5432:5432"]
       redis:
