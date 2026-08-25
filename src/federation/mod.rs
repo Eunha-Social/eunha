@@ -2,6 +2,7 @@ pub mod activity;
 pub mod consent;
 pub mod delivery;
 pub mod fetch;
+pub mod fetch_resource;
 pub mod handle;
 pub mod instance_actor;
 pub mod keypair;

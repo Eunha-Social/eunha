@@ -10,9 +10,14 @@ use crate::state::AppState;
 
 const AP_ACCEPT: &str = "application/activity+json, application/ld+json";
 
-/// Fetch a remote ActivityPub object as JSON, signing the GET with the instance
-/// actor's key.
-pub async fn signed_get_json(state: &AppState, url: &str) -> anyhow::Result<Value> {
+/// Issue a signed GET and hand back the response untouched, whatever its status
+/// — [`crate::federation::fetch_resource`] needs to see a 404 or a `text/html`
+/// answer rather than have it turned into an error.
+pub async fn signed_get(
+    state: &AppState,
+    url: &str,
+    accept: &str,
+) -> anyhow::Result<reqwest::Response> {
     crate::federation::safe_fetch::validate_url(url)?;
 
     let (private_key, _) = crate::federation::instance_actor::get_or_create(state).await?;
@@ -20,13 +25,20 @@ pub async fn signed_get_json(state: &AppState, url: &str) -> anyhow::Result<Valu
 
     let signed = feder_runtime::signature::sign_get(url, &key_id, &private_key)?;
 
-    let resp = state
+    Ok(state
         .fetch
         .get(url)
-        .header("Accept", AP_ACCEPT)
+        .header("Accept", accept)
         .header("Date", signed.date)
         .header("Signature", signed.signature)
         .send()
+        .await?)
+}
+
+/// Fetch a remote ActivityPub object as JSON, signing the GET with the instance
+/// actor's key.
+pub async fn signed_get_json(state: &AppState, url: &str) -> anyhow::Result<Value> {
+    let resp = signed_get(state, url, AP_ACCEPT)
         .await?
         .error_for_status()?;
 

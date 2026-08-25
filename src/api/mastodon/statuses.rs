@@ -1749,7 +1749,7 @@ pub async fn update_interaction_policy(
 // ── Helpers ────────────────────────────────────────────────────────────────
 
 /// Return NotFound if `viewer_id` cannot see `status` (private/direct visibility).
-async fn check_status_visible(
+pub(super) async fn check_status_visible(
     state: &AppState,
     status: &DbStatus,
     viewer_id: i64,

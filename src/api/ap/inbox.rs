@@ -21,7 +21,10 @@ mod signature;
 mod status;
 use collection::{handle_add, handle_remove};
 use create::handle_create;
-pub use fetch::{fetch_remote_status, resolve_or_fetch_remote_account};
+pub use fetch::{
+    fetch_remote_status, fetch_remote_status_prefetched, resolve_or_fetch_remote_account,
+    resolve_or_fetch_remote_account_prefetched,
+};
 use follow::{handle_accept_reject, handle_follow, handle_undo};
 use moderation::{handle_block, handle_flag, handle_move};
 use quote::{handle_feature_request, handle_quote_request};

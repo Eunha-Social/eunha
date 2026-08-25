@@ -479,3 +479,194 @@ async fn test_search_anonymous_resolve_unauthorized() {
         "anon resolve must be 401"
     );
 }
+
+/// A URL is resolved rather than searched for, and a status's own `url`
+/// resolves back to it — `ResolveURLService#process_local_url`, which routes a
+/// URL on our own domain by its shape instead of fetching it.
+#[tokio::test]
+async fn test_search_resolves_a_local_status_url() {
+    let ctx = TestContext::new("search-url-status").await;
+
+    let status = ctx
+        .api
+        .post_status(&ctx.alice_token, "findable by its address", "public")
+        .await;
+    let url = status["url"].as_str().expect("status has a url");
+
+    let body: Value = ctx
+        .api
+        .get(
+            &format!("/api/v2/search?q={url}&resolve=true"),
+            Some(&ctx.alice_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+
+    let statuses = body["statuses"].as_array().unwrap();
+    assert_eq!(statuses.len(), 1, "a URL resolves to exactly one thing");
+    assert_eq!(statuses[0]["id"], status["id"]);
+    assert!(
+        body["accounts"].as_array().unwrap().is_empty(),
+        "a URL query runs no other search",
+    );
+}
+
+/// A local status resolves from its ActivityPub URI as well as its web URL:
+/// both are routes we serve. The URI is built here rather than read off the
+/// status, because `convert::local_domain` is a process-wide `OnceLock` and a
+/// test process runs many instances — the serialized `uri` carries whichever
+/// domain was initialised first, while `url` comes from the row.
+#[tokio::test]
+async fn test_search_resolves_a_local_status_uri() {
+    let ctx = TestContext::new("search-uri-status").await;
+
+    let status = ctx
+        .api
+        .post_status(&ctx.alice_token, "findable by its uri", "public")
+        .await;
+    let id = status["id"].as_str().unwrap();
+
+    // Both actor-URI schemes: `username_ap_id`, and the numeric one whose
+    // sub-resources hang off `/ap/users/{account_id}`.
+    for uri in [
+        format!("https://{}/users/alice/statuses/{id}", ctx.domain),
+        format!(
+            "https://{}/ap/users/{}/statuses/{id}",
+            ctx.domain, ctx.alice_id
+        ),
+    ] {
+        let body: Value = ctx
+            .api
+            .get(
+                &format!("/api/v2/search?q={uri}&resolve=true"),
+                Some(&ctx.alice_token),
+            )
+            .await
+            .json()
+            .await
+            .unwrap();
+
+        assert_eq!(body["statuses"][0]["id"], status["id"], "{uri}");
+    }
+}
+
+/// A profile URL resolves to the account.
+#[tokio::test]
+async fn test_search_resolves_a_local_account_url() {
+    let ctx = TestContext::new("search-url-acct").await;
+
+    let url = format!("https://{}/@alice", ctx.domain);
+    let body: Value = ctx
+        .api
+        .get(
+            &format!("/api/v2/search?q={url}&resolve=true"),
+            Some(&ctx.bob_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+
+    let accounts = body["accounts"].as_array().unwrap();
+    assert_eq!(accounts.len(), 1);
+    assert_eq!(accounts[0]["id"], ctx.alice_id);
+}
+
+/// A local URL that names no status — a profile's sub-page, or an id that is
+/// not one — resolves to nothing rather than to whatever the digits happen to
+/// match.
+#[tokio::test]
+async fn test_search_url_that_names_nothing_resolves_to_nothing() {
+    let ctx = TestContext::new("search-url-nothing").await;
+
+    for path in ["@alice/following", "@alice/media", "tags/art"] {
+        let url = format!("https://{}/{path}", ctx.domain);
+        let body: Value = ctx
+            .api
+            .get(
+                &format!("/api/v2/search?q={url}&resolve=true"),
+                Some(&ctx.alice_token),
+            )
+            .await
+            .json()
+            .await
+            .unwrap();
+        assert!(
+            body["statuses"].as_array().unwrap().is_empty()
+                && body["accounts"].as_array().unwrap().is_empty(),
+            "{url} should resolve to nothing",
+        );
+    }
+}
+
+/// `SearchService#url_query?` is `@resolve && url?`: without `resolve` a URL is
+/// an ordinary query, and full-text search does not match a status by its
+/// address.
+#[tokio::test]
+async fn test_search_url_without_resolve_is_an_ordinary_query() {
+    let ctx = TestContext::new("search-url-noresolve").await;
+
+    let status = ctx
+        .api
+        .post_status(&ctx.alice_token, "not findable by address", "public")
+        .await;
+    let url = status["url"].as_str().unwrap();
+
+    let body: Value = ctx
+        .api
+        .get(&format!("/api/v2/search?q={url}"), Some(&ctx.alice_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+
+    assert!(
+        body["statuses"].as_array().unwrap().is_empty(),
+        "an unresolved URL query should not resolve the URL",
+    );
+}
+
+/// Resolving a URL does not hand over a status its viewer may not see:
+/// `ResolveURLService` authorizes what it resolved against the caller.
+#[tokio::test]
+async fn test_search_url_of_a_private_status_is_authorized() {
+    let ctx = TestContext::new("search-url-private").await;
+
+    let status = ctx
+        .api
+        .post_status(&ctx.alice_token, "for followers only", "private")
+        .await;
+    let url = status["url"].as_str().unwrap();
+
+    let body: Value = ctx
+        .api
+        .get(
+            &format!("/api/v2/search?q={url}&resolve=true"),
+            Some(&ctx.alice_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        body["statuses"][0]["id"], status["id"],
+        "the author can resolve her own private status",
+    );
+
+    let body: Value = ctx
+        .api
+        .get(
+            &format!("/api/v2/search?q={url}&resolve=true"),
+            Some(&ctx.bob_token),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        body["statuses"].as_array().unwrap().is_empty(),
+        "a stranger who knows the address still may not read it",
+    );
+}

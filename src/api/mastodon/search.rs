@@ -15,6 +15,7 @@ use super::{
     types::{SearchResults, Status, Tag},
 };
 use crate::{
+    api::mastodon::resolve_url::Resolved,
     error::AppResult,
     middleware::{AuthenticatedUser, ResolvedInstance},
     state::AppState,
@@ -42,6 +43,7 @@ pub async fn search(
     auth: Option<Extension<AuthenticatedUser>>,
 ) -> AppResult<Json<SearchResults>> {
     let limit = q.limit.unwrap_or(20).clamp(1, 40);
+    let query = q.q.trim();
     let account_pattern = format!("%{}%", q.q.to_lowercase());
     let search_type = q.search_type.as_deref();
     let viewer_id = auth.as_ref().map(|Extension(a)| a.account_id);
@@ -62,98 +64,76 @@ pub async fn search(
         }
     }
 
-    // URL-based lookup: if the query looks like a URL, resolve it to a status or
-    // account. We match the local DB first; if it's a miss and the caller asked
-    // to resolve (resolve=true already requires authentication above), we
-    // dereference and persist the remote object — Mastodon's ResolveURLService.
-    if q.q.starts_with("http://") || q.q.starts_with("https://") {
-        let url = q.q.trim();
-        let resolve = q.resolve.unwrap_or(false);
+    let offset = q.offset.unwrap_or(0).max(0);
 
-        // Try to find a status with this URL or URI, fetching it if asked.
-        if search_type.is_none() || search_type == Some("statuses") {
-            let mut found = sqlx::query_as!(
-                crate::db::models::Status,
-                "SELECT * FROM statuses WHERE (uri = $1 OR url = $1) AND deleted_at IS NULL LIMIT 1",
-                url,
-            )
-            .fetch_optional(&state.db)
-            .await?;
-            if found.is_none() && resolve {
-                if let Ok(Some(id)) = crate::api::ap::inbox::fetch_remote_status(&state, url).await
+    // `SearchService#url_query?`: a query that looks like a URL is resolved
+    // rather than searched, and only when the caller asked to resolve — which
+    // is why this sits above every other kind of search and returns whatever it
+    // finds on its own. `ResolveURLService` fetches the URL, following the
+    // `rel="alternate"` link when what answers is a page rather than an object,
+    // so a server that serves its objects from a different path than its pages
+    // resolves like any other.
+    if q.resolve.unwrap_or(false) && (query.starts_with("http://") || query.starts_with("https://"))
+    {
+        let mut results = SearchResults {
+            accounts: vec![],
+            statuses: vec![],
+            hashtags: vec![],
+            collections: vec![],
+        };
+        // `@offset` is zero unless a type was named, and a resolved resource is
+        // dropped once the caller has paged past it.
+        let url_offset = if search_type.is_none() { 0 } else { offset };
+        if url_offset == 0 {
+            match crate::api::mastodon::resolve_url::resolve_url(&state, query, viewer_id).await? {
+                Some(Resolved::Status(id))
+                    if search_type.is_none() || search_type == Some("statuses") =>
                 {
-                    found = sqlx::query_as!(
+                    let s = sqlx::query_as!(
                         crate::db::models::Status,
                         "SELECT * FROM statuses WHERE id = $1 AND deleted_at IS NULL",
                         id,
                     )
-                    .fetch_optional(&state.db)
+                    .fetch_one(&state.db)
                     .await?;
-                }
-            }
-            if let Some(s) = found {
-                let account = sqlx::query_as!(
-                    crate::db::models::Account,
-                    "SELECT * FROM accounts WHERE id = $1",
-                    s.account_id
-                )
-                .fetch_one(&state.db)
-                .await?;
-                let media = fetch_status_media(&state, s.id).await?;
-                let reblog = fetch_reblog_data(&state, &s).await?;
-                // Compute the viewer's context so quote_approval / interaction
-                // flags reflect the requester rather than defaulting to unknown.
-                let ctx = if let Some(vid) = viewer_id {
-                    super::statuses::batch_viewer_contexts(&state, vid, &[s.id])
-                        .await?
-                        .remove(&s.id)
-                } else {
-                    None
-                };
-                let status = build_status(&state, &s, &account, media, reblog, ctx).await?;
-                return Ok(Json(SearchResults {
-                    accounts: vec![],
-                    statuses: vec![status],
-                    hashtags: vec![],
-                    collections: vec![],
-                }));
-            }
-        }
-        // Try to find an account with this URL or URI, fetching it if asked.
-        if search_type.is_none() || search_type == Some("accounts") {
-            let mut found = sqlx::query_as!(
-                crate::db::models::Account,
-                "SELECT * FROM accounts WHERE (uri = $1 OR url = $1) AND suspended_at IS NULL AND requested_deletion_at IS NULL LIMIT 1",
-                url,
-            )
-            .fetch_optional(&state.db)
-            .await?;
-            if found.is_none() && resolve {
-                if let Ok(account_id) =
-                    crate::api::ap::inbox::resolve_or_fetch_remote_account(&state, url).await
-                {
-                    found = sqlx::query_as!(
+                    let account = sqlx::query_as!(
                         crate::db::models::Account,
                         "SELECT * FROM accounts WHERE id = $1",
-                        account_id,
+                        s.account_id
                     )
-                    .fetch_optional(&state.db)
+                    .fetch_one(&state.db)
                     .await?;
+                    let media = fetch_status_media(&state, s.id).await?;
+                    let reblog = fetch_reblog_data(&state, &s).await?;
+                    // Compute the viewer's context so quote_approval / interaction
+                    // flags reflect the requester rather than defaulting to unknown.
+                    let ctx = if let Some(vid) = viewer_id {
+                        super::statuses::batch_viewer_contexts(&state, vid, &[s.id])
+                            .await?
+                            .remove(&s.id)
+                    } else {
+                        None
+                    };
+                    results.statuses =
+                        vec![build_status(&state, &s, &account, media, reblog, ctx).await?];
                 }
-            }
-            if let Some(a) = found {
-                let api_accounts = batch_accounts_to_api(&state, &[a]).await;
-                return Ok(Json(SearchResults {
-                    accounts: api_accounts,
-                    statuses: vec![],
-                    hashtags: vec![],
-                    collections: vec![],
-                }));
+                Some(Resolved::Account(id))
+                    if search_type.is_none() || search_type == Some("accounts") =>
+                {
+                    let account = sqlx::query_as!(
+                        crate::db::models::Account,
+                        "SELECT * FROM accounts WHERE id = $1",
+                        id,
+                    )
+                    .fetch_one(&state.db)
+                    .await?;
+                    results.accounts = batch_accounts_to_api(&state, &[account]).await;
+                }
+                _ => {}
             }
         }
+        return Ok(Json(results));
     }
-
-    let offset = q.offset.unwrap_or(0).max(0);
 
     // Detect @user@domain or user@domain handle patterns for exact acct lookup
     let handle_parts: Option<(String, Option<String>)> = {

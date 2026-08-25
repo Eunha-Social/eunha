@@ -21,16 +21,43 @@ use super::{as_string_vec, json_uri, sync_remote_poll};
 /// does not recurse into referenced posts. Returns `Ok(None)` if the object
 /// can't be fetched or isn't a storable Note.
 pub async fn fetch_remote_status(state: &AppState, uri: &str) -> AppResult<Option<i64>> {
-    fetch_remote_status_depth(state, uri, 0).await
+    fetch_remote_status_depth(state, uri, None, 0).await
+}
+
+/// As [`fetch_remote_status`], for an object already in hand: the caller has
+/// fetched it from the server that owns its id (Mastodon's `prefetched_body`),
+/// so storing it needs no second request.
+pub async fn fetch_remote_status_prefetched(
+    state: &AppState,
+    uri: &str,
+    json: Value,
+) -> AppResult<Option<i64>> {
+    fetch_remote_status_depth(state, uri, Some(json), 0).await
 }
 
 /// Largest depth to which `fetch_remote_status` follows references (in-reply-to
 /// and quoted posts), to avoid unbounded fetch chains.
 const MAX_FETCH_DEPTH: u8 = 2;
 
+/// Whether two URIs name the same HTTP(S) host, which is how Mastodon decides
+/// whether an object's attribution can be believed.
+fn same_host(a: &str, b: &str) -> bool {
+    fn host(uri: &str) -> Option<String> {
+        let parsed = url::Url::parse(uri).ok()?;
+        matches!(parsed.scheme(), "http" | "https")
+            .then(|| parsed.host_str().map(str::to_ascii_lowercase))
+            .flatten()
+    }
+    match (host(a), host(b)) {
+        (Some(a), Some(b)) => a == b,
+        _ => false,
+    }
+}
+
 async fn fetch_remote_status_depth(
     state: &AppState,
     uri: &str,
+    prefetched: Option<Value>,
     depth: u8,
 ) -> AppResult<Option<i64>> {
     if uri.is_empty() {
@@ -46,9 +73,12 @@ async fn fetch_remote_status_depth(
         return Ok(Some(id));
     }
 
-    let fetched: Value = match crate::federation::fetch::signed_get_json(state, uri).await {
-        Ok(v) => v,
-        Err(_) => return Ok(None),
+    let fetched: Value = match prefetched {
+        Some(json) => json,
+        None => match crate::federation::fetch::signed_get_json(state, uri).await {
+            Ok(v) => v,
+            Err(_) => return Ok(None),
+        },
     };
 
     let nested_fetched;
@@ -80,6 +110,13 @@ async fn fetch_remote_status_depth(
 
     let attributed_to = json_uri(object.get("attributedTo"));
     if attributed_to.is_empty() {
+        return Ok(None);
+    }
+    // `FetchRemoteStatusService#trustworthy_attribution?`: a server may only
+    // attribute a status to an account on its own host. Without this, anyone
+    // who can get us to dereference a URL of theirs — a search for it is
+    // enough — can hang a status off any account on the network.
+    if !same_host(note_uri, attributed_to) {
         return Ok(None);
     }
     let Ok(account_id) = resolve_or_fetch_remote_account(state, attributed_to).await else {
@@ -123,30 +160,31 @@ async fn fetch_remote_status_depth(
 
     // Link in-reply-to: use the local copy if present, otherwise fetch it once.
     let in_reply_to_uri = object.get("inReplyTo").and_then(|v| v.as_str());
-    let (in_reply_to_id, in_reply_to_account_id): (Option<i64>, Option<i64>) = if let Some(irt) =
-        in_reply_to_uri
-    {
-        let mut found: Option<(i64, i64)> = sqlx::query!(
-            "SELECT id, account_id FROM statuses WHERE uri = $1 AND deleted_at IS NULL",
-            irt,
-        )
-        .fetch_optional(&state.db)
-        .await?
-        .map(|r| (r.id, r.account_id));
-        if found.is_none() && depth < MAX_FETCH_DEPTH {
-            if let Some(pid) = Box::pin(fetch_remote_status_depth(state, irt, depth + 1)).await? {
-                found = sqlx::query!("SELECT id, account_id FROM statuses WHERE id = $1", pid)
-                    .fetch_optional(&state.db)
-                    .await?
-                    .map(|r| (r.id, r.account_id));
+    let (in_reply_to_id, in_reply_to_account_id): (Option<i64>, Option<i64>) =
+        if let Some(irt) = in_reply_to_uri {
+            let mut found: Option<(i64, i64)> = sqlx::query!(
+                "SELECT id, account_id FROM statuses WHERE uri = $1 AND deleted_at IS NULL",
+                irt,
+            )
+            .fetch_optional(&state.db)
+            .await?
+            .map(|r| (r.id, r.account_id));
+            if found.is_none() && depth < MAX_FETCH_DEPTH {
+                if let Some(pid) =
+                    Box::pin(fetch_remote_status_depth(state, irt, None, depth + 1)).await?
+                {
+                    found = sqlx::query!("SELECT id, account_id FROM statuses WHERE id = $1", pid)
+                        .fetch_optional(&state.db)
+                        .await?
+                        .map(|r| (r.id, r.account_id));
+                }
             }
-        }
-        found
-            .map(|(id, aid)| (Some(id), Some(aid)))
-            .unwrap_or((None, None))
-    } else {
-        (None, None)
-    };
+            found
+                .map(|(id, aid)| (Some(id), Some(aid)))
+                .unwrap_or((None, None))
+        } else {
+            (None, None)
+        };
 
     let status_id = crate::snowflake::next_id();
     let inserted = sqlx::query_scalar!(
@@ -201,7 +239,9 @@ async fn fetch_remote_status_depth(
         .await?
         .map(|r| (r.id, r.account_id));
         if quoted.is_none() && depth < MAX_FETCH_DEPTH {
-            if let Some(qid) = Box::pin(fetch_remote_status_depth(state, q, depth + 1)).await? {
+            if let Some(qid) =
+                Box::pin(fetch_remote_status_depth(state, q, None, depth + 1)).await?
+            {
                 quoted = sqlx::query!("SELECT id, account_id FROM statuses WHERE id = $1", qid)
                     .fetch_optional(&state.db)
                     .await?
@@ -276,6 +316,24 @@ async fn fetch_remote_status_depth(
 
 /// Looks up a remote account by URI, fetching it from the remote server if unknown.
 pub async fn resolve_or_fetch_remote_account(state: &AppState, actor_uri: &str) -> AppResult<i64> {
+    resolve_or_fetch_remote_account_inner(state, actor_uri, None).await
+}
+
+/// As [`resolve_or_fetch_remote_account`], for an actor document already in
+/// hand (Mastodon's `prefetched_body`).
+pub async fn resolve_or_fetch_remote_account_prefetched(
+    state: &AppState,
+    actor_uri: &str,
+    json: Value,
+) -> AppResult<i64> {
+    resolve_or_fetch_remote_account_inner(state, actor_uri, Some(json)).await
+}
+
+async fn resolve_or_fetch_remote_account_inner(
+    state: &AppState,
+    actor_uri: &str,
+    prefetched: Option<Value>,
+) -> AppResult<i64> {
     // An actor URI on our own domain is a *local* account, not a remote one.
     // Resolve it directly (local accounts store an empty `uri`, so the lookup
     // below would miss it) rather than signed-fetching our own actor endpoint,
@@ -328,9 +386,12 @@ pub async fn resolve_or_fetch_remote_account(state: &AppState, actor_uri: &str) 
         return Ok(id);
     }
 
-    let actor: Value = crate::federation::fetch::signed_get_json(state, actor_uri)
-        .await
-        .map_err(AppError::Internal)?;
+    let actor: Value = match prefetched {
+        Some(json) => json,
+        None => crate::federation::fetch::signed_get_json(state, actor_uri)
+            .await
+            .map_err(AppError::Internal)?,
+    };
 
     let username = actor
         .get("preferredUsername")

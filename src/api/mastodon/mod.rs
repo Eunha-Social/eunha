@@ -24,6 +24,7 @@ pub mod oembed;
 pub mod polls;
 pub mod push;
 pub mod reports;
+pub mod resolve_url;
 pub mod scheduled_statuses;
 pub mod search;
 pub mod signup;
