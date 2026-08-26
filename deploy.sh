@@ -3,6 +3,15 @@ set -e
 
 export PATH="$HOME/.orbstack/bin:$PATH"
 
+# Homebrew keeps postgresql off the login PATH, and this script needs `psql`
+# before sqlx can connect. Take whichever versioned formula is installed rather
+# than pinning one, so a major-version upgrade does not stop the deploy at the
+# `CREATE SCHEMA` below — which is where it stopped, after `git pull` and before
+# anything was built.
+for pgbin in /opt/homebrew/opt/postgresql@*/bin; do
+  [ -d "$pgbin" ] && export PATH="$pgbin:$PATH"
+done
+
 # Derive the database name from config.toml so this script is instance-agnostic.
 # config.toml's database_url is the container's view (host.docker.internal); the
 # host-side migration connects via localhost, so we only reuse the DB name.
