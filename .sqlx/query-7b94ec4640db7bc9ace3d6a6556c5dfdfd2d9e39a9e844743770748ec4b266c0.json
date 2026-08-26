@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id FROM statuses\n         WHERE deleted_at IS NULL\n           AND (uri = $1 OR ($2::text IS NOT NULL AND uri = $2 AND url = $1))\n         LIMIT 1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7b94ec4640db7bc9ace3d6a6556c5dfdfd2d9e39a9e844743770748ec4b266c0"
+}
