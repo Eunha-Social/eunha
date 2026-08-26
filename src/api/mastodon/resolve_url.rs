@@ -77,9 +77,7 @@ async fn process_local_url(
                 return Ok(None);
             };
             Ok(sqlx::query_scalar!(
-                "SELECT id FROM accounts
-                 WHERE id = $1 AND domain IS NULL
-                   AND suspended_at IS NULL AND requested_deletion_at IS NULL",
+                "SELECT id FROM accounts WHERE id = $1 AND domain IS NULL",
                 id
             )
             .fetch_optional(&state.db)
@@ -116,14 +114,14 @@ async fn local_account(state: &AppState, handle: &str) -> AppResult<Option<Resol
     }
     let domain = domain.filter(|d| !d.eq_ignore_ascii_case(&state.instance.domain));
 
-    // A suspended or deleting account is `unavailable?`, and eunha treats that
-    // as invisible wherever it is reached from — see `fetch_status_with_account`.
+    // `Account.find_local` / `find_remote` are `unscoped` and do not exclude a
+    // suspended account: nothing authorizes an account the way `show?`
+    // authorizes a status, and the serializer already blanks an unavailable one
+    // down to its `suspended: true` tombstone.
     let id = match domain {
         None => {
             sqlx::query_scalar!(
-                "SELECT id FROM accounts
-                 WHERE lower(username) = lower($1) AND domain IS NULL
-                   AND suspended_at IS NULL AND requested_deletion_at IS NULL",
+                "SELECT id FROM accounts WHERE lower(username) = lower($1) AND domain IS NULL",
                 username
             )
             .fetch_optional(&state.db)
@@ -132,8 +130,7 @@ async fn local_account(state: &AppState, handle: &str) -> AppResult<Option<Resol
         Some(domain) => {
             sqlx::query_scalar!(
                 "SELECT id FROM accounts
-                 WHERE lower(username) = lower($1) AND lower(domain) = lower($2)
-                   AND suspended_at IS NULL AND requested_deletion_at IS NULL",
+                 WHERE lower(username) = lower($1) AND lower(domain) = lower($2)",
                 username,
                 domain
             )
@@ -181,13 +178,10 @@ async fn process_url_from_db(
     // The origin is unreachable or broken rather than the URL being wrong: an
     // account we already know is a better answer than none.
     if matches!(response_code, None | Some(500 | 502 | 503 | 504)) {
-        if let Some(id) = sqlx::query_scalar!(
-            "SELECT id FROM accounts WHERE uri = $1 AND uri != ''
-               AND suspended_at IS NULL AND requested_deletion_at IS NULL",
-            url
-        )
-        .fetch_optional(&state.db)
-        .await?
+        if let Some(id) =
+            sqlx::query_scalar!("SELECT id FROM accounts WHERE uri = $1 AND uri != ''", url)
+                .fetch_optional(&state.db)
+                .await?
         {
             return Ok(Some(Resolved::Account(id)));
         }

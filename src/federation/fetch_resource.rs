@@ -232,17 +232,18 @@ pub fn type_matches(json: &Value, types: &[&str]) -> bool {
 
 /// The href of a `Link:` header advertising the ActivityPub representation.
 fn link_header_alternate(headers: &reqwest::header::HeaderMap) -> Option<String> {
-    // Mastodon parses only the first `Link` header when several are present.
+    // Mastodon parses only the first `Link` header when several are present,
+    // and looks for `application/activity+json` across all of them before
+    // settling for the JSON-LD spelling — so the order of the types decides,
+    // not the order of the links.
     let raw = headers.get("link")?.to_str().ok()?;
-    parse_link_header(raw)
-        .into_iter()
-        .find(|link| {
-            link.rel_includes("alternate")
-                && link
-                    .param("type")
-                    .is_some_and(|t| ACTIVITY_STREAM_LINK_TYPES.contains(&t))
-        })
-        .map(|link| link.href)
+    let links = parse_link_header(raw);
+    ACTIVITY_STREAM_LINK_TYPES.iter().find_map(|wanted| {
+        links
+            .iter()
+            .find(|link| link.rel_includes("alternate") && link.param("type") == Some(*wanted))
+            .map(|link| link.href.clone())
+    })
 }
 
 /// One entry of a `Link:` header.
@@ -484,6 +485,26 @@ mod tests {
         assert_eq!(
             link_header_alternate(&headers).as_deref(),
             Some("https://a.test/ap/1")
+        );
+    }
+
+    /// `application/activity+json` wins over the JSON-LD spelling wherever each
+    /// appears in the header, because that is the order Mastodon asks in.
+    #[test]
+    fn link_header_prefers_activity_json_over_ld_json() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            "link",
+            concat!(
+                r#"<https://a.test/ld>; rel="alternate"; type="application/ld+json; profile=\"https://www.w3.org/ns/activitystreams\"", "#,
+                r#"<https://a.test/ap>; rel="alternate"; type="application/activity+json""#
+            )
+            .parse()
+            .unwrap(),
+        );
+        assert_eq!(
+            link_header_alternate(&headers).as_deref(),
+            Some("https://a.test/ap")
         );
     }
 
