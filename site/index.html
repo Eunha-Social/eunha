@@ -297,6 +297,35 @@
     word-break: break-word;
   }
 
+  /* ---- instance panel -------------------------------------------------- */
+
+  .instance {
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    background: var(--bg-sunken);
+    padding: 1.5rem;
+  }
+  .instance .domain {
+    font-family: var(--mono);
+    font-size: clamp(1.25rem, 4.5vw, 1.625rem);
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    margin: 0 0 0.9rem;
+  }
+  .instance .domain a { text-decoration-color: var(--rule); }
+  .instance p { max-width: none; }
+  .instance .actions { margin-top: 1.5rem; }
+  .instance .facts { margin-top: 1.5rem; }
+
+  /* A mint dot: this one is running right now. */
+  .dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: var(--rule);
+    flex: none;
+  }
+
   /* ---- link list ------------------------------------------------------- */
 
   .links {
@@ -358,7 +387,7 @@
 
     <div class="actions">
       <a class="btn btn-primary" href="https://github.com/limeburst/eunha">Source on GitHub</a>
-      <a class="btn" href="https://github.com/limeburst/eunha#readme">Read the README</a>
+      <a class="btn" href="https://eunha.space"><span class="dot" aria-hidden="true"></span>eunha.space, running it</a>
       <a class="btn" href="https://github.com/limeburst/eunha/blob/main/PROTOCOL.md">PROTOCOL.md</a>
     </div>
 
@@ -389,6 +418,35 @@
         implementation. Where eunha behaves differently, the difference is
         written down rather than discovered.
       </p>
+    </section>
+
+    <section class="prose" id="instance">
+      <h2>An instance you can join</h2>
+
+      <div class="instance">
+        <p class="domain"><a href="https://eunha.space">eunha.space</a></p>
+        <p>
+          The instance we run on eunha, and the one to look at if you would
+          rather read a server than a repository. It is not a demo: it
+          federates with the rest of the network, and any Mastodon client
+          will talk to it, because the API is the same API.
+        </p>
+        <p class="note">
+          Registration is open and needs no approval. Whatever eunha does
+          wrong, it does wrong there first.
+        </p>
+
+        <div class="actions">
+          <a class="btn btn-primary" href="https://eunha.space/auth/sign_up">Create an account</a>
+          <a class="btn" href="https://eunha.space/explore">Look around first</a>
+        </div>
+
+        <p class="facts">
+          <span><b>Runs</b> 0.2.0+mastodon.4.7.0</span>
+          <span><b>Registration</b> open</span>
+          <span><b>Languages</b> ko, en</span>
+        </p>
+      </div>
     </section>
 
     <section class="prose">
@@ -497,6 +555,13 @@ mise run schema:check                 <span class="c"># does this database match
     <section>
       <h2>Elsewhere</h2>
       <ul class="links">
+        <li>
+          <a href="https://eunha.space">
+            <span class="name">eunha.space</span>
+            <span class="desc">The instance we run on eunha, open to anyone</span>
+            <span class="arrow">↗</span>
+          </a>
+        </li>
         <li>
           <a href="https://github.com/limeburst/eunha">
             <span class="name">github.com/limeburst/eunha</span>
