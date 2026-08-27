@@ -362,9 +362,10 @@ pub async fn confirm_email(
     .flatten();
 
     let Some(pending) = pending else {
-        return (StatusCode::NOT_FOUND, Html(
-            "<h1>Invalid confirmation link</h1><p>This link may have already been used, expired, or is invalid.</p>".to_string()
-        )).into_response();
+        // A dead end told someone their link was broken and left them there. The
+        // usual reason a link is dead is that it already worked, so send them to
+        // the place they were headed anyway and say so there.
+        return Redirect::to("/account/login?confirmed=invalid").into_response();
     };
 
     let (private_key, public_key) = match crypto::generate_rsa_keypair() {
@@ -490,8 +491,13 @@ pub async fn confirm_email(
         }
     }
 
-    Html("<h1>Email confirmed!</h1><p>Your account is now active. You can sign in.</p>".to_string())
-        .into_response()
+    // No app to hand back to — a signup from eunha's own form, or one whose app
+    // registered no redirect. Sign-in is the next step either way.
+    if needs_approval {
+        Redirect::to("/account/login?confirmed=pending").into_response()
+    } else {
+        Redirect::to("/account/login?confirmed=1").into_response()
+    }
 }
 
 // ── GET /api/v1/emails/check_confirmation ────────────────────────────────

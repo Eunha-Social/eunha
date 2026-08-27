@@ -129,6 +129,11 @@ pub async fn account_home(
 pub struct LoginQuery {
     /// Set by the account-deletion redirect to show Mastodon's `success_msg`.
     pub deleted: Option<String>,
+    /// Set by the email-confirmation redirect: `1` once the account is live,
+    /// `pending` when it still waits on an admin, `invalid` when the link had
+    /// already been used or had expired. The sign-in form is what the person
+    /// needs next in every one of those cases, so they all land here.
+    pub confirmed: Option<String>,
 }
 
 pub async fn login_page(
@@ -141,14 +146,21 @@ pub async fn login_page(
     let locale = Locale::detect(None, accept_language(&headers));
     let domain = instance.domain.clone();
 
+    let (notice, error) = match query.confirmed.as_deref() {
+        Some("1") => (locale.t("confirm_success"), ""),
+        Some("pending") => (locale.t("pending_approval"), ""),
+        Some("invalid") => ("", locale.t("confirm_invalid")),
+        _ if query.deleted.as_deref() == Some("1") => (locale.t("delete_success"), ""),
+        _ => ("", ""),
+    };
+
     let html = templates::render(
         "account_login.html",
         minijinja::context! {
             lang => locale.as_str(),
             domain,
-            error => "",
-            deleted => query.deleted.as_deref() == Some("1"),
-            t_deleted => locale.t("delete_success"),
+            error,
+            notice,
             t_email => locale.t("email"),
             t_password => locale.t("password"),
             t_sign_in => locale.t("sign_in"),

@@ -186,6 +186,19 @@ impl Locale {
             (Self::Ko, "pending_approval") => "계정 승인 대기 중입니다. 승인되면 알려드리겠습니다.",
             (Self::En, "apply_for_account") => "Apply for an account",
             (Self::Ko, "apply_for_account") => "계정 신청하기",
+            // ── email confirmation ───────────────────────────────────────────
+            (Self::En, "confirm_success") => {
+                "Your email is confirmed. Sign in to start using your account."
+            }
+            (Self::Ko, "confirm_success") => {
+                "이메일이 인증되었습니다. 로그인하여 계정을 사용하세요."
+            }
+            (Self::En, "confirm_invalid") => {
+                "That confirmation link is no longer valid. It may already have been used, or it may have expired — try signing in."
+            }
+            (Self::Ko, "confirm_invalid") => {
+                "인증 링크가 더 이상 유효하지 않습니다. 이미 사용되었거나 만료되었을 수 있습니다. 로그인해 보세요."
+            }
             // fallback
             _ => "",
         }

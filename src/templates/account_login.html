@@ -13,7 +13,7 @@
   <h1>{{ t_account }}</h1>
   <p class="sub">{{ domain }}</p>
   <div id="msg">
-    {% if deleted %}<div class="success">{{ t_deleted }}</div>{% endif %}
+    {% if notice %}<div class="success">{{ notice }}</div>{% endif %}
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
   </div>
   <form hx-post="/account/login" hx-target="#msg" hx-swap="innerHTML">
