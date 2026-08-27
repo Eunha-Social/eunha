@@ -144,6 +144,14 @@ pub async fn trending_statuses(
                  SELECT 1 FROM mutes mu
                  WHERE mu.account_id = $3 AND mu.target_account_id = s.account_id
                    AND (mu.expires_at IS NULL OR mu.expires_at > now())
+             ) OR EXISTS (
+                 -- Mute exemption: a post that mentions me.
+                 SELECT 1 FROM mentions mn
+                 WHERE mn.status_id = s.id AND mn.account_id = $3 AND NOT mn.silent
+             ) OR EXISTS (
+                 -- Mute exemption: a quote of a post of mine.
+                 SELECT 1 FROM quotes q
+                 WHERE q.status_id = s.id AND q.quoted_account_id = $3
              ))
            ORDER BY (COALESCE((SELECT favourites_count FROM status_stats WHERE status_id = s.id), 0)
                    + COALESCE((SELECT reblogs_count FROM status_stats WHERE status_id = s.id), 0) * 2) DESC, s.created_at DESC

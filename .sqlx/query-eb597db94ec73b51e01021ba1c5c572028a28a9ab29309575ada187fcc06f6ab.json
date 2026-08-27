@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT s.*\n           FROM statuses s\n           JOIN accounts a ON a.id = s.account_id\n           WHERE s.id = ANY($2::bigint[])\n           AND s.deleted_at IS NULL\n           AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL\n           AND NOT EXISTS (\n               SELECT 1 FROM mutes m\n               WHERE m.account_id = $1 AND m.target_account_id = s.account_id\n               AND (m.expires_at IS NULL OR m.expires_at > now())\n           )\n           AND (s.account_id = $1 OR NOT EXISTS (\n               SELECT 1 FROM blocks b\n               WHERE (b.account_id = $1 AND b.target_account_id = s.account_id)\n                  OR (b.account_id = s.account_id AND b.target_account_id = $1)\n           ))\n           AND (s.reblog_of_id IS NULL OR NOT EXISTS (\n               SELECT 1 FROM statuses orig\n               JOIN blocks b ON (\n                   (b.account_id = $1 AND b.target_account_id = orig.account_id)\n                   OR (b.account_id = orig.account_id AND b.target_account_id = $1)\n               )\n               WHERE orig.id = s.reblog_of_id\n           ))\n           AND (s.reblog_of_id IS NULL OR NOT EXISTS (\n               SELECT 1 FROM statuses orig\n               JOIN mutes m ON m.account_id = $1 AND m.target_account_id = orig.account_id\n                   AND (m.expires_at IS NULL OR m.expires_at > now())\n               WHERE orig.id = s.reblog_of_id\n           ))\n           AND (s.reblog_of_id IS NULL OR NOT EXISTS (\n               SELECT 1 FROM statuses orig\n               JOIN accounts orig_a ON orig_a.id = orig.account_id\n               JOIN account_domain_blocks adb ON adb.account_id = $1 AND adb.domain = orig_a.domain\n               WHERE orig.id = s.reblog_of_id\n           ))",
+  "query": "SELECT s.* FROM statuses s\n           JOIN accounts a ON a.id = s.account_id\n           WHERE s.deleted_at IS NULL\n             AND s.visibility = 0\n             AND s.reblog_of_id IS NULL\n             AND s.created_at > now() - interval '2 days'\n             AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL\n             AND ($3::bigint IS NULL OR NOT EXISTS (\n                 SELECT 1 FROM blocks b\n                 WHERE (b.account_id = $3 AND b.target_account_id = s.account_id)\n                    OR (b.account_id = s.account_id AND b.target_account_id = $3)\n             ))\n             AND ($3::bigint IS NULL OR NOT EXISTS (\n                 SELECT 1 FROM mutes mu\n                 WHERE mu.account_id = $3 AND mu.target_account_id = s.account_id\n                   AND (mu.expires_at IS NULL OR mu.expires_at > now())\n             ) OR EXISTS (\n                 -- Mute exemption: a post that mentions me.\n                 SELECT 1 FROM mentions mn\n                 WHERE mn.status_id = s.id AND mn.account_id = $3 AND NOT mn.silent\n             ) OR EXISTS (\n                 -- Mute exemption: a quote of a post of mine.\n                 SELECT 1 FROM quotes q\n                 WHERE q.status_id = s.id AND q.quoted_account_id = $3\n             ))\n           ORDER BY (COALESCE((SELECT favourites_count FROM status_stats WHERE status_id = s.id), 0)\n                   + COALESCE((SELECT reblogs_count FROM status_stats WHERE status_id = s.id), 0) * 2) DESC, s.created_at DESC\n           LIMIT $1 OFFSET $2",
   "describe": {
     "columns": [
       {
@@ -132,7 +132,8 @@
     "parameters": {
       "Left": [
         "Int8",
-        "Int8Array"
+        "Int8",
+        "Int8"
       ]
     },
     "nullable": [
@@ -163,5 +164,5 @@
       false
     ]
   },
-  "hash": "0d957e4b42cf146d7d10d91e418dc494b64ad4a9eb9a0c058bb5633601a1452b"
+  "hash": "eb597db94ec73b51e01021ba1c5c572028a28a9ab29309575ada187fcc06f6ab"
 }

@@ -406,27 +406,69 @@ pub async fn create_and_push(
         return;
     }
 
-    // Don't notify if the recipient mutes the sender with hide_notifications.
-    let notifications_hidden = sqlx::query_scalar!(
-        r#"SELECT 1 FROM mutes
-           WHERE account_id = $1 AND target_account_id = $2 AND hide_notifications = true
-             AND (expires_at IS NULL OR expires_at > now())"#,
-        recipient_id,
-        from_account_id,
-    )
-    .fetch_optional(&db)
-    .await
-    .ok()
-    .flatten()
-    .is_some();
-    if notifications_hidden {
-        return;
+    // Don't notify if the recipient mutes the sender with hide_notifications —
+    // unless the notification is about the recipient rather than about the muted
+    // account. A mute here silences someone's posts, not their answering mine:
+    // a mention of me, and a favourite, boost or quote of a post of mine, get
+    // through a mute the way they get through nothing being set at all. This is
+    // the `mute-does-not-silence-replies-to-me` divergence in divergences.toml;
+    // Mastodon's NotifyService drops all of these.
+    let mute_exempt = if notification_type == "mention" {
+        true
+    } else if let Some(sid) = status_id {
+        sqlx::query_scalar!(
+            r#"SELECT 1 FROM statuses s
+               WHERE s.id = $2
+                 AND (
+                   s.account_id = $1
+                   OR EXISTS (
+                     SELECT 1 FROM statuses rb
+                     WHERE rb.id = s.reblog_of_id AND rb.account_id = $1
+                   )
+                   OR EXISTS (
+                     SELECT 1 FROM quotes q
+                     WHERE q.status_id = s.id AND q.quoted_account_id = $1
+                   )
+                   OR EXISTS (
+                     SELECT 1 FROM mentions mn
+                     WHERE mn.status_id = s.id AND mn.account_id = $1 AND NOT mn.silent
+                   )
+                 )"#,
+            recipient_id,
+            sid,
+        )
+        .fetch_optional(&db)
+        .await
+        .ok()
+        .flatten()
+        .is_some()
+    } else {
+        false
+    };
+    if !mute_exempt {
+        let notifications_hidden = sqlx::query_scalar!(
+            r#"SELECT 1 FROM mutes
+               WHERE account_id = $1 AND target_account_id = $2 AND hide_notifications = true
+                 AND (expires_at IS NULL OR expires_at > now())"#,
+            recipient_id,
+            from_account_id,
+        )
+        .fetch_optional(&db)
+        .await
+        .ok()
+        .flatten()
+        .is_some();
+        if notifications_hidden {
+            return;
+        }
     }
 
     // Mastodon's `blocked_mention?` — `FeedManager#filter_from_mentions?`. A
     // mention is dropped when the status mentions, or replies to, an account the
-    // recipient blocks or mutes, even though the sender does not. The point is
-    // not to be pulled into a conversation with someone deliberately shut out.
+    // recipient blocks, even though the sender does not. The point is not to be
+    // pulled into a conversation with someone deliberately shut out. Mastodon
+    // drops it for a muted third party too; eunha does not, because a mute here
+    // is about not reading someone's posts, and this post is addressed to me.
     if notification_type == "mention" {
         if let Some(sid) = status_id {
             let drags_in_blocked = sqlx::query_scalar!(
@@ -439,16 +481,9 @@ pub async fn create_and_push(
                          SELECT s.in_reply_to_account_id WHERE s.in_reply_to_account_id IS NOT NULL
                        ) AS involved(account_id)
                        WHERE involved.account_id <> $1
-                         AND (
-                           EXISTS (
-                             SELECT 1 FROM blocks b
-                             WHERE b.account_id = $1 AND b.target_account_id = involved.account_id
-                           )
-                           OR EXISTS (
-                             SELECT 1 FROM mutes mu
-                             WHERE mu.account_id = $1 AND mu.target_account_id = involved.account_id
-                               AND (mu.expires_at IS NULL OR mu.expires_at > now())
-                           )
+                         AND EXISTS (
+                           SELECT 1 FROM blocks b
+                           WHERE b.account_id = $1 AND b.target_account_id = involved.account_id
                          )
                      )"#,
                 recipient_id,

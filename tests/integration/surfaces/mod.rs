@@ -6,6 +6,7 @@ mod divergences;
 mod entity_parity;
 mod error_contract;
 mod invite_tree;
+mod mute_exemptions;
 mod notification_rules;
 mod oembed;
 mod poll_semantics;

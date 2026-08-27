@@ -320,6 +320,14 @@ pub async fn search(
                      SELECT 1 FROM mutes mu
                      WHERE mu.account_id = $4 AND mu.target_account_id = s.account_id
                        AND (mu.expires_at IS NULL OR mu.expires_at > now())
+                 ) OR EXISTS (
+                     -- Mute exemption: a post that mentions me.
+                     SELECT 1 FROM mentions mn
+                     WHERE mn.status_id = s.id AND mn.account_id = $4 AND NOT mn.silent
+                 ) OR EXISTS (
+                     -- Mute exemption: a quote of a post of mine.
+                     SELECT 1 FROM quotes q
+                     WHERE q.status_id = s.id AND q.quoted_account_id = $4
                  ))
                  AND to_tsvector('simple', coalesce(s.text, ''))
                      @@ websearch_to_tsquery('simple', $1)

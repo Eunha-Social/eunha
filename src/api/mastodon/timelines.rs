@@ -98,6 +98,14 @@ pub async fn public_timeline(
                      SELECT 1 FROM mutes mu
                      WHERE mu.account_id = $6 AND mu.target_account_id = s.account_id
                        AND (mu.expires_at IS NULL OR mu.expires_at > now())
+                 ) OR EXISTS (
+                     -- Mute exemption: a post that mentions me.
+                     SELECT 1 FROM mentions mn
+                     WHERE mn.status_id = s.id AND mn.account_id = $6 AND NOT mn.silent
+                 ) OR EXISTS (
+                     -- Mute exemption: a quote of a post of mine.
+                     SELECT 1 FROM quotes q
+                     WHERE q.status_id = s.id AND q.quoted_account_id = $6
                  ))
                ORDER BY s.id ASC
                LIMIT $3"#,
@@ -145,6 +153,14 @@ pub async fn public_timeline(
                      SELECT 1 FROM mutes mu
                      WHERE mu.account_id = $7 AND mu.target_account_id = s.account_id
                        AND (mu.expires_at IS NULL OR mu.expires_at > now())
+                 ) OR EXISTS (
+                     -- Mute exemption: a post that mentions me.
+                     SELECT 1 FROM mentions mn
+                     WHERE mn.status_id = s.id AND mn.account_id = $7 AND NOT mn.silent
+                 ) OR EXISTS (
+                     -- Mute exemption: a quote of a post of mine.
+                     SELECT 1 FROM quotes q
+                     WHERE q.status_id = s.id AND q.quoted_account_id = $7
                  ))
                ORDER BY s.id DESC
                LIMIT $3"#,
@@ -241,11 +257,23 @@ async fn hydrate_home_statuses(
            AND (a.domain IS NULL OR NOT EXISTS (
                SELECT 1 FROM domain_blocks db WHERE db.domain = a.domain
            ))
-           AND NOT EXISTS (
+           AND (NOT EXISTS (
                SELECT 1 FROM mutes m
                WHERE m.account_id = $1 AND m.target_account_id = s.account_id
                AND (m.expires_at IS NULL OR m.expires_at > now())
-           )
+           ) OR EXISTS (
+               -- Mute exemption: a post that mentions me.
+               SELECT 1 FROM mentions mn
+               WHERE mn.status_id = s.id AND mn.account_id = $1 AND NOT mn.silent
+           ) OR EXISTS (
+               -- Mute exemption: a boost of a post of mine.
+               SELECT 1 FROM statuses rb
+               WHERE rb.id = s.reblog_of_id AND rb.account_id = $1
+           ) OR EXISTS (
+               -- Mute exemption: a quote of a post of mine.
+               SELECT 1 FROM quotes q
+               WHERE q.status_id = s.id AND q.quoted_account_id = $1
+           ))
            AND (s.account_id = $1 OR NOT EXISTS (
                SELECT 1 FROM blocks b
                WHERE (b.account_id = $1 AND b.target_account_id = s.account_id)
@@ -264,6 +292,10 @@ async fn hydrate_home_statuses(
                JOIN mutes m ON m.account_id = $1 AND m.target_account_id = orig.account_id
                    AND (m.expires_at IS NULL OR m.expires_at > now())
                WHERE orig.id = s.reblog_of_id
+           ) OR EXISTS (
+               -- Mute exemption: the boosted post mentions me.
+               SELECT 1 FROM mentions mn
+               WHERE mn.status_id = s.reblog_of_id AND mn.account_id = $1 AND NOT mn.silent
            ))
            AND (s.reblog_of_id IS NULL OR NOT EXISTS (
                SELECT 1 FROM statuses orig
@@ -351,11 +383,23 @@ async fn home_timeline_from_db(
                AND (a.domain IS NULL OR NOT EXISTS (
                    SELECT 1 FROM domain_blocks db WHERE db.domain = a.domain
                ))
-               AND NOT EXISTS (
+               AND (NOT EXISTS (
                    SELECT 1 FROM mutes m
                    WHERE m.account_id = $1 AND m.target_account_id = s.account_id
                    AND (m.expires_at IS NULL OR m.expires_at > now())
-               )
+               ) OR EXISTS (
+                   -- Mute exemption: a post that mentions me.
+                   SELECT 1 FROM mentions mn
+                   WHERE mn.status_id = s.id AND mn.account_id = $1 AND NOT mn.silent
+               ) OR EXISTS (
+                   -- Mute exemption: a boost of a post of mine.
+                   SELECT 1 FROM statuses rb
+                   WHERE rb.id = s.reblog_of_id AND rb.account_id = $1
+               ) OR EXISTS (
+                   -- Mute exemption: a quote of a post of mine.
+                   SELECT 1 FROM quotes q
+                   WHERE q.status_id = s.id AND q.quoted_account_id = $1
+               ))
                AND (s.account_id = $1 OR NOT EXISTS (
                    SELECT 1 FROM blocks b
                    WHERE (b.account_id = $1 AND b.target_account_id = s.account_id)
@@ -374,6 +418,10 @@ async fn home_timeline_from_db(
                    JOIN mutes m ON m.account_id = $1 AND m.target_account_id = orig.account_id
                        AND (m.expires_at IS NULL OR m.expires_at > now())
                    WHERE orig.id = s.reblog_of_id
+               ) OR EXISTS (
+                   -- Mute exemption: the boosted post mentions me.
+                   SELECT 1 FROM mentions mn
+                   WHERE mn.status_id = s.reblog_of_id AND mn.account_id = $1 AND NOT mn.silent
                ))
                AND (s.reblog_of_id IS NULL OR NOT EXISTS (
                    SELECT 1 FROM statuses orig
@@ -469,11 +517,23 @@ async fn home_timeline_from_db(
                AND (a.domain IS NULL OR NOT EXISTS (
                    SELECT 1 FROM domain_blocks db WHERE db.domain = a.domain
                ))
-               AND NOT EXISTS (
+               AND (NOT EXISTS (
                    SELECT 1 FROM mutes m
                    WHERE m.account_id = $1 AND m.target_account_id = s.account_id
                    AND (m.expires_at IS NULL OR m.expires_at > now())
-               )
+               ) OR EXISTS (
+                   -- Mute exemption: a post that mentions me.
+                   SELECT 1 FROM mentions mn
+                   WHERE mn.status_id = s.id AND mn.account_id = $1 AND NOT mn.silent
+               ) OR EXISTS (
+                   -- Mute exemption: a boost of a post of mine.
+                   SELECT 1 FROM statuses rb
+                   WHERE rb.id = s.reblog_of_id AND rb.account_id = $1
+               ) OR EXISTS (
+                   -- Mute exemption: a quote of a post of mine.
+                   SELECT 1 FROM quotes q
+                   WHERE q.status_id = s.id AND q.quoted_account_id = $1
+               ))
                AND (s.account_id = $1 OR NOT EXISTS (
                    SELECT 1 FROM blocks b
                    WHERE (b.account_id = $1 AND b.target_account_id = s.account_id)
@@ -492,6 +552,10 @@ async fn home_timeline_from_db(
                    JOIN mutes m ON m.account_id = $1 AND m.target_account_id = orig.account_id
                        AND (m.expires_at IS NULL OR m.expires_at > now())
                    WHERE orig.id = s.reblog_of_id
+               ) OR EXISTS (
+                   -- Mute exemption: the boosted post mentions me.
+                   SELECT 1 FROM mentions mn
+                   WHERE mn.status_id = s.reblog_of_id AND mn.account_id = $1 AND NOT mn.silent
                ))
                AND (s.reblog_of_id IS NULL OR NOT EXISTS (
                    SELECT 1 FROM statuses orig
@@ -652,11 +716,23 @@ async fn hydrate_list_statuses(
            WHERE s.id = ANY($2::bigint[])
            AND s.deleted_at IS NULL
            AND a.suspended_at IS NULL AND a.requested_deletion_at IS NULL
-           AND NOT EXISTS (
+           AND (NOT EXISTS (
                SELECT 1 FROM mutes m
                WHERE m.account_id = $1 AND m.target_account_id = s.account_id
                AND (m.expires_at IS NULL OR m.expires_at > now())
-           )
+           ) OR EXISTS (
+               -- Mute exemption: a post that mentions me.
+               SELECT 1 FROM mentions mn
+               WHERE mn.status_id = s.id AND mn.account_id = $1 AND NOT mn.silent
+           ) OR EXISTS (
+               -- Mute exemption: a boost of a post of mine.
+               SELECT 1 FROM statuses rb
+               WHERE rb.id = s.reblog_of_id AND rb.account_id = $1
+           ) OR EXISTS (
+               -- Mute exemption: a quote of a post of mine.
+               SELECT 1 FROM quotes q
+               WHERE q.status_id = s.id AND q.quoted_account_id = $1
+           ))
            AND (s.account_id = $1 OR NOT EXISTS (
                SELECT 1 FROM blocks b
                WHERE (b.account_id = $1 AND b.target_account_id = s.account_id)
@@ -675,6 +751,10 @@ async fn hydrate_list_statuses(
                JOIN mutes m ON m.account_id = $1 AND m.target_account_id = orig.account_id
                    AND (m.expires_at IS NULL OR m.expires_at > now())
                WHERE orig.id = s.reblog_of_id
+           ) OR EXISTS (
+               -- Mute exemption: the boosted post mentions me.
+               SELECT 1 FROM mentions mn
+               WHERE mn.status_id = s.reblog_of_id AND mn.account_id = $1 AND NOT mn.silent
            ))
            AND (s.reblog_of_id IS NULL OR NOT EXISTS (
                SELECT 1 FROM statuses orig
@@ -754,6 +834,10 @@ async fn list_timeline_from_db(
                      JOIN mutes m2 ON m2.account_id = $5 AND m2.target_account_id = orig.account_id
                          AND (m2.expires_at IS NULL OR m2.expires_at > now())
                      WHERE orig.id = s.reblog_of_id
+                 ) OR EXISTS (
+                     -- Mute exemption: the boosted post mentions me.
+                     SELECT 1 FROM mentions mn
+                     WHERE mn.status_id = s.reblog_of_id AND mn.account_id = $5 AND NOT mn.silent
                  ))
                  AND (s.reblog_of_id IS NULL OR NOT EXISTS (
                      SELECT 1 FROM statuses orig
@@ -773,11 +857,23 @@ async fn list_timeline_from_db(
                       OR s.reblog_of_id IS NOT NULL
                       OR s.poll_id IS NOT NULL
                       OR EXISTS (SELECT 1 FROM media_attachments WHERE status_id = s.id))
-                 AND NOT EXISTS (
+                 AND (NOT EXISTS (
                      SELECT 1 FROM mutes mu
                      WHERE mu.account_id = $5 AND mu.target_account_id = s.account_id
                        AND (mu.expires_at IS NULL OR mu.expires_at > now())
-                 )
+                 ) OR EXISTS (
+                     -- Mute exemption: a post that mentions me.
+                     SELECT 1 FROM mentions mn
+                     WHERE mn.status_id = s.id AND mn.account_id = $5 AND NOT mn.silent
+                 ) OR EXISTS (
+                     -- Mute exemption: a boost of a post of mine.
+                     SELECT 1 FROM statuses rb
+                     WHERE rb.id = s.reblog_of_id AND rb.account_id = $5
+                 ) OR EXISTS (
+                     -- Mute exemption: a quote of a post of mine.
+                     SELECT 1 FROM quotes q
+                     WHERE q.status_id = s.id AND q.quoted_account_id = $5
+                 ))
                  {moderation_filter}
                  {reply_filter}
                ORDER BY s.id ASC
@@ -804,11 +900,23 @@ async fn list_timeline_from_db(
                       OR s.reblog_of_id IS NOT NULL
                       OR s.poll_id IS NOT NULL
                       OR EXISTS (SELECT 1 FROM media_attachments WHERE status_id = s.id))
-                 AND NOT EXISTS (
+                 AND (NOT EXISTS (
                      SELECT 1 FROM mutes mu
                      WHERE mu.account_id = $5 AND mu.target_account_id = s.account_id
                        AND (mu.expires_at IS NULL OR mu.expires_at > now())
-                 )
+                 ) OR EXISTS (
+                     -- Mute exemption: a post that mentions me.
+                     SELECT 1 FROM mentions mn
+                     WHERE mn.status_id = s.id AND mn.account_id = $5 AND NOT mn.silent
+                 ) OR EXISTS (
+                     -- Mute exemption: a boost of a post of mine.
+                     SELECT 1 FROM statuses rb
+                     WHERE rb.id = s.reblog_of_id AND rb.account_id = $5
+                 ) OR EXISTS (
+                     -- Mute exemption: a quote of a post of mine.
+                     SELECT 1 FROM quotes q
+                     WHERE q.status_id = s.id AND q.quoted_account_id = $5
+                 ))
                  {moderation_filter}
                  {reply_filter}
                ORDER BY s.id DESC
@@ -922,6 +1030,14 @@ pub async fn tag_timeline(
                      SELECT 1 FROM mutes mu
                      WHERE mu.account_id = $9 AND mu.target_account_id = s.account_id
                        AND (mu.expires_at IS NULL OR mu.expires_at > now())
+                 ) OR EXISTS (
+                     -- Mute exemption: a post that mentions me.
+                     SELECT 1 FROM mentions mn
+                     WHERE mn.status_id = s.id AND mn.account_id = $9 AND NOT mn.silent
+                 ) OR EXISTS (
+                     -- Mute exemption: a quote of a post of mine.
+                     SELECT 1 FROM quotes q
+                     WHERE q.status_id = s.id AND q.quoted_account_id = $9
                  ))"#;
 
     let viewer_id: Option<i64> = auth.as_ref().map(|Extension(a)| a.account_id);

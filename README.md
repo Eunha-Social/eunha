@@ -389,10 +389,10 @@ may have adopted the same idea, changed what is being diverged from, or ruled it
 out. `mise run mastodon:plan` prints them when adopting, so the question is
 asked at the moment it can be answered.
 
-At the time of writing there are four, covering integrity proofs on outgoing
-activities, the invite tree, what the update check asks about, and when the
-local-keypair migration is recorded. Read the file rather than this paragraph:
-the file is the one that has to stay true.
+At the time of writing there are five, covering integrity proofs on outgoing
+activities, the invite tree, what the update check asks about, when the
+local-keypair migration is recorded, and what a mute silences. Read the file
+rather than this paragraph: the file is the one that has to stay true.
 
 ### Outstanding from 4.7.0
 
