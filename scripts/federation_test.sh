@@ -217,6 +217,7 @@ MASTODON_TOKEN=$(compose exec -T web bin/rails runner '
     application: app, resource_owner_id: u.id, revoked_at: nil
   ) { |x| x.scopes = "read write follow"; x.expires_in = nil }
   puts t.token' | tr -d '\r' | tail -1)
+[ -n "$MASTODON_TOKEN" ] || { echo "!! Mastodon minted no token" >&2; exit 1; }
 
 echo "==> eunha"
 compose up -d eunha-db
@@ -269,15 +270,19 @@ compose exec -T redis sh -c \
 
 echo "==> Federating"
 STATUS=0
+# `--opt=value`, not `--opt value`: Doorkeeper mints tokens with
+# `SecureRandom.urlsafe_base64`, whose alphabet includes `-`, so a token
+# beginning with one is read by argparse as an option name rather than a value.
+# Everything after the `=` is the value however it starts.
 python3 "$ROOT/scripts/federation_test.py" \
-  --eunha "http://localhost:$EUNHA_HOST_PORT" \
-  --eunha-token "eunha-federation-token" \
-  --eunha-acct "alice@$EUNHA_DOMAIN" \
-  --eunha-second-token "eunha-federation-bob-token" \
-  --mastodon "http://localhost:$MASTODON_HOST_PORT" \
-  --mastodon-host "$MASTODON_DOMAIN" \
-  --mastodon-token "$MASTODON_TOKEN" \
-  --mastodon-acct "masto@$MASTODON_DOMAIN" || STATUS=$?
+  --eunha="http://localhost:$EUNHA_HOST_PORT" \
+  --eunha-token="eunha-federation-token" \
+  --eunha-acct="alice@$EUNHA_DOMAIN" \
+  --eunha-second-token="eunha-federation-bob-token" \
+  --mastodon="http://localhost:$MASTODON_HOST_PORT" \
+  --mastodon-host="$MASTODON_DOMAIN" \
+  --mastodon-token="$MASTODON_TOKEN" \
+  --mastodon-acct="masto@$MASTODON_DOMAIN" || STATUS=$?
 
 # The checks above prove both accounts received the status; this proves it came
 # through the shared inbox rather than two personal ones. It does not prove the

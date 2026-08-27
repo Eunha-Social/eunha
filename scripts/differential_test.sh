@@ -260,9 +260,23 @@ MASTODON_FANS=$(for n in fan1 fan2 fan3; do
   printf '%s:%s,' "$(echo "$line" | cut -d: -f3)" "$(echo "$line" | cut -d: -f2)"
 done | sed 's/,$//')
 
+# A token that came back empty would compare a 401 against a 401 on every read
+# and call it agreement, so say so here rather than a hundred lines later.
+for name in TOKEN OTHER_ID MASTODON_FANS; do
+  [ -n "${!name}" ] || {
+    echo "!! Mastodon minted no $name; the runner said:" >&2
+    printf '%s\n' "$CREDS" >&2
+    exit 1; }
+done
+
 echo "==> Comparing"
+# `--opt=value`, not `--opt value`: Doorkeeper mints tokens with
+# `SecureRandom.urlsafe_base64`, whose alphabet includes `-`, so about one run
+# in sixty-four drew a token beginning with one and argparse read it as an
+# option name — "expected one argument", on a token that was perfectly good.
+# Everything after the `=` is the value however it starts.
 python3 "$ROOT/scripts/differential_test.py" \
-  --eunha "$EUNHA_URL" --mastodon http://localhost:3000 \
-  --eunha-token "$EUNHA_TOKEN" --mastodon-token "$TOKEN" \
-  --eunha-other-id "${EUNHA_OTHER_ID:-}" --mastodon-other-id "$OTHER_ID" \
-  --eunha-fans "${EUNHA_FANS:-}" --mastodon-fans "$MASTODON_FANS"
+  --eunha="$EUNHA_URL" --mastodon=http://localhost:3000 \
+  --eunha-token="$EUNHA_TOKEN" --mastodon-token="$TOKEN" \
+  --eunha-other-id="${EUNHA_OTHER_ID:-}" --mastodon-other-id="$OTHER_ID" \
+  --eunha-fans="${EUNHA_FANS:-}" --mastodon-fans="$MASTODON_FANS"
