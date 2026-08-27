@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>eunha — Mastodon, reimplemented in Rust</title>
+<meta name="description" content="Eunha is a Rust re-implementation of Mastodon that aims for 100% database schema compatibility, so it can be a drop-in replacement on top of an existing Mastodon database.">
+<link rel="canonical" href="https://eunha.social/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://eunha.social/">
+<meta property="og:title" content="eunha — Mastodon, reimplemented in Rust">
+<meta property="og:description" content="A Rust re-implementation of Mastodon that aims for 100% database schema compatibility, so it can be a drop-in replacement on top of an existing Mastodon database.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌙</text></svg>">
+<style>
+  :root {
+    color-scheme: light dark;
+
+    --bg:            oklch(1 0 0);
+    --bg-sunken:     oklch(0.975 0 0);
+    --fg:            oklch(0.145 0 0);
+    --fg-muted:      oklch(0.48 0 0);
+    --fg-faint:      oklch(0.62 0 0);
+    --border:        oklch(0.9 0 0);
+    --border-strong: oklch(0.82 0 0);
+    --code-bg:       oklch(0.965 0 0);
+
+    --measure: 34rem;
+    --gap: clamp(3.5rem, 9vw, 6rem);
+
+    --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+            "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+            "Liberation Mono", monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg:            oklch(0.145 0 0);
+      --bg-sunken:     oklch(0.185 0 0);
+      --fg:            oklch(0.985 0 0);
+      --fg-muted:      oklch(0.72 0 0);
+      --fg-faint:      oklch(0.58 0 0);
+      --border:        oklch(1 0 0 / 12%);
+      --border-strong: oklch(1 0 0 / 22%);
+      --code-bg:       oklch(0.215 0 0);
+    }
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  html { -webkit-text-size-adjust: 100%; }
+
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--sans);
+    font-size: 1rem;
+    line-height: 1.65;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 46rem;
+    margin: 0 auto;
+    padding: 0 1.5rem;
+  }
+
+  a { color: inherit; text-decoration-color: var(--border-strong); text-underline-offset: 0.2em; }
+  a:hover { text-decoration-color: currentColor; }
+
+  code {
+    font-family: var(--mono);
+    font-size: 0.875em;
+    background: var(--code-bg);
+    padding: 0.1em 0.35em;
+    border-radius: 0.25rem;
+  }
+
+  pre {
+    font-family: var(--mono);
+    font-size: 0.8125rem;
+    line-height: 1.7;
+    background: var(--bg-sunken);
+    border: 1px solid var(--border);
+    border-radius: 0.625rem;
+    padding: 1rem 1.15rem;
+    margin: 1.5rem 0;
+    overflow-x: auto;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; }
+  pre .c { color: var(--fg-faint); }
+
+  /* ---- header ---------------------------------------------------------- */
+
+  header {
+    padding: clamp(4rem, 12vw, 7.5rem) 0 0;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--fg-faint);
+    margin: 0 0 1.75rem;
+  }
+
+  h1 {
+    font-size: clamp(2.75rem, 9vw, 4.25rem);
+    line-height: 1.02;
+    letter-spacing: -0.035em;
+    font-weight: 600;
+    margin: 0 0 1.25rem;
+  }
+
+  .lede {
+    font-size: clamp(1.125rem, 2.5vw, 1.3125rem);
+    line-height: 1.5;
+    color: var(--fg-muted);
+    max-width: var(--measure);
+    margin: 0;
+    text-wrap: pretty;
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.625rem;
+    margin-top: 2.25rem;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--border-strong);
+    text-decoration: none;
+    transition: background-color 120ms ease, border-color 120ms ease;
+  }
+  .btn:hover { background: var(--bg-sunken); }
+  .btn-primary {
+    background: var(--fg);
+    color: var(--bg);
+    border-color: var(--fg);
+  }
+  .btn-primary:hover { background: var(--fg); opacity: 0.88; }
+
+  .facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem 1.5rem;
+    margin-top: 2.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--border);
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--fg-faint);
+  }
+  .facts b { font-weight: 500; color: var(--fg-muted); }
+
+  /* ---- sections -------------------------------------------------------- */
+
+  main { padding-bottom: var(--gap); }
+
+  section { margin-top: var(--gap); }
+
+  h2 {
+    font-size: 0.75rem;
+    font-family: var(--mono);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--fg-faint);
+    font-weight: 500;
+    margin: 0 0 1.5rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  h3 {
+    font-size: 1.0625rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0 0 0.4rem;
+  }
+
+  p {
+    max-width: var(--measure);
+    margin: 0 0 1.15rem;
+    text-wrap: pretty;
+  }
+  p:last-child { margin-bottom: 0; }
+
+  .prose strong { font-weight: 600; }
+
+  .note {
+    color: var(--fg-muted);
+    font-size: 0.9375rem;
+  }
+
+  /* ---- cards ----------------------------------------------------------- */
+
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(15.5rem, 1fr));
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 0.75rem;
+    overflow: hidden;
+  }
+
+  .card {
+    background: var(--bg);
+    padding: 1.4rem 1.5rem;
+  }
+  .card p {
+    margin: 0;
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    color: var(--fg-muted);
+    max-width: none;
+  }
+  .card .cmd {
+    display: block;
+    font-family: var(--mono);
+    font-size: 0.75rem;
+    color: var(--fg-faint);
+    margin-top: 0.85rem;
+    word-break: break-word;
+  }
+
+  /* ---- link list ------------------------------------------------------- */
+
+  .links {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    border-top: 1px solid var(--border);
+  }
+  .links li { border-bottom: 1px solid var(--border); }
+  .links a {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.25rem 0.9rem;
+    padding: 0.9rem 0.25rem;
+    text-decoration: none;
+  }
+  .links a:hover { background: var(--bg-sunken); }
+  .links .name { font-weight: 500; }
+  .links .desc { color: var(--fg-muted); font-size: 0.9375rem; }
+  .links .arrow { margin-left: auto; color: var(--fg-faint); }
+
+  /* ---- footer ---------------------------------------------------------- */
+
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 2rem 0 4rem;
+    font-size: 0.875rem;
+    color: var(--fg-faint);
+  }
+  footer p { max-width: none; margin: 0; }
+  footer a { color: var(--fg-muted); }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header>
+    <p class="eyebrow">Mastodon · reimplemented in Rust</p>
+    <h1>eunha</h1>
+    <p class="lede">
+      A Rust re-implementation of Mastodon, aiming for 100% database schema
+      compatibility — so it can be a drop-in replacement on top of the Mastodon
+      database you already have.
+    </p>
+
+    <div class="actions">
+      <a class="btn btn-primary" href="https://github.com/limeburst/eunha">Source on GitHub</a>
+      <a class="btn" href="https://github.com/limeburst/eunha#readme">Read the README</a>
+      <a class="btn" href="https://github.com/limeburst/eunha/blob/main/PROTOCOL.md">PROTOCOL.md</a>
+    </div>
+
+    <p class="facts">
+      <span><b>Tracks</b> Mastodon 4.7.0</span>
+      <span><b>Version</b> 0.2.0+mastodon.4.7.0</span>
+      <span><b>Storage</b> PostgreSQL 17+</span>
+    </p>
+  </header>
+
+  <main>
+
+    <section class="prose">
+      <h2>What it is</h2>
+      <p>
+        Eunha speaks Mastodon's client API and federates over ActivityPub, and
+        it stores everything in Mastodon's own schema. The tables are upstream's
+        tables, down to constraint names and index columns; eunha's own tables
+        live apart, in a <code>eunha</code> schema beside <code>public</code>.
+      </p>
+      <p>
+        That is the whole design constraint. An instance can move to eunha
+        without exporting or reshaping anything, and can move back. Existing
+        clients keep working, because the API they read is the same API.
+      </p>
+      <p class="note">
+        It is not a goal to mimic Mastodon's entire feature set or its
+        implementation. Where eunha behaves differently, the difference is
+        written down rather than discovered.
+      </p>
+    </section>
+
+    <section class="prose">
+      <h2>Compatibility, checked rather than claimed</h2>
+      <p>
+        A compatibility claim decays the moment nobody tests it. Four harnesses
+        keep this one honest, and they run in CI:
+      </p>
+
+      <div class="cards">
+        <div class="card">
+          <h3>Schema check</h3>
+          <p>
+            Reads the live database back out of Postgres and diffs it against a
+            reference built by Mastodon's own ActiveRecord from upstream's
+            <code>schema.rb</code> — types, nullability, defaults, index
+            columns, every constraint by name, sequences, views.
+          </p>
+          <span class="cmd">mise run schema:check</span>
+        </div>
+        <div class="card">
+          <h3>Entity parity</h3>
+          <p>
+            A client reads fields by name, so a missing one breaks it. Every
+            REST entity Mastodon's serializers emit is recorded, and real
+            responses from a running eunha are compared field by field.
+          </p>
+          <span class="cmd">mise run entities:build</span>
+        </div>
+        <div class="card">
+          <h3>Differential testing</h3>
+          <p>
+            The same request goes to eunha and to a real Mastodon in Docker,
+            and the answers are compared: 31 reads, nine writes, and the
+            interaction verbs. Nothing in it encodes what the answer should be.
+          </p>
+          <span class="cmd">mise run differential</span>
+        </div>
+        <div class="card">
+          <h3>Federation</h3>
+          <p>
+            Twenty-four checks in both directions against a live Mastodon:
+            resolve, follow, deliver, favourite, boost, delete. Two servers
+            sharing nothing but the specification.
+          </p>
+          <span class="cmd">mise run federation</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="prose">
+      <h2>Which Mastodon are we?</h2>
+      <p>
+        One file answers that. <code>mastodon.toml</code> names the release
+        whose schema and API a build implements, the version repeats it as
+        build metadata, and the build fails if the two disagree:
+      </p>
+      <pre><code>v0.2.0+mastodon.4.7.0
+<span class="c">│      └── the Mastodon release this build implements</span>
+<span class="c">└── eunha's own version, which moves independently</span></code></pre>
+      <p>
+        Adopting a newer release is a procedure rather than a guess:
+        <code>mastodon:plan</code> lists the Rails migrations upstream added
+        since, one eunha migration reproduces them, and the reference schema is
+        rebuilt so the diff <em>is</em> the delta being adopted.
+      </p>
+      <pre><code>mise run mastodon:status              <span class="c"># is there a newer release?</span>
+mise run mastodon:plan --to v4.8.0    <span class="c"># what would adopting it involve?</span>
+mise run schema:check                 <span class="c"># does this database match?</span></code></pre>
+    </section>
+
+    <section class="prose">
+      <h2>Divergences are data</h2>
+      <p>
+        A difference from Mastodon is either a bug or a decision. The decisions
+        live in <code>divergences.toml</code> — what Mastodon does, what eunha
+        does instead, why, and which test would fail if that stopped being true.
+      </p>
+      <p>
+        They are recorded as data rather than prose because prose is not checked
+        and so stops being true. The test suite reads that file: an entry whose
+        evidence has gone missing fails, and every entry carries the Mastodon
+        release it was last judged against — so <strong>adopting a newer release
+        fails the suite until each divergence has been re-examined</strong>.
+      </p>
+    </section>
+
+    <section class="prose">
+      <h2>Federation, and where it scales badly</h2>
+      <p>
+        Federation is built on <a href="https://github.com/limeburst/feder">feder</a>,
+        extended where necessary. Outgoing requests are signed with the
+        draft-cavage signatures the network still runs on, and double-knocked
+        with RFC 9421 when a peer refuses; inbound requests are verified either
+        way.
+      </p>
+      <p>
+        <code>PROTOCOL.md</code> is a design record of the places ActivityPub
+        scales badly — the dereference storm a boost sets off, the absence of
+        backfill, identity that cannot outlive a hostname — and what eunha
+        proposes for them. It says plainly which parts exist today and which do
+        not.
+      </p>
+    </section>
+
+    <section>
+      <h2>Elsewhere</h2>
+      <ul class="links">
+        <li>
+          <a href="https://github.com/limeburst/eunha">
+            <span class="name">github.com/limeburst/eunha</span>
+            <span class="desc">Source, issues, CI</span>
+            <span class="arrow">↗</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://github.com/limeburst/eunha/blob/main/PROTOCOL.md">
+            <span class="name">PROTOCOL.md</span>
+            <span class="desc">Where ActivityPub scales badly, and what to do</span>
+            <span class="arrow">↗</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://github.com/limeburst/eunha/blob/main/divergences.toml">
+            <span class="name">divergences.toml</span>
+            <span class="desc">Every deliberate difference from Mastodon</span>
+            <span class="arrow">↗</span>
+          </a>
+        </li>
+        <li>
+          <a href="https://github.com/limeburst/feder">
+            <span class="name">feder</span>
+            <span class="desc">The ActivityPub library eunha federates with</span>
+            <span class="arrow">↗</span>
+          </a>
+        </li>
+      </ul>
+    </section>
+
+  </main>
+</div>
+
+<footer>
+  <div class="wrap">
+    <p>
+      eunha — a Mastodon implementation in Rust.
+      Not affiliated with Mastodon gGmbH.
+    </p>
+  </div>
+</footer>
+
+</body>
+</html>
