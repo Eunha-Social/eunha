@@ -192,6 +192,16 @@ export function setFollow(
   return on ? a.follow(params) : a.unfollow(params)
 }
 
+export function setMute(
+  id: string,
+  token: string,
+  on: boolean,
+  params?: { notifications?: boolean; duration?: number },
+) {
+  const a = restClient(token).v1.accounts.$select(id)
+  return on ? a.mute(params) : a.unmute()
+}
+
 export async function getPublicTimeline(
   local: boolean,
   token?: string,

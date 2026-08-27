@@ -1,6 +1,15 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { CheckCircle2, ImageUp, Pencil, Trash2, UserPlus } from 'lucide-react'
+import { toast } from 'sonner'
+import {
+  CheckCircle2,
+  ImageUp,
+  MoreHorizontal,
+  Pencil,
+  Trash2,
+  UserPlus,
+  VolumeX,
+} from 'lucide-react'
 
 import type { mastodon } from '../masto.ts'
 import {
@@ -15,6 +24,7 @@ import {
   getRelationship,
   lookupAccount,
   setFollow,
+  setMute,
   updateAccountImages,
   updateAccountProfile,
 } from '../api.ts'
@@ -26,6 +36,12 @@ import { InfiniteScroll } from '@/components/infinite-scroll.tsx'
 import { TimelineStack } from '@/components/timeline-stack.tsx'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar.tsx'
 import { Button } from '@/components/ui/button.tsx'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { Label } from '@/components/ui/label.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
@@ -630,6 +646,28 @@ export default function Profile() {
     }
   }
 
+  // Muting is about the timeline, not about the person: eunha keeps letting a
+  // muted account mention you and react to your posts (the
+  // `mute-does-not-silence-replies-to-me` divergence), so the copy here says
+  // what the mute will and will not do rather than leaving it to be discovered.
+  const toggleMute = async () => {
+    if (!account || !token || !rel || relationshipBusy) return
+    const muting = !rel.muting
+    setRelationshipBusy(true)
+    try {
+      setRel(await setMute(account.id, token, muting))
+      toast.success(
+        muting
+          ? `Muted @${account.acct}. Their posts are hidden from your timelines; they can still mention you and react to your posts.`
+          : `Unmuted @${account.acct}.`,
+      )
+    } catch (e) {
+      toast.error(errorMessage(e))
+    } finally {
+      setRelationshipBusy(false)
+    }
+  }
+
   const isSelf = account != null && account.id === selfId
 
   const applyUpdatedAccount = (updated: mastodon.v1.Account) => {
@@ -863,14 +901,43 @@ export default function Profile() {
             )}
             {token && rel && !isSelf && (
               <div className="flex flex-col items-end gap-2">
-                <Button
-                  size="sm"
-                  variant={rel.following || rel.requested ? 'outline' : 'default'}
-                  onClick={toggleFollow}
-                  disabled={relationshipBusy}
-                >
-                  {rel.following ? 'Following' : rel.requested ? 'Requested' : 'Follow'}
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant={rel.following || rel.requested ? 'outline' : 'default'}
+                    onClick={toggleFollow}
+                    disabled={relationshipBusy}
+                  >
+                    {rel.following ? 'Following' : rel.requested ? 'Requested' : 'Follow'}
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger
+                      render={
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          aria-label={`More actions for @${account.acct}`}
+                        >
+                          <MoreHorizontal />
+                        </Button>
+                      }
+                    />
+                    <DropdownMenuContent align="end" className="w-auto">
+                      <DropdownMenuItem
+                        onClick={toggleMute}
+                        disabled={relationshipBusy}
+                      >
+                        <VolumeX /> {rel.muting ? 'Unmute' : 'Mute'}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+                {rel.muting && (
+                  <p className="text-muted-foreground max-w-64 text-right text-xs">
+                    Muted — their posts are hidden from your timelines. They can
+                    still mention you and react to your posts.
+                  </p>
+                )}
                 {rel.following && (
                   <Label className="text-xs font-normal">
                     <Switch
