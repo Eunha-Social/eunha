@@ -12,18 +12,22 @@ import { StatusCard } from '@/components/status-card.tsx'
 import { InfiniteScroll } from '@/components/infinite-scroll.tsx'
 import { TimelineStack } from '@/components/timeline-stack.tsx'
 
-export default function PublicTimeline() {
-  const local = useLocation().pathname === '/local'
+// `/local` and `/public` are the same page over two feeds, chosen by the path.
+// `local` is also accepted as a prop, because "/" renders this page for a
+// signed-out visitor and there is no path to read it from there.
+export default function PublicTimeline({ local }: { local?: boolean } = {}) {
+  const pathname = useLocation().pathname
+  const isLocal = local ?? pathname === '/local'
   const token = getToken()
 
   const feed = useInfiniteFeed<mastodon.v1.Status>(
-    (maxId) => getPublicTimeline(local, token ?? undefined, maxId),
-    [local, token],
+    (maxId) => getPublicTimeline(isLocal, token ?? undefined, maxId),
+    [isLocal, token],
   )
   const subscribePublic = useCallback(
     (client: mastodon.streaming.Client) =>
-      local ? client.public.local.subscribe() : client.public.subscribe(),
-    [local],
+      isLocal ? client.public.local.subscribe() : client.public.subscribe(),
+    [isLocal],
   )
 
   useStatusStreaming({

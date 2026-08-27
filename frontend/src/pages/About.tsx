@@ -7,8 +7,9 @@ import { getToken } from '../auth.ts'
 import type { mastodon } from '../masto.ts'
 import { TopBar } from '@/components/top-bar.tsx'
 
-// Server information, reachable by anyone (authenticated users see the home
-// timeline instead of this on "/", so they get here via the sidebar link).
+// Server information, reachable by anyone. Nothing shows it on "/" any more —
+// that is a timeline for signed-in and signed-out visitors alike — so this is
+// the only place the instance describes itself, reached from the sidebar.
 export default function About() {
   const [instance, setInstance] = useState<mastodon.v2.Instance | null>(null)
   const token = getToken()
