@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import {
   AtSign,
   Bookmark,
+  ExternalLink,
   Globe,
   Lock,
   LockOpen,
@@ -162,7 +163,11 @@ export function StatusCard({
     currentUserPolicy !== 'denied' &&
     status.visibility !== 'private' &&
     status.visibility !== 'direct'
-  const hasMenu = isOwn || canQuote
+  // A post that came from another instance: `acct` carries the domain only for
+  // remote accounts. `url` is then the post's page on that instance, which is
+  // where its full context lives — offer it the way Mastodon's web client does.
+  const remoteUrl = status.account.acct.includes('@') ? status.url : null
+  const hasMenu = isOwn || canQuote || !!remoteUrl
 
   useEffect(() => {
     setStatus(initial)
@@ -266,6 +271,20 @@ export function StatusCard({
                   <MoreHorizontal className="size-4" />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
+                  {remoteUrl && (
+                    <DropdownMenuItem
+                      className="no-underline"
+                      render={
+                        <a
+                          href={remoteUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        />
+                      }
+                    >
+                      <ExternalLink /> Open original page
+                    </DropdownMenuItem>
+                  )}
                   {canQuote && (
                     <DropdownMenuItem
                       onClick={() => openCompose({ quoteOf: status })}
