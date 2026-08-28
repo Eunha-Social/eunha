@@ -79,7 +79,7 @@ pub(super) async fn computed_permissions(
 /// everything, otherwise the specific permission is required. eunha's existing
 /// position≥100 admin gate is preserved as a superset so current admins keep
 /// access — this only *adds* moderator support for roles carrying the flag.
-pub(super) async fn require_permission(
+pub(crate) async fn require_permission(
     state: &AppState,
     account_id: i64,
     flag: i64,

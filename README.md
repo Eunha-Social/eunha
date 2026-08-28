@@ -389,11 +389,11 @@ may have adopted the same idea, changed what is being diverged from, or ruled it
 out. `mise run mastodon:plan` prints them when adopting, so the question is
 asked at the moment it can be answered.
 
-At the time of writing there are six, covering integrity proofs on outgoing
-activities, the invite tree and the invite API, what the update check asks
-about, when the local-keypair migration is recorded, and what a mute silences.
-Read the file rather than this paragraph: the file is the one that has to stay
-true.
+At the time of writing there are seven, covering integrity proofs on outgoing
+activities, the invite tree and the two ways eunha's invite API goes beyond
+Mastodon's, what the update check asks about, when the local-keypair migration
+is recorded, and what a mute silences. Read the file rather than this paragraph:
+the file is the one that has to stay true.
 
 ### Outstanding from 4.7.0
 
@@ -428,3 +428,19 @@ an instance that needs to change one runs the `UPDATE`. Upstream will only let
 the everyone role hold `Flags::SAFE` — `invite_users` and
 `invite_bypass_approval` — and nothing here enforces that, so a hand-written
 value should stay inside it.
+
+### Handing them out
+
+That leaves an instance where only staff may invite, which on its own would
+flatten the invite tree: every arrival would be a child of the admin rather than
+of whoever actually brought them. So an admin can mint codes **into a member's
+own account** instead — `POST /api/eunha/v1/invite_grants`, and the “Hand out
+invites” panel on the invite page, for one member or for the whole userbase at
+once. They appear on that member's page to copy and pass on, and a signup
+through one lands under them.
+
+The count is the limit; there is no allowance to keep books on, because the
+codes themselves are the allowance. `manage_invites` is what it takes to hand
+them out, and listing your own invites takes no permission at all — a member who
+cannot create one still has to be able to read what they were given, which is
+where eunha parts company with `InvitesController#index`.

@@ -97,6 +97,40 @@ export async function createInvite(
   return res.json() as Promise<Invite>
 }
 
+export interface GrantInvitesParams {
+  /** Whose account to mint them into; omit for every local member. */
+  account_id?: string
+  count: number
+  /** Uses per code; 1 by default. */
+  max_uses?: number
+  /** Seconds until expiry; omit for never. */
+  expires_in?: number
+  comment?: string
+}
+
+export interface GrantInvitesResult {
+  granted: number
+  accounts: number
+}
+
+/**
+ * Mint invites into other members' accounts (admin only).
+ *
+ * Under `/api/eunha/` because Mastodon has no such action at all: there an
+ * invite is made by whoever hands it out. The codes belong to the member they
+ * are minted for, so a signup through one lands under them in the invite tree.
+ */
+export async function grantInvites(
+  token: string,
+  params: GrantInvitesParams,
+): Promise<GrantInvitesResult> {
+  const res = await eunhaFetch('/api/eunha/v1/invite_grants', token, {
+    method: 'POST',
+    body: JSON.stringify(params),
+  })
+  return res.json() as Promise<GrantInvitesResult>
+}
+
 export async function deleteInvite(token: string, id: string): Promise<void> {
   await eunhaFetch(`/api/v1/invites/${id}`, token, { method: 'DELETE' })
 }

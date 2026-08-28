@@ -80,23 +80,37 @@ export function getCurrentAccount(token: string): Promise<mastodon.v1.AccountCre
   return restClient(token).v1.accounts.verifyCredentials()
 }
 
-/** Mastodon `UserRole::FLAGS[:invite_users]`. */
+/** Mastodon `UserRole::FLAGS`, the two an invite page turns on. */
 const INVITE_USERS = 1 << 16
+const MANAGE_INVITES = 1 << 11
+
+export interface InvitePermissions {
+  /** May create invites of their own. */
+  canInvite: boolean
+  /** May hand invites out to other members, and revoke anyone's. */
+  canGrant: boolean
+}
 
 /**
- * Whether the signed-in account may create invites.
+ * What the signed-in account may do with invites.
  *
  * `verify_credentials` carries the role's *computed* permissions — the account's
  * own role unioned with the everyone role's, which is where `invite_users` sits
  * by default — so this reads the same set the server authorizes against. An
- * instance that would rather hand invites out itself clears that bit, and this
- * turns false for everyone but its staff.
+ * instance that would rather hand invites out itself clears that bit, and
+ * `canInvite` turns false for everyone but its staff.
  */
-export async function canInviteUsers(token: string): Promise<boolean> {
+export async function getInvitePermissions(
+  token: string,
+): Promise<InvitePermissions> {
   const me = await getCurrentAccount(token)
   // masto.js does not model `role` on the credential account.
   const { role } = me as unknown as { role?: { permissions?: string } }
-  return (Number(role?.permissions ?? 0) & INVITE_USERS) !== 0
+  const permissions = Number(role?.permissions ?? 0)
+  return {
+    canInvite: (permissions & INVITE_USERS) !== 0,
+    canGrant: (permissions & MANAGE_INVITES) !== 0,
+  }
 }
 
 export function updateAccountImages(

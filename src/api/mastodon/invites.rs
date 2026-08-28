@@ -30,10 +30,11 @@ pub async fn list_invites(
     Extension(auth): Extension<AuthenticatedUser>,
 ) -> AppResult<Json<Vec<InviteResponse>>> {
     auth.require_scope("read:accounts")?;
-    // Mastodon's `InvitesController#index` authorizes `:invite, :create?`: the
-    // list is the page you create invites from, so losing the permission takes
-    // the page with it.
-    require_invite_users(&state, auth.account_id).await?;
+    // No permission check, where Mastodon's `InvitesController#index`
+    // authorizes `:invite, :create?`. There the list is the page you create
+    // invites from, so losing the permission takes the page with it; here an
+    // admin can mint codes *into* a member's account, and a member who cannot
+    // create one still has to be able to read what they were given.
     let rows = sqlx::query!(
         r#"SELECT id, code, expires_at, max_uses, uses, autofollow, comment, created_at
            FROM invites

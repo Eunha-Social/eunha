@@ -126,8 +126,9 @@ async fn test_invite_comment_too_long() {
 /// Mastodon's `InvitePolicy#create?` is `role.can?(:invite_users)`, and that
 /// permission lives on the everyone role (`UserRole::Flags::DEFAULT`). Taking
 /// it off that role — which is how an instance decides to hand invites out
-/// itself — closes both the create and the list endpoint for an ordinary
-/// member, while staff keep them through their own role.
+/// itself — stops an ordinary member creating invites, while staff keep the
+/// ability through their own role. Listing stays open: an admin can mint codes
+/// into a member's account, and they have to be able to read them.
 #[tokio::test]
 async fn test_invite_users_permission() {
     let ctx = TestContext::new("invite-perm").await;
@@ -159,7 +160,8 @@ async fn test_invite_users_permission() {
             .get("/api/v1/invites", Some(&ctx.alice_token))
             .await
             .status(),
-        StatusCode::FORBIDDEN,
+        StatusCode::OK,
+        "a member should still be able to read invites they hold",
     );
 
     // An admin's own role carries the administrator flag, which grants

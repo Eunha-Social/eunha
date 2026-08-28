@@ -146,3 +146,29 @@ about what it is talking to."""
 evidence = "tests/integration/c2s/invites.rs"
 since = "4.6.0"
 reviewed_for = "4.7.0"
+
+[[divergence]]
+id = "admin-granted-invites"
+kind = "addition"
+summary = "An admin can mint invites into another member's account"
+mastodon = """
+Ties an invite to whoever created it, and `invite_users` is the whole of the \
+question: a member may create as many as they like, or none at all. There is no \
+way to give somebody an invite, and `InvitesController#index` refuses the list \
+to anyone who may not create one."""
+eunha = """
+Serves `POST /api/eunha/v1/invite_grants`, which creates codes owned by a named \
+member — or by every member — for anyone holding `manage_invites`. Listing your \
+own invites needs no permission, so a member who may not create one can still \
+read what they were given."""
+why = """
+An instance that wants to say 'you may bring two people' has nothing in \
+Mastodon to say it with. Taking `invite_users` away leaves the admin as the \
+only inviter, and that flattens the invite tree: everyone becomes a child of \
+the admin rather than of whoever actually brought them. Minting the codes in \
+the member's own name keeps the lineage true, and makes the count itself the \
+limit — so there is no allowance to keep books on, and an invite is still just \
+an invite."""
+evidence = "tests/integration/surfaces/invite_grants.rs"
+since = "4.7.0"
+reviewed_for = "4.7.0"

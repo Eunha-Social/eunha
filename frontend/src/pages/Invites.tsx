@@ -3,12 +3,15 @@ import { Copy, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import {
-  ApiError,
   createInvite,
   deleteInvite,
+  getInviteTree,
   getInvites,
+  grantInvites,
   type Invite,
+  type InviteNode,
 } from '../eunha-api.ts'
+import { getInvitePermissions } from '../api.ts'
 import { beginLogin, getToken } from '../auth.ts'
 import { TopBar } from '@/components/top-bar.tsx'
 import { Button } from '@/components/ui/button.tsx'
@@ -35,6 +38,32 @@ const MAX_USES: Record<string, string> = {
   '50': '50 uses',
   '100': '100 uses',
 }
+// A granted code is one person by default — "three invites" should mean three
+// people, not three links of unbounded reach. Unlimited is deliberately absent.
+const USES_PER_CODE: Record<string, string> = {
+  '1': '1 use each',
+  '5': '5 uses each',
+  '10': '10 uses each',
+  '25': '25 uses each',
+}
+const COUNTS: Record<string, string> = {
+  '1': '1 invite',
+  '2': '2 invites',
+  '3': '3 invites',
+  '5': '5 invites',
+  '10': '10 invites',
+}
+/** Base UI's Select takes `items` as value → label, for what the trigger shows. */
+function grantTargets(
+  members: { id: string; acct: string }[],
+): Record<string, string> {
+  const items: Record<string, string> = {
+    everyone: `Everyone (${members.length} ${members.length === 1 ? 'member' : 'members'})`,
+  }
+  for (const m of members) items[m.id] = `@${m.acct}`
+  return items
+}
+
 const EXPIRES_IN: Record<string, string> = {
   '0': 'Never expires',
   '1800': '30 minutes',
@@ -108,26 +137,84 @@ export default function Invites() {
   const token = getToken()
   const [invites, setInvites] = useState<Invite[] | null>(null)
   const [error, setError] = useState<string | null>(null)
-  // The server is the authority on who may invite (Mastodon's `invite_users`
-  // permission, which an instance can take off the everyone role). Rather than
-  // read the role back and reimplement the rule here, take the list endpoint's
-  // 403 as the answer — it is the same authorization the create button needs.
-  const [forbidden, setForbidden] = useState(false)
+  // Mastodon's `invite_users` and `manage_invites`, read from the role the
+  // server reports rather than guessed at here: the form and the hand-out panel
+  // appear for exactly the accounts the server would let use them.
+  const [perms, setPerms] = useState({ canInvite: false, canGrant: false })
   const [maxUses, setMaxUses] = useState('0')
   const [expiresIn, setExpiresIn] = useState('0')
   const [autofollow, setAutofollow] = useState(false)
   const [comment, setComment] = useState('')
   const [creating, setCreating] = useState(false)
 
+  // Hand-out panel (admins only).
+  const [members, setMembers] = useState<{ id: string; acct: string }[]>([])
+  const [grantTo, setGrantTo] = useState('everyone')
+  const [grantCount, setGrantCount] = useState('1')
+  const [grantUses, setGrantUses] = useState('1')
+  const [grantExpiry, setGrantExpiry] = useState('0')
+  const [grantNote, setGrantNote] = useState('')
+  const [granting, setGranting] = useState(false)
+
+  const reload = () => {
+    if (!token) return
+    getInvites(token)
+      .then(setInvites)
+      .catch((e) => setError(String(e)))
+  }
+
   useEffect(() => {
     if (!token) return
     getInvites(token)
       .then(setInvites)
-      .catch((e) => {
-        if (e instanceof ApiError && e.status === 403) setForbidden(true)
-        else setError(String(e))
-      })
+      .catch((e) => setError(String(e)))
+    getInvitePermissions(token).then(setPerms).catch(() => {})
   }, [token])
+
+  // The invite tree is the member list any member may already read, so the
+  // picker costs no new endpoint. Flattened and sorted by name.
+  useEffect(() => {
+    if (!token || !perms.canGrant) return
+    getInviteTree(token)
+      .then((tree) => {
+        const flat: { id: string; acct: string }[] = []
+        const walk = (nodes: InviteNode[]) => {
+          for (const n of nodes) {
+            flat.push({ id: n.id, acct: n.acct })
+            walk(n.children)
+          }
+        }
+        walk(tree.roots)
+        flat.sort((a, b) => a.acct.localeCompare(b.acct))
+        setMembers(flat)
+      })
+      .catch(() => {})
+  }, [token, perms.canGrant])
+
+  const grant = async () => {
+    if (!token) return
+    setGranting(true)
+    try {
+      const result = await grantInvites(token, {
+        account_id: grantTo === 'everyone' ? undefined : grantTo,
+        count: Number(grantCount),
+        max_uses: Number(grantUses),
+        expires_in: grantExpiry === '0' ? undefined : Number(grantExpiry),
+        comment: grantNote.trim() || undefined,
+      })
+      setGrantNote('')
+      toast.success(
+        `Handed out ${result.granted} invite${result.granted === 1 ? '' : 's'} ` +
+          `to ${result.accounts} member${result.accounts === 1 ? '' : 's'}`,
+      )
+      // The grant may have included this account.
+      reload()
+    } catch {
+      toast.error('Could not hand out invites')
+    } finally {
+      setGranting(false)
+    }
+  }
 
   const create = async () => {
     if (!token) return
@@ -166,11 +253,11 @@ export default function Invites() {
     <div className="page-frame">
       <TopBar />
       <h1 className="mb-1 text-lg font-bold">Invites</h1>
-      {!forbidden && (
-        <p className="text-muted-foreground mb-4 text-sm">
-          Create a link to invite people to this instance.
-        </p>
-      )}
+      <p className="text-muted-foreground mb-4 text-sm">
+        {perms.canInvite
+          ? 'Create a link to invite people to this instance.'
+          : 'Invites to this instance are handed out by its admins. Any that are yours are below.'}
+      </p>
 
       {!token ? (
         <div className="space-y-2">
@@ -181,13 +268,125 @@ export default function Invites() {
             Sign in
           </Button>
         </div>
-      ) : forbidden ? (
-        <p className="text-muted-foreground text-sm">
-          Invites to this instance are handed out by its admins. Ask one of them
-          for a code.
-        </p>
       ) : (
         <>
+          {perms.canGrant && (
+            <div className="bg-muted/30 mb-6 space-y-3 rounded-lg border p-4">
+              <div>
+                <h2 className="text-sm font-semibold">Hand out invites</h2>
+                <p className="text-muted-foreground text-xs">
+                  Creates codes in someone else's name. They appear on that
+                  member's own invite page, and whoever signs up through one
+                  joins the tree under them.
+                </p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-1">
+                  <Label>Who</Label>
+                  <Select
+                    items={grantTargets(members)}
+                    value={grantTo}
+                    onValueChange={(v) => setGrantTo(v ?? 'everyone')}
+                  >
+                    <SelectTrigger className="w-full" aria-label="Recipient">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="everyone">
+                          Everyone ({members.length}{' '}
+                          {members.length === 1 ? 'member' : 'members'})
+                        </SelectItem>
+                        {members.map((m) => (
+                          <SelectItem key={m.id} value={m.id}>
+                            @{m.acct}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label>How many each</Label>
+                  <Select
+                    items={COUNTS}
+                    value={grantCount}
+                    onValueChange={(v) => setGrantCount(v ?? '1')}
+                  >
+                    <SelectTrigger className="w-full" aria-label="How many each">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {Object.entries(COUNTS).map(([value, label]) => (
+                          <SelectItem key={value} value={value}>
+                            {label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label>Uses</Label>
+                  <Select
+                    items={USES_PER_CODE}
+                    value={grantUses}
+                    onValueChange={(v) => setGrantUses(v ?? '1')}
+                  >
+                    <SelectTrigger className="w-full" aria-label="Uses per code">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {Object.entries(USES_PER_CODE).map(([value, label]) => (
+                          <SelectItem key={value} value={value}>
+                            {label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label>Expiry</Label>
+                  <Select
+                    items={EXPIRES_IN}
+                    value={grantExpiry}
+                    onValueChange={(v) => setGrantExpiry(v ?? '0')}
+                  >
+                    <SelectTrigger className="w-full" aria-label="Grant expiry">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {Object.entries(EXPIRES_IN).map(([value, label]) => (
+                          <SelectItem key={value} value={value}>
+                            {label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="grant-note">Note (optional)</Label>
+                <Input
+                  id="grant-note"
+                  value={grantNote}
+                  maxLength={420}
+                  placeholder="Shown to the member on their invite"
+                  onChange={(e) => setGrantNote(e.target.value)}
+                />
+              </div>
+              <Button onClick={grant} disabled={granting}>
+                {granting ? 'Handing out…' : 'Hand out invites'}
+              </Button>
+            </div>
+          )}
+
+          {perms.canInvite && (
           <div className="mb-6 space-y-3 rounded-lg border p-4">
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1">
@@ -251,6 +450,7 @@ export default function Invites() {
               {creating ? 'Creating…' : 'Create invite link'}
             </Button>
           </div>
+          )}
 
           {error && <p className="text-destructive text-sm">{error}</p>}
           {invites === null && !error && (
