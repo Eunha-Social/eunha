@@ -77,16 +77,21 @@ pub(super) async fn fetch_account_roles(
 
 /// Mastodon's `UserRole::EVERYONE_ROLE_ID`: the role every account has unless
 /// given another, which Mastodon creates on demand if it is missing.
-const EVERYONE_ROLE_ID: i64 = -99;
+pub(super) const EVERYONE_ROLE_ID: i64 = -99;
 
 /// Fetch the current role for a local account (used in `CredentialAccount`).
 ///
 /// Mastodon's `User#role` falls back to `UserRole.everyone` rather than
 /// returning nothing, so `verify_credentials` always carries a role and a
 /// client can read its permissions without special-casing its absence.
+///
+/// The role named is the user's own, but `permissions` is the *computed* set —
+/// `RoleSerializer` emits `computed_permissions`, which unions in the everyone
+/// role. Without that an admin reads as unable to invite anyone: `invite_users`
+/// lives on the everyone role, and upstream's Admin role does not repeat it.
 pub async fn fetch_account_role(state: &AppState, account_id: i64) -> Option<super::types::Role> {
     let row = sqlx::query!(
-        r#"SELECT ur.id, ur.name, ur.color, ur.permissions, ur.highlighted, ur.collection_limit
+        r#"SELECT ur.id, ur.name, ur.color, ur.highlighted, ur.collection_limit
            FROM users u
            JOIN user_roles ur ON ur.id = COALESCE(u.role_id, $2)
            WHERE u.account_id = $1"#,
@@ -98,11 +103,15 @@ pub async fn fetch_account_role(state: &AppState, account_id: i64) -> Option<sup
     .ok()
     .flatten()?;
 
+    let (_, permissions) = super::admin::computed_permissions(state, account_id)
+        .await
+        .ok()?;
+
     Some(super::types::Role {
         id: row.id.to_string(),
         name: row.name,
         color: row.color,
-        permissions: row.permissions.to_string(),
+        permissions: permissions.to_string(),
         highlighted: row.highlighted,
         collection_limit: row.collection_limit,
     })

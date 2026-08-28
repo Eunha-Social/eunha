@@ -389,13 +389,42 @@ may have adopted the same idea, changed what is being diverged from, or ruled it
 out. `mise run mastodon:plan` prints them when adopting, so the question is
 asked at the moment it can be answered.
 
-At the time of writing there are five, covering integrity proofs on outgoing
-activities, the invite tree, what the update check asks about, when the
-local-keypair migration is recorded, and what a mute silences. Read the file
-rather than this paragraph: the file is the one that has to stay true.
+At the time of writing there are six, covering integrity proofs on outgoing
+activities, the invite tree and the invite API, what the update check asks
+about, when the local-keypair migration is recorded, and what a mute silences.
+Read the file rather than this paragraph: the file is the one that has to stay
+true.
 
 ### Outstanding from 4.7.0
 
 Nothing. Signing HTTP Message Signatures with Ed25519 or ML-DSA keys remains
 unimplemented, but so is it in Mastodon: local accounts' HTTP signatures are
 RSA on both sides. Both algorithms are verified inbound.
+
+
+Invites
+-------
+
+Who may invite is Mastodon's `invite_users` permission, and it lives on the
+**everyone role** — `user_roles` id -99, seeded by migration 009 with
+`UserRole::Flags::DEFAULT`, which is that one permission. Every member has that
+role unless given another, so an instance invites the way upstream does until it
+says otherwise. One that would rather hand invites out itself takes the bit off:
+
+~~~~
+UPDATE user_roles SET permissions = permissions & ~(1 << 16) WHERE id = -99;
+~~~~
+
+Staff keep it through their own role. A role carrying `administrator` (1 << 0)
+computes to every permission there is, and any other role's permissions are
+unioned with the everyone role's — Mastodon's `UserRole#computed_permissions`,
+which is why upstream's Admin role does not list `invite_users` and an admin can
+still invite. `verify_credentials` reports that computed set rather than the raw
+column, so a client hides the invite page for exactly the accounts the server
+would refuse.
+
+Eunha has no role editor and no `eunha` subcommand for one: roles are rows, and
+an instance that needs to change one runs the `UPDATE`. Upstream will only let
+the everyone role hold `Flags::SAFE` — `invite_users` and
+`invite_bypass_approval` — and nothing here enforces that, so a hand-written
+value should stay inside it.

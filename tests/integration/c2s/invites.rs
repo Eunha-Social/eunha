@@ -122,3 +122,95 @@ async fn test_invite_comment_too_long() {
         .await;
     assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
 }
+
+/// Mastodon's `InvitePolicy#create?` is `role.can?(:invite_users)`, and that
+/// permission lives on the everyone role (`UserRole::Flags::DEFAULT`). Taking
+/// it off that role — which is how an instance decides to hand invites out
+/// itself — closes both the create and the list endpoint for an ordinary
+/// member, while staff keep them through their own role.
+#[tokio::test]
+async fn test_invite_users_permission() {
+    let ctx = TestContext::new("invite-perm").await;
+
+    // Everyone role as seeded: alice may invite.
+    assert_eq!(
+        ctx.api
+            .post_json("/api/v1/invites", Some(&ctx.alice_token), &json!({}))
+            .await
+            .status(),
+        StatusCode::OK,
+    );
+
+    // Clear `invite_users` from the everyone role (UserRole::EVERYONE_ROLE_ID).
+    sqlx::query!("UPDATE user_roles SET permissions = 0 WHERE id = -99")
+        .execute(&ctx.db)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        ctx.api
+            .post_json("/api/v1/invites", Some(&ctx.alice_token), &json!({}))
+            .await
+            .status(),
+        StatusCode::FORBIDDEN,
+    );
+    assert_eq!(
+        ctx.api
+            .get("/api/v1/invites", Some(&ctx.alice_token))
+            .await
+            .status(),
+        StatusCode::FORBIDDEN,
+    );
+
+    // An admin's own role carries the administrator flag, which grants
+    // everything (`computed_permissions` returns `Flags::ALL`), so bob still
+    // may — this is a setting about members, not a feature that was turned off.
+    crate::helpers::make_admin(&ctx.db, ctx.bob_id.parse().unwrap()).await;
+    assert_eq!(
+        ctx.api
+            .post_json("/api/v1/invites", Some(&ctx.bob_token), &json!({}))
+            .await
+            .status(),
+        StatusCode::OK,
+    );
+}
+
+/// `verify_credentials` reports the *computed* permissions — the account's own
+/// role unioned with the everyone role's — the way Mastodon's `RoleSerializer`
+/// does. A client reading the bit to decide what to offer has to agree with
+/// what the server will authorize.
+#[tokio::test]
+async fn test_role_permissions_are_computed() {
+    let ctx = TestContext::new("invite-perm-role").await;
+    const INVITE_USERS: i64 = 1 << 16;
+
+    async fn permissions(ctx: &TestContext, token: &str) -> i64 {
+        let me: Value = ctx
+            .api
+            .get("/api/v1/accounts/verify_credentials", Some(token))
+            .await
+            .json()
+            .await
+            .unwrap();
+        me["role"]["permissions"]
+            .as_str()
+            .unwrap()
+            .parse::<i64>()
+            .unwrap()
+    }
+
+    // A member with no role of its own reads the everyone role's permissions.
+    assert_eq!(
+        permissions(&ctx, &ctx.alice_token).await & INVITE_USERS,
+        INVITE_USERS,
+    );
+
+    // An administrator reads `Flags::ALL`, invite_users among it, even though
+    // upstream's Admin role does not list that permission itself.
+    crate::helpers::make_admin(&ctx.db, ctx.bob_id.parse().unwrap()).await;
+    assert_eq!(
+        permissions(&ctx, &ctx.bob_token).await,
+        (1 << 23) - 1,
+        "administrator should compute to UserRole::Flags::ALL",
+    );
+}

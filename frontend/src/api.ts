@@ -80,6 +80,25 @@ export function getCurrentAccount(token: string): Promise<mastodon.v1.AccountCre
   return restClient(token).v1.accounts.verifyCredentials()
 }
 
+/** Mastodon `UserRole::FLAGS[:invite_users]`. */
+const INVITE_USERS = 1 << 16
+
+/**
+ * Whether the signed-in account may create invites.
+ *
+ * `verify_credentials` carries the role's *computed* permissions — the account's
+ * own role unioned with the everyone role's, which is where `invite_users` sits
+ * by default — so this reads the same set the server authorizes against. An
+ * instance that would rather hand invites out itself clears that bit, and this
+ * turns false for everyone but its staff.
+ */
+export async function canInviteUsers(token: string): Promise<boolean> {
+  const me = await getCurrentAccount(token)
+  // masto.js does not model `role` on the credential account.
+  const { role } = me as unknown as { role?: { permissions?: string } }
+  return (Number(role?.permissions ?? 0) & INVITE_USERS) !== 0
+}
+
 export function updateAccountImages(
   token: string,
   params: { avatar?: File; header?: File },

@@ -30,6 +30,10 @@ pub async fn list_invites(
     Extension(auth): Extension<AuthenticatedUser>,
 ) -> AppResult<Json<Vec<InviteResponse>>> {
     auth.require_scope("read:accounts")?;
+    // Mastodon's `InvitesController#index` authorizes `:invite, :create?`: the
+    // list is the page you create invites from, so losing the permission takes
+    // the page with it.
+    require_invite_users(&state, auth.account_id).await?;
     let rows = sqlx::query!(
         r#"SELECT id, code, expires_at, max_uses, uses, autofollow, comment, created_at
            FROM invites
@@ -79,6 +83,7 @@ pub async fn create_invite(
     body: Option<Json<CreateInviteRequest>>,
 ) -> AppResult<Json<InviteResponse>> {
     auth.require_scope("write:accounts")?;
+    require_invite_users(&state, auth.account_id).await?;
     let req = body.map(|Json(b)| b).unwrap_or_default();
 
     let comment = req.comment.filter(|c| !c.is_empty());
@@ -129,14 +134,26 @@ pub async fn delete_invite(
     Path(id): Path<i64>,
 ) -> AppResult<StatusCode> {
     auth.require_scope("write:accounts")?;
+    // Mastodon's `InvitePolicy#destroy?` is `owner? || role.can?(:manage_invites)`:
+    // your own invites always, anyone's with the moderation permission.
+    let manages_invites = super::admin::require_permission(
+        &state,
+        auth.account_id,
+        super::admin::perm::MANAGE_INVITES,
+    )
+    .await
+    .is_ok();
+
     // Match Mastodon's InvitesController#destroy, which calls Expireable#expire!
     // (`touch(:expires_at)`) rather than deleting the row — this keeps the invite
     // around so `users.invite_id` edges (and the invite tree) survive.
     let expired = sqlx::query!(
         "UPDATE invites SET expires_at = now(), updated_at = now()
-         WHERE id = $1 AND user_id = (SELECT id FROM users WHERE account_id = $2)",
+         WHERE id = $1
+           AND ($3::boolean OR user_id = (SELECT id FROM users WHERE account_id = $2))",
         id,
         auth.account_id,
+        manages_invites,
     )
     .execute(&state.db)
     .await?;
@@ -149,6 +166,17 @@ pub async fn delete_invite(
 }
 
 // ── helpers ────────────────────────────────────────────────────────────────
+
+/// Mastodon's `InvitePolicy#create?`: `role.can?(:invite_users)`.
+///
+/// The permission is on the everyone role by default (`Flags::DEFAULT`), so out
+/// of the box every member may invite, as upstream. An instance that would
+/// rather hand invites out itself clears that bit on the everyone role
+/// (`user_roles` id -99) and leaves it to staff, whose own roles carry it —
+/// this is a setting, not a feature that gets turned off.
+async fn require_invite_users(state: &AppState, account_id: i64) -> AppResult<()> {
+    super::admin::require_permission(state, account_id, super::admin::perm::INVITE_USERS).await
+}
 
 pub fn generate_code() -> String {
     use rand::Rng;

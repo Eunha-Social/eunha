@@ -3,6 +3,7 @@ import { Copy, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import {
+  ApiError,
   createInvite,
   deleteInvite,
   getInvites,
@@ -107,6 +108,11 @@ export default function Invites() {
   const token = getToken()
   const [invites, setInvites] = useState<Invite[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // The server is the authority on who may invite (Mastodon's `invite_users`
+  // permission, which an instance can take off the everyone role). Rather than
+  // read the role back and reimplement the rule here, take the list endpoint's
+  // 403 as the answer — it is the same authorization the create button needs.
+  const [forbidden, setForbidden] = useState(false)
   const [maxUses, setMaxUses] = useState('0')
   const [expiresIn, setExpiresIn] = useState('0')
   const [autofollow, setAutofollow] = useState(false)
@@ -117,7 +123,10 @@ export default function Invites() {
     if (!token) return
     getInvites(token)
       .then(setInvites)
-      .catch((e) => setError(String(e)))
+      .catch((e) => {
+        if (e instanceof ApiError && e.status === 403) setForbidden(true)
+        else setError(String(e))
+      })
   }, [token])
 
   const create = async () => {
@@ -157,9 +166,11 @@ export default function Invites() {
     <div className="page-frame">
       <TopBar />
       <h1 className="mb-1 text-lg font-bold">Invites</h1>
-      <p className="text-muted-foreground mb-4 text-sm">
-        Create a link to invite people to this instance.
-      </p>
+      {!forbidden && (
+        <p className="text-muted-foreground mb-4 text-sm">
+          Create a link to invite people to this instance.
+        </p>
+      )}
 
       {!token ? (
         <div className="space-y-2">
@@ -170,6 +181,11 @@ export default function Invites() {
             Sign in
           </Button>
         </div>
+      ) : forbidden ? (
+        <p className="text-muted-foreground text-sm">
+          Invites to this instance are handed out by its admins. Ask one of them
+          for a code.
+        </p>
       ) : (
         <>
           <div className="mb-6 space-y-3 rounded-lg border p-4">

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE invites SET expires_at = now(), updated_at = now()\n         WHERE id = $1\n           AND ($3::boolean OR user_id = (SELECT id FROM users WHERE account_id = $2))",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "99fbc0fda7902a3ad1726c08791ac1bd0a75426ebfab9c253cf12b5b7e86c706"
+}

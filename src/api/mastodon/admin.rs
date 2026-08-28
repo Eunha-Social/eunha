@@ -18,35 +18,74 @@ use serde::{Deserialize, Serialize};
 
 // ── Admin auth guard ──────────────────────────────────────────────────────
 
-/// Mastodon UserRole permission flags (subset used for admin-API gating).
+/// Mastodon UserRole permission flags (subset used for permission gating).
 pub mod perm {
     pub const ADMINISTRATOR: i64 = 1 << 0;
     pub const MANAGE_REPORTS: i64 = 1 << 4;
     pub const MANAGE_FEDERATION: i64 = 1 << 5;
     pub const MANAGE_TAXONOMIES: i64 = 1 << 8;
     pub const MANAGE_USERS: i64 = 1 << 10;
+    pub const MANAGE_INVITES: i64 = 1 << 11;
     pub const MANAGE_CUSTOM_EMOJIS: i64 = 1 << 14;
+    pub const INVITE_USERS: i64 = 1 << 16;
     pub const MANAGE_ROLES: i64 = 1 << 17;
+
+    /// Mastodon `UserRole::Flags::ALL`: every flag it defines, the last of
+    /// which in 4.7.0 is `manage_email_subscriptions` (1 << 22).
+    pub const ALL: i64 = (1 << 23) - 1;
+}
+
+/// Mastodon's `UserRole#computed_permissions`, as `(position, permissions)`.
+///
+/// A role grants the union of its own permissions with the everyone role's, and
+/// the `administrator` flag grants everything. A user with no role of its own
+/// has exactly the everyone role — `User#role` falls back to it rather than to
+/// nothing — so the everyone row (`EVERYONE_ROLE_ID`, seeded by migration 009
+/// with `invite_users`) is what an instance edits to decide what an ordinary
+/// member may do. Upstream will only let it hold `Flags::SAFE`
+/// (`invite_users | invite_bypass_approval`); eunha has no role editor, so that
+/// row is edited by hand and nothing enforces it here.
+pub(super) async fn computed_permissions(
+    state: &AppState,
+    account_id: i64,
+) -> AppResult<(i32, i64)> {
+    let row = sqlx::query!(
+        r#"SELECT COALESCE(own.position, 0) AS "pos!: i32",
+                  COALESCE(own.permissions, 0) AS "own!: i64",
+                  COALESCE(everyone.permissions, 0) AS "everyone!: i64"
+           FROM users u
+           LEFT JOIN user_roles own ON own.id = u.role_id
+           LEFT JOIN user_roles everyone ON everyone.id = $2
+           WHERE u.account_id = $1"#,
+        account_id,
+        super::accounts::EVERYONE_ROLE_ID,
+    )
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(AppError::Unauthorized)?;
+
+    // The expansion is keyed on the user's *own* role, matching Mastodon: on
+    // the everyone role `computed_permissions` returns early, so an everyone
+    // row carrying the flag would grant that one bit rather than everything.
+    let permissions = if row.own & perm::ADMINISTRATOR != 0 {
+        perm::ALL
+    } else {
+        row.own | row.everyone
+    };
+    Ok((row.pos, permissions))
 }
 
 /// Authorize by Mastodon permission bit: the `administrator` flag grants
 /// everything, otherwise the specific permission is required. eunha's existing
 /// position≥100 admin gate is preserved as a superset so current admins keep
 /// access — this only *adds* moderator support for roles carrying the flag.
-async fn require_permission(state: &AppState, account_id: i64, flag: i64) -> AppResult<()> {
-    let row = sqlx::query!(
-        r#"SELECT COALESCE(ur.position, 0) AS "pos!: i32",
-                  COALESCE(ur.permissions, 0) AS "perms!: i64"
-           FROM users u
-           LEFT JOIN user_roles ur ON ur.id = u.role_id
-           WHERE u.account_id = $1"#,
-        account_id,
-    )
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or(AppError::Unauthorized)?;
-
-    if row.perms & perm::ADMINISTRATOR != 0 || row.perms & flag != 0 || row.pos >= 100 {
+pub(super) async fn require_permission(
+    state: &AppState,
+    account_id: i64,
+    flag: i64,
+) -> AppResult<()> {
+    let (pos, perms) = computed_permissions(state, account_id).await?;
+    if perms & flag != 0 || pos >= 100 {
         return Ok(());
     }
     Err(AppError::Forbidden)
@@ -55,19 +94,8 @@ async fn require_permission(state: &AppState, account_id: i64, flag: i64) -> App
 /// Full-admin gate (position≥100 or the administrator flag). Used for endpoints
 /// Mastodon restricts to admin-level permissions eunha doesn't split out.
 async fn require_admin(state: &AppState, account_id: i64) -> AppResult<()> {
-    let row = sqlx::query!(
-        r#"SELECT COALESCE(ur.position, 0) AS "pos!: i32",
-                  COALESCE(ur.permissions, 0) AS "perms!: i64"
-           FROM users u
-           LEFT JOIN user_roles ur ON ur.id = u.role_id
-           WHERE u.account_id = $1"#,
-        account_id,
-    )
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or(AppError::Unauthorized)?;
-
-    if row.pos >= 100 || row.perms & perm::ADMINISTRATOR != 0 {
+    let (pos, perms) = computed_permissions(state, account_id).await?;
+    if pos >= 100 || perms & perm::ADMINISTRATOR != 0 {
         return Ok(());
     }
     Err(AppError::Forbidden)

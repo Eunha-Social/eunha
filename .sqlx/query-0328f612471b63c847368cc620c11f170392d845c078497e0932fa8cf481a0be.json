@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE user_roles SET permissions = 0 WHERE id = -99",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "0328f612471b63c847368cc620c11f170392d845c078497e0932fa8cf481a0be"
+}

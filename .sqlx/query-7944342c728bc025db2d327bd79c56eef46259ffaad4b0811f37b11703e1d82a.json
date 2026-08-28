@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT ur.id, ur.name, ur.color, ur.permissions, ur.highlighted, ur.collection_limit\n           FROM users u\n           JOIN user_roles ur ON ur.id = COALESCE(u.role_id, $2)\n           WHERE u.account_id = $1",
+  "query": "SELECT ur.id, ur.name, ur.color, ur.highlighted, ur.collection_limit\n           FROM users u\n           JOIN user_roles ur ON ur.id = COALESCE(u.role_id, $2)\n           WHERE u.account_id = $1",
   "describe": {
     "columns": [
       {
@@ -20,16 +20,11 @@
       },
       {
         "ordinal": 3,
-        "name": "permissions",
-        "type_info": "Int8"
-      },
-      {
-        "ordinal": 4,
         "name": "highlighted",
         "type_info": "Bool"
       },
       {
-        "ordinal": 5,
+        "ordinal": 4,
         "name": "collection_limit",
         "type_info": "Int4"
       }
@@ -45,9 +40,8 @@
       false,
       false,
       false,
-      false,
       false
     ]
   },
-  "hash": "2d85dc41a44d0e2e770091e26bc81b26a96136adac9a8351c3aff8d1b882122c"
+  "hash": "7944342c728bc025db2d327bd79c56eef46259ffaad4b0811f37b11703e1d82a"
 }
