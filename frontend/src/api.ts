@@ -257,6 +257,25 @@ export function getBookmarks(token: string): mastodon.Paginator<mastodon.v1.Stat
   return restClient(token).v1.bookmarks.list()
 }
 
+// Trends paginate by `offset` rather than by a cursor, and the server only
+// emits a `next` link while a page came back full — so these walk the paginator
+// too, and it stops on its own at the first short page.
+export function getTrendingStatuses(
+  token?: string,
+): mastodon.Paginator<mastodon.v1.Status[]> {
+  return restClient(token).v1.trends.statuses.list()
+}
+
+export function getTrendingTags(token?: string): mastodon.Paginator<mastodon.v1.Tag[]> {
+  return restClient(token).v1.trends.tags.list()
+}
+
+export function getTrendingLinks(
+  token?: string,
+): mastodon.Paginator<mastodon.v1.TrendLink[]> {
+  return restClient(token).v1.trends.links.list()
+}
+
 export async function getPublicTimeline(
   local: boolean,
   token?: string,

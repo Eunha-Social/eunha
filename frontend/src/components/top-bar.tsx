@@ -3,6 +3,7 @@ import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   Bell,
   Bookmark,
+  Compass,
   Home,
   Info,
   LogIn,
@@ -45,10 +46,16 @@ type NavItem = { to: string; end?: boolean; icon: IconType; label: string }
 function useNavItems(token: string | null, account: MeAccount | null): NavItem[] {
   // "/" is a timeline for a signed-out visitor too, so About is the only place
   // left that says what this instance is — and this is the only link to it.
-  if (!token) return [{ to: '/about', icon: Info, label: 'About' }]
+  if (!token) {
+    return [
+      { to: '/explore', icon: Compass, label: 'Explore' },
+      { to: '/about', icon: Info, label: 'About' },
+    ]
+  }
   const items: NavItem[] = [
     { to: '/', end: true, icon: Home, label: 'Home' },
     { to: '/search', icon: Search, label: 'Search' },
+    { to: '/explore', icon: Compass, label: 'Explore' },
     { to: '/notifications', icon: Bell, label: 'Notifications' },
     { to: '/bookmarks', icon: Bookmark, label: 'Bookmarks' },
   ]

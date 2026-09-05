@@ -13,6 +13,7 @@ import TagTimeline from './pages/TagTimeline.tsx'
 import AccountList from './pages/AccountList.tsx'
 import StatusReactions from './pages/StatusReactions.tsx'
 import Bookmarks from './pages/Bookmarks.tsx'
+import Explore from './pages/Explore.tsx'
 import BlockedAccounts from './pages/BlockedAccounts.tsx'
 import About from './pages/About.tsx'
 import InviteTree from './pages/InviteTree.tsx'
@@ -49,6 +50,9 @@ const router = createBrowserRouter([
   { path: '/signup', element: <Signup /> },
   { path: '/settings', element: <Settings /> },
   { path: '/bookmarks', element: <Bookmarks /> },
+  { path: '/explore', element: <Explore /> },
+  { path: '/explore/tags', element: <Explore /> },
+  { path: '/explore/links', element: <Explore /> },
   { path: '/blocked', element: <BlockedAccounts /> },
   { path: '/muted', element: <BlockedAccounts /> },
   { path: '/tags/:name', element: <TagTimeline /> },
