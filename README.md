@@ -48,7 +48,7 @@ repeated as build metadata in `Cargo.toml`'s version, which `build.rs` checks
 the two agree on. Releases are tagged the same way:
 
 ~~~~
-v0.2.0+mastodon.4.7.0
+v0.2.0+mastodon.4.7.1
 ~~~~
 
 Eunha's own version moves independently; the part after `+` names the Mastodon
@@ -196,7 +196,7 @@ emits keeps eunha clear of anything that verifies more strictly than it should.
 Mastodon polls an update server for newer releases and for the end of support
 of the branch it runs, and records both in `software_updates` and
 `software_deprecations`. Eunha asks the same server the same question about the
-Mastodon release *it implements*: eunha builds 4.7.0's schema and serves its
+Mastodon release *it implements*: eunha builds 4.7.1's schema and serves its
 API, so when that branch stops receiving fixes, what eunha reproduces is what
 is going out of support.
 
@@ -215,7 +215,7 @@ and tests fetch real responses from a running eunha and compare. It is built
 from two sources because neither is sufficient alone — `app/serializers/rest`
 decides what is actually emitted, and `app/javascript/mastodon/api_types` states
 plainly which fields are optional, where the serializers hide that behind `if:`
-conditions. 4.7.0's instance serializer emits `icon` and `wrapstodon` that the
+conditions. 4.7.1's instance serializer emits `icon` and `wrapstodon` that the
 TypeScript does not mention, so the serializers are the authority on what
 exists.
 
@@ -395,11 +395,48 @@ Mastodon's, what the update check asks about, when the local-keypair migration
 is recorded, and what a mute silences. Read the file rather than this paragraph:
 the file is the one that has to stay true.
 
-### Outstanding from 4.7.0
+### Outstanding from 4.7.1
 
 Nothing. Signing HTTP Message Signatures with Ed25519 or ML-DSA keys remains
 unimplemented, but so is it in Mastodon: local accounts' HTTP signatures are
 RSA on both sides. Both algorithms are verified inbound.
+
+4.7.1 changed no schema — `db/schema.rb` is byte-identical to 4.7.0's, and the
+two migrations it touched only make an interrupted `CREATE INDEX CONCURRENTLY`
+re-runnable, which eunha's migration 008 avoids by building that index inside
+its transaction. Nor did it change a serializer, so `entities.json` is
+unchanged. It is three security fixes and five bug fixes, and none of them
+lands on code eunha has:
+
+ -  **Password bypass in 2FA for LDAP/PAM/SSO accounts**
+    ([GHSA-vx32-x96w-qq65]). `external_or_valid_password?` treated a blank
+    `encrypted_password` as proof, so anyone could pass the first factor for an
+    externally-authenticated account. Eunha authenticates against
+    `encrypted_password` alone — no LDAP, no PAM, no SSO — and a blank hash
+    parses as neither bcrypt nor argon2, so it fails rather than passes.
+
+ -  **Denial of service on pathological JSON-LD** ([GHSA-vgm8-frgh-rh2v]).
+    Upstream compacts a document carrying a `signature` before deciding whether
+    to trust it, and the JSON-LD processor can be made to do unbounded work.
+    Eunha does no JSON-LD expansion or compaction at all and processes no
+    LD signature; what it reads of an inbound body is bounded by axum's 2MB
+    default on the ActivityPub routes and serde_json's 128-deep recursion limit.
+
+ -  **Disabled staff keeping admin API access** ([GHSA-62j4-hvj7-px3f]). The
+    admin REST controllers never ran the permission check the web UI did, and
+    the policy's `role` did not consider `disabled`. Eunha rejects a disabled
+    user's token in `middleware::authenticate`, before routing — the account has
+    no API access of any kind, not merely no admin API.
+
+The rest are a Rails admin-UI form parameter, a Dockerfile Bootsnap path, and
+the `mastodon:setup` rake task, none of which eunha has. The one behavioural fix
+that touches something eunha does — `invite_text_required?` no longer treating
+any invite as reason enough to skip the invite text — lands on
+`Setting.require_invite_text`, which eunha does not implement.
+
+[GHSA-vx32-x96w-qq65]: https://github.com/mastodon/mastodon/security/advisories/GHSA-vx32-x96w-qq65
+[GHSA-vgm8-frgh-rh2v]: https://github.com/mastodon/mastodon/security/advisories/GHSA-vgm8-frgh-rh2v
+[GHSA-62j4-hvj7-px3f]: https://github.com/mastodon/mastodon/security/advisories/GHSA-62j4-hvj7-px3f
 
 
 Invites
