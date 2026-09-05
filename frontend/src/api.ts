@@ -319,3 +319,23 @@ export async function getFollowing(
 ): Promise<mastodon.v1.Account[]> {
   return restClient(token).v1.accounts.$select(id).following.list({ limit: 40, maxId })
 }
+
+// Who favourited / boosted a status. Unlike the account lists above, these
+// paginate by favourite id and reblog id — cursors the client never sees, since
+// they belong to rows the response body doesn't carry. The cursor lives only in
+// the response's `Link` header, so these hand back masto's paginator (which
+// follows that header) instead of a page, and callers walk it with
+// `useInfinitePaginator` rather than `useInfiniteFeed`.
+export function getFavouritedBy(
+  id: string,
+  token?: string,
+): mastodon.Paginator<mastodon.v1.Account[]> {
+  return restClient(token).v1.statuses.$select(id).favouritedBy.list()
+}
+
+export function getRebloggedBy(
+  id: string,
+  token?: string,
+): mastodon.Paginator<mastodon.v1.Account[]> {
+  return restClient(token).v1.statuses.$select(id).rebloggedBy.list()
+}

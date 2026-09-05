@@ -11,6 +11,7 @@ import FollowRequests from './pages/FollowRequests.tsx'
 import SearchPage from './pages/Search.tsx'
 import TagTimeline from './pages/TagTimeline.tsx'
 import AccountList from './pages/AccountList.tsx'
+import StatusReactions from './pages/StatusReactions.tsx'
 import About from './pages/About.tsx'
 import InviteTree from './pages/InviteTree.tsx'
 import Invites from './pages/Invites.tsx'
@@ -52,6 +53,9 @@ const router = createBrowserRouter([
   { path: '/:acct/followers', element: <AccountList /> },
   { path: '/:acct/following', element: <AccountList /> },
   { path: '/:acct/:id', element: <StatusThread /> },
+  // Three segments, so these never compete with `/:acct/:id` above.
+  { path: '/:acct/:id/favourites', element: <StatusReactions /> },
+  { path: '/:acct/:id/reblogs', element: <StatusReactions /> },
   { path: '*', element: <Home /> },
 ])
 

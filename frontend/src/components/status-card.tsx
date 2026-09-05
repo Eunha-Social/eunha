@@ -133,11 +133,15 @@ export function StatusCard({
   status: initial,
   token,
   boostedBy,
+  detailed,
   onReply,
 }: {
   status: mastodon.v1.Status
   token: string
   boostedBy?: mastodon.v1.Account
+  // The focused post of a thread. Mastodon shows who boosted and favourited a
+  // post only on this detailed view, not on every card in a timeline.
+  detailed?: boolean
   onReply?: (status: mastodon.v1.Status) => void
 }) {
   const [status, setStatus] = useState(initial)
@@ -360,6 +364,32 @@ export function StatusCard({
               </>
             )}
           </>
+        )}
+        {detailed && (status.reblogsCount > 0 || status.favouritesCount > 0) && (
+          <div className="text-muted-foreground flex gap-4 pt-1 text-sm">
+            {status.reblogsCount > 0 && (
+              <Link
+                to={`${threadPath}/reblogs`}
+                className="no-underline hover:underline"
+              >
+                <span className="text-foreground font-medium">
+                  {status.reblogsCount}
+                </span>{' '}
+                {status.reblogsCount === 1 ? 'boost' : 'boosts'}
+              </Link>
+            )}
+            {status.favouritesCount > 0 && (
+              <Link
+                to={`${threadPath}/favourites`}
+                className="no-underline hover:underline"
+              >
+                <span className="text-foreground font-medium">
+                  {status.favouritesCount}
+                </span>{' '}
+                {status.favouritesCount === 1 ? 'favourite' : 'favourites'}
+              </Link>
+            )}
+          </div>
         )}
         <div className="-mb-1 flex items-center gap-1">
           <ActionButton

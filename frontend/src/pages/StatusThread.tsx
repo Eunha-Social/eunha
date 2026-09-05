@@ -32,12 +32,13 @@ export default function StatusThread() {
     load()
   }, [load])
 
-  const render = (s: mastodon.v1.Status) => (
+  const render = (s: mastodon.v1.Status, detailed = false) => (
     <StatusCard
       key={s.id}
       status={s.reblog ?? s}
       token={token ?? ''}
       boostedBy={s.reblog ? s.account : undefined}
+      detailed={detailed}
       onReply={(replyTo) =>
         openCompose({
           replyTo,
@@ -54,12 +55,12 @@ export default function StatusThread() {
 
       <div className="space-y-2">
         {!!context?.ancestors.length && (
-          <TimelineStack>{context.ancestors.map(render)}</TimelineStack>
+          <TimelineStack>{context.ancestors.map((s) => render(s))}</TimelineStack>
         )}
 
         {status && (
           <div className="ring-primary/40 overflow-hidden rounded-md border ring-2">
-            {render(status)}
+            {render(status, true)}
           </div>
         )}
 
@@ -74,7 +75,7 @@ export default function StatusThread() {
         )}
 
         {!!context?.descendants.length && (
-          <TimelineStack>{context.descendants.map(render)}</TimelineStack>
+          <TimelineStack>{context.descendants.map((s) => render(s))}</TimelineStack>
         )}
       </div>
     </div>
