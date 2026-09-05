@@ -1,9 +1,9 @@
-import { useCallback, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { AtSign, Bell, Pencil, Repeat2, Star, UserPlus } from 'lucide-react'
 
 import type { mastodon } from '../masto.ts'
-import { getNotifications } from '../api.ts'
+import { getNotifications, markNotificationsRead } from '../api.ts'
 import { beginLogin, getToken } from '../auth.ts'
 import { useInfiniteFeed } from '../hooks/use-infinite-feed.ts'
 import { useStreamingSubscription } from '../hooks/use-streaming-subscription.ts'
@@ -107,6 +107,21 @@ export default function Notifications() {
     [token],
   )
   const { mutate } = feed
+
+  // Moving the notifications marker to the newest item on screen is what makes
+  // the nav badge clear — the server counts everything after it. Only ever
+  // forward: a reader who scrolls back through older pages has not unread
+  // them, and `useInfiniteFeed` appends, so `items[0]` stays the newest.
+  const newestId = feed.items?.[0]?.id
+  const markedRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!token || !newestId || markedRef.current === newestId) return
+    // Ids are numeric strings of no fixed width, so compare them as numbers:
+    // "9" sorts after "10" as text, which would move the marker backwards.
+    if (markedRef.current && BigInt(newestId) <= BigInt(markedRef.current)) return
+    markedRef.current = newestId
+    markNotificationsRead(token, newestId).catch(() => {})
+  }, [token, newestId])
   const handleReply = useCallback(
     (status: mastodon.v1.Status) => openCompose({ replyTo: status }),
     [openCompose],

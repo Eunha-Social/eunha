@@ -21,6 +21,7 @@ import { clearMe, getMeAccount, loadMe, type MeAccount } from '../me.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { ModeToggle } from '@/components/mode-toggle.tsx'
 import { useComposeModal } from '@/components/compose-modal.tsx'
+import { useUnreadNotifications } from '../hooks/use-unread-notifications.ts'
 import {
   Sidebar,
   SidebarContent,
@@ -41,9 +42,33 @@ const navLink =
 const activeNavLink = 'bg-muted text-foreground'
 
 type IconType = React.ComponentType<{ className?: string }>
-type NavItem = { to: string; end?: boolean; icon: IconType; label: string }
+type NavItem = {
+  to: string
+  end?: boolean
+  icon: IconType
+  label: string
+  badge?: number
+}
 
-function useNavItems(token: string | null, account: MeAccount | null): NavItem[] {
+// The unread count, capped by the server. Past 99 the exact number stops
+// meaning anything a badge can use.
+function Badge({ count }: { count: number }) {
+  if (count <= 0) return null
+  return (
+    <span
+      className="bg-primary text-primary-foreground ml-auto rounded-full px-1.5 py-0.5 text-xs leading-none font-medium"
+      aria-label={`${count} unread`}
+    >
+      {count > 99 ? '99+' : count}
+    </span>
+  )
+}
+
+function useNavItems(
+  token: string | null,
+  account: MeAccount | null,
+  unread: number,
+): NavItem[] {
   // "/" is a timeline for a signed-out visitor too, so About is the only place
   // left that says what this instance is — and this is the only link to it.
   if (!token) {
@@ -56,7 +81,7 @@ function useNavItems(token: string | null, account: MeAccount | null): NavItem[]
     { to: '/', end: true, icon: Home, label: 'Home' },
     { to: '/search', icon: Search, label: 'Search' },
     { to: '/explore', icon: Compass, label: 'Explore' },
-    { to: '/notifications', icon: Bell, label: 'Notifications' },
+    { to: '/notifications', icon: Bell, label: 'Notifications', badge: unread },
     { to: '/bookmarks', icon: Bookmark, label: 'Bookmarks' },
   ]
   if (account) {
@@ -119,7 +144,8 @@ function DesktopRail({
   registrationsOpen: boolean
 }) {
   const { openCompose } = useComposeModal()
-  const navItems = useNavItems(token, account)
+  const unread = useUnreadNotifications(token)
+  const navItems = useNavItems(token, account, unread)
 
   return (
     <aside className="sidebar-frame">
@@ -135,6 +161,7 @@ function DesktopRail({
             className={({ isActive }) => cn(navLink, isActive && activeNavLink)}
           >
             <item.icon className="size-4" /> {item.label}
+            {item.badge ? <Badge count={item.badge} /> : null}
           </NavLink>
         ))}
       </nav>
@@ -168,7 +195,8 @@ function MobileDrawer({
   const { openCompose } = useComposeModal()
   const { setOpenMobile } = useSidebar()
   const location = useLocation()
-  const navItems = useNavItems(token, account)
+  const unread = useUnreadNotifications(token)
+  const navItems = useNavItems(token, account, unread)
   const close = () => setOpenMobile(false)
   const isActive = (to: string, end?: boolean) =>
     end
@@ -198,6 +226,7 @@ function MobileDrawer({
                 >
                   <item.icon />
                   <span>{item.label}</span>
+                  {item.badge ? <Badge count={item.badge} /> : null}
                 </SidebarMenuButton>
               </SidebarMenuItem>
             ))}

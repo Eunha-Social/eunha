@@ -337,6 +337,20 @@ export async function getNotifications(
   return restClient(token).v1.notifications.list({ limit: 40, maxId })
 }
 
+// How many notifications have arrived since the reader last marked the
+// timeline. The server caps the count, so this is "how many, up to a point"
+// rather than a total — which is all a badge needs.
+export async function getNotificationsUnreadCount(token: string): Promise<number> {
+  const { count } = await restClient(token).v1.notifications.unreadCount.fetch()
+  return count
+}
+
+// Marking the notification timeline read is what makes the badge clear. Without
+// it the count is measured from a marker nobody ever moves, so it only grows.
+export function markNotificationsRead(token: string, lastReadId: string) {
+  return restClient(token).v1.markers.create({ notifications: { lastReadId } })
+}
+
 export function votePoll(
   pollId: string,
   choices: number[],
