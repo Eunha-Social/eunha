@@ -12,6 +12,7 @@ mod notification_rules;
 mod oembed;
 mod poll_semantics;
 mod schema_compatibility;
+mod signup_approval;
 mod software_updates;
 mod streaming;
 mod timeline_exclusions;

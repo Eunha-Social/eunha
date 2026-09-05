@@ -97,6 +97,32 @@ async fn validate_invite(state: &AppState, code: &str) -> Result<i64, &'static s
     Ok(inv.id)
 }
 
+/// Mastodon `Invite#bypass_approval?`: `user&.role&.can?(:invite_bypass_approval)`.
+///
+/// The permission is the invite *creator's*, computed the way `UserRole` does
+/// — the everyone role unioned in, and `administrator` granting everything —
+/// so it answers for a member the same way `verify_credentials` does. An invite
+/// whose creator has since gone is not a bypass; `validate_invite` has already
+/// refused those, and treating a missing row as `false` keeps the failure in
+/// the safe direction.
+async fn invite_bypasses_approval(state: &AppState, invite_id: i64) -> bool {
+    let account_id = sqlx::query_scalar!(
+        r#"SELECT u.account_id FROM invites i JOIN users u ON u.id = i.user_id WHERE i.id = $1"#,
+        invite_id,
+    )
+    .fetch_optional(&state.db)
+    .await
+    .ok()
+    .flatten();
+    let Some(account_id) = account_id else {
+        return false;
+    };
+    match super::admin::computed_permissions(state, account_id).await {
+        Ok((_, perms)) => perms & super::admin::perm::INVITE_BYPASS_APPROVAL != 0,
+        Err(_) => false,
+    }
+}
+
 /// Mastodon BootstrapTimelineService#autofollow_inviter!: a new account that
 /// signed up through an invite flagged `autofollow` follows the inviter's
 /// account. A locked inviter receives a follow request instead, matching
@@ -418,7 +444,17 @@ pub async fn confirm_email(
         tracing::warn!(account_id, error = %e, "could not move the new account's signing key into `keypairs`");
     }
 
-    let needs_approval = state.instance.approval_required && pending.invite_id.is_none();
+    // Mastodon `User#set_approved`: an invite skips approval only when its
+    // creator may bypass it — `Invite#bypass_approval?` asks the inviting
+    // user's role for `invite_bypass_approval`, not merely whether an invite
+    // was used. eunha's everyone role carries `Flags::DEFAULT`, which is
+    // `invite_users` alone, so an ordinary member's invite gets its holder
+    // reviewed like anyone else until the instance says otherwise.
+    let needs_approval = state.instance.approval_required
+        && !match pending.invite_id {
+            Some(id) => invite_bypasses_approval(&state, id).await,
+            None => false,
+        };
     let user_id = match sqlx::query_scalar!(
         r#"INSERT INTO users
              (account_id, email, encrypted_password,

@@ -29,6 +29,7 @@ pub mod perm {
     pub const MANAGE_CUSTOM_EMOJIS: i64 = 1 << 14;
     pub const INVITE_USERS: i64 = 1 << 16;
     pub const MANAGE_ROLES: i64 = 1 << 17;
+    pub const INVITE_BYPASS_APPROVAL: i64 = 1 << 21;
 
     /// Mastodon `UserRole::Flags::ALL`: every flag it defines, the last of
     /// which in 4.7.0 is `manage_email_subscriptions` (1 << 22).

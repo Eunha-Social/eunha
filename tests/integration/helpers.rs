@@ -431,6 +431,17 @@ impl TestContext {
     /// A context that signs (or does not sign) FEP-8b32 integrity proofs,
     /// whatever the shipped default happens to be.
     pub async fn with_integrity_proofs(label: &str, sign_integrity_proofs: bool) -> Self {
+        Self::build(label, sign_integrity_proofs, false).await
+    }
+
+    /// A context whose instance reviews new accounts before they may sign in.
+    /// `approval_required` is read off the config at startup, so a test that
+    /// needs it has to ask for it here rather than set it afterwards.
+    pub async fn with_approval_required(label: &str) -> Self {
+        Self::build(label, eunha::config::default_sign_integrity_proofs(), true).await
+    }
+
+    async fn build(label: &str, sign_integrity_proofs: bool, approval_required: bool) -> Self {
         // Make fanout/populate/backfill run inline so tests don't race with background tasks.
         eunha::feed::enable_sync_fanout();
         // Likewise for inbound activities: handle them in the request rather
@@ -528,7 +539,7 @@ impl TestContext {
                 short_description: String::new(),
                 contact_email: None,
                 registrations_open: true,
-                approval_required: false,
+                approval_required,
                 vapid_private_key,
                 vapid_public_key,
                 icon_url: None,

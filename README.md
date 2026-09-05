@@ -466,6 +466,20 @@ the everyone role hold `Flags::SAFE` — `invite_users` and
 `invite_bypass_approval` — and nothing here enforces that, so a hand-written
 value should stay inside it.
 
+The other half of `SAFE` is what an invite does to the approval queue. On an
+instance with `approval_required`, an invite skips review only when whoever
+wrote it holds `invite_bypass_approval`, which is Mastodon's
+`Invite#bypass_approval?` — a question about the inviter, not about whether an
+invite was used. The everyone role does not carry it, so an ordinary member may
+bring someone and the admin still sees them first. An instance that would rather
+an invite be the whole of the decision grants it:
+
+~~~~
+UPDATE user_roles SET permissions = permissions | (1 << 21) WHERE id = -99;
+~~~~
+
+Staff invites bypass already, through the `administrator` flag.
+
 ### Handing them out
 
 That leaves an instance where only staff may invite, which on its own would
