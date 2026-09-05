@@ -192,6 +192,17 @@ export function deleteStatus(id: string, token: string): Promise<mastodon.v1.Sta
   return restClient(token).v1.statuses.$select(id).remove()
 }
 
+// Every known version of a status, oldest first, with the current one appended
+// by the server. Unlike the other lists here this one does not paginate — the
+// handler returns the whole history in one response and emits no `Link` header
+// — so awaiting the paginator for its first (and only) page is the whole call.
+export async function getStatusHistory(
+  id: string,
+  token?: string,
+): Promise<mastodon.v1.StatusEdit[]> {
+  return restClient(token).v1.statuses.$select(id).history.list()
+}
+
 export function getStatusSource(
   id: string,
   token: string,

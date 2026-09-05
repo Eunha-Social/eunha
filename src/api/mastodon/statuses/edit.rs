@@ -393,21 +393,35 @@ pub async fn get_status_history(
     .fetch_all(&state.db)
     .await?;
 
-    // Render current version content on the fly
+    // Every version is rendered the same way, current and historical alike.
+    // Upstream's serializer runs `status_content_format` over each edit just as
+    // it does over a status, so a past version's newlines, links and mentions
+    // come back as markup — rendering only the current one left the rest as
+    // source text, which reads as one run-on line with a bare URL in it.
+    //
+    // `status_edits` stores the source text, not the mentions that were live at
+    // the time, so the status's current mentions are the map for every version.
+    // Upstream has no better answer either: `StatusEdit` does not respond to
+    // `active_mentions`, so its preloaded accounts are just the author.
     let current_mentions =
         crate::api::mastodon::status_serialize::fetch_status_mentions(&state, id)
             .await
             .unwrap_or_default();
-    let current_content = if account.domain.is_none() {
-        let instance_domain = state.instance.domain.clone();
-        let map = crate::api::mastodon::formatting::mention_map_from_api(
-            &current_mentions,
-            &instance_domain,
-        );
-        crate::api::mastodon::formatting::render_content(&status.text, &instance_domain, &map)
-    } else {
-        ammonia::clean(&status.text)
+    let instance_domain = state.instance.domain.clone();
+    let mention_map = crate::api::mastodon::formatting::mention_map_from_api(
+        &current_mentions,
+        &instance_domain,
+    );
+    let is_local = account.domain.is_none();
+    let render = |text: &str| -> String {
+        if is_local {
+            crate::api::mastodon::formatting::render_content(text, &instance_domain, &mention_map)
+        } else {
+            // Remote content already arrives as HTML; cleaning is the whole job.
+            ammonia::clean(text)
+        }
     };
+    let current_content = render(&status.text);
 
     let account_emojis = batch_account_emojis(&state, std::slice::from_ref(&account)).await;
     let account_roles = batch_account_roles(&state, std::slice::from_ref(&account)).await;
@@ -464,7 +478,7 @@ pub async fn get_status_history(
             serde_json::json!({ "options": opts.iter().map(|t| serde_json::json!({"title": t})).collect::<Vec<_>>() })
         });
         StatusEdit {
-            content: ammonia::clean(&e.text),
+            content: render(&e.text),
             spoiler_text: e.spoiler_text.clone(),
             sensitive: e.sensitive.unwrap_or(false),
             created_at: crate::api::mastodon::convert::mastodon_date(e.created_at),

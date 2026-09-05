@@ -265,7 +265,17 @@ export function StatusCard({
             <Link to={threadPath} className="no-underline hover:underline">
               <RelativeTime value={status.createdAt} />
             </Link>
-            {status.editedAt && <span title="Edited">(edited)</span>}
+            {status.editedAt && (
+              // The marker has always been here; until now it was the end of
+              // the story rather than a way to read what changed.
+              <Link
+                to={`${threadPath}/history`}
+                title="Show edit history"
+                className="text-muted-foreground no-underline hover:underline"
+              >
+                (edited)
+              </Link>
+            )}
             {hasMenu && (
               <DropdownMenu>
                 <DropdownMenuTrigger

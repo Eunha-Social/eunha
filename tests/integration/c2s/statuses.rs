@@ -1351,6 +1351,65 @@ async fn test_status_history_after_edit() {
     );
 }
 
+/// Every version in the history is rendered, not just the current one.
+///
+/// Upstream's `StatusEditSerializer#content` is `status_content_format(object)`
+/// — the same helper a status goes through — so a past version's newlines and
+/// links come back as markup. Eunha used to clean the stored source text for
+/// historical entries and render only the current one, which returned a past
+/// version as one run-on line with a bare URL in it. The count assertion above
+/// could not see that, which is how it lasted.
+#[tokio::test]
+async fn test_status_history_renders_every_version() {
+    let ctx = TestContext::new("edit-history-render").await;
+
+    let status = ctx
+        .api
+        .post_status(
+            &ctx.alice_token,
+            "first line\nsecond line with https://example.com/a",
+            "public",
+        )
+        .await;
+    let id = status["id"].as_str().unwrap();
+
+    ctx.api
+        .put_json(
+            &format!("/api/v1/statuses/{id}"),
+            Some(&ctx.alice_token),
+            &json!({"status": "rewritten\nstill two lines", "visibility": "public"}),
+        )
+        .await;
+
+    let history: Vec<Value> = ctx
+        .api
+        .get(&format!("/api/v1/statuses/{id}/history"), None)
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert!(history.len() >= 2, "expected the original and the edit");
+
+    for (i, version) in history.iter().enumerate() {
+        let content = version["content"].as_str().unwrap_or("");
+        assert!(
+            content.starts_with("<p>"),
+            "version {i} is not rendered: {content:?}"
+        );
+        assert!(
+            content.contains("<br />"),
+            "version {i} lost its line break: {content:?}"
+        );
+    }
+
+    // The oldest version is the one that used to come back as source text.
+    let original = history[0]["content"].as_str().unwrap_or("");
+    assert!(
+        original.contains(r#"<a href="https://example.com/a""#),
+        "the original version's link was not rendered: {original:?}"
+    );
+}
+
 /// A no-op edit (identical content) does not record a revision or set edited_at.
 #[tokio::test]
 async fn test_noop_edit_does_not_record_revision() {

@@ -14,6 +14,7 @@ import AccountList from './pages/AccountList.tsx'
 import StatusReactions from './pages/StatusReactions.tsx'
 import Bookmarks from './pages/Bookmarks.tsx'
 import Explore from './pages/Explore.tsx'
+import StatusHistory from './pages/StatusHistory.tsx'
 import BlockedAccounts from './pages/BlockedAccounts.tsx'
 import About from './pages/About.tsx'
 import InviteTree from './pages/InviteTree.tsx'
@@ -65,6 +66,7 @@ const router = createBrowserRouter([
   // Three segments, so these never compete with `/:acct/:id` above.
   { path: '/:acct/:id/favourites', element: <StatusReactions /> },
   { path: '/:acct/:id/reblogs', element: <StatusReactions /> },
+  { path: '/:acct/:id/history', element: <StatusHistory /> },
   { path: '*', element: <Home /> },
 ])
 
