@@ -420,7 +420,8 @@ lands on code eunha has:
     to trust it, and the JSON-LD processor can be made to do unbounded work.
     Eunha does no JSON-LD expansion or compaction at all and processes no
     LD signature; what it reads of an inbound body is bounded by axum's 2MB
-    default on the ActivityPub routes and serde_json's 128-deep recursion limit.
+    default on the ActivityPub routes and serde\_json's 128-deep recursion
+    limit.
 
  -  **Disabled staff keeping admin API access** ([GHSA-62j4-hvj7-px3f]). The
     admin REST controllers never ran the permission check the web UI did, and

@@ -408,10 +408,8 @@ pub async fn get_status_history(
             .await
             .unwrap_or_default();
     let instance_domain = state.instance.domain.clone();
-    let mention_map = crate::api::mastodon::formatting::mention_map_from_api(
-        &current_mentions,
-        &instance_domain,
-    );
+    let mention_map =
+        crate::api::mastodon::formatting::mention_map_from_api(&current_mentions, &instance_domain);
     let is_local = account.domain.is_none();
     let render = |text: &str| -> String {
         if is_local {

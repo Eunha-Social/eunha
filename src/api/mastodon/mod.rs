@@ -912,7 +912,8 @@ pub fn router(state: AppState) -> Router<AppState> {
         )
         // Tags (public)
         .route("/api/v1/tags/{name}", get(tags::get_tag))
-        // Trends — no analytics data; always empty
+        // Trends — tags by uses over seven days, statuses by favourites and
+        // boosts over two, links by how many posts carry them.
         .route("/api/v1/trends", get(trends::trending_tags))
         .route("/api/v1/trends/statuses", get(trends::trending_statuses))
         .route("/api/v1/trends/tags", get(trends::trending_tags))
@@ -937,7 +938,7 @@ pub fn router(state: AppState) -> Router<AppState> {
         .route("/api/oembed", get(oembed::get_oembed))
         .route("/api/v1/peers/search", get(instance::search_peers))
         .route("/api/v1/custom_emojis", get(emojis::list_custom_emojis))
-        // Announcements / conversations — not yet implemented
+        // Announcements / conversations
         .route(
             "/api/v1/announcements",
             get(announcements::get_announcements),
