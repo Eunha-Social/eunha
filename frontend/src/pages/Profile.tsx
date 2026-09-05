@@ -4,6 +4,7 @@ import { toast } from 'sonner'
 import {
   Ban,
   CheckCircle2,
+  Flag,
   ImageUp,
   MoreHorizontal,
   Pencil,
@@ -36,6 +37,7 @@ import { getToken } from '../auth.ts'
 import { useInfiniteFeed } from '../hooks/use-infinite-feed.ts'
 import { TopBar } from '@/components/top-bar.tsx'
 import { StatusCard } from '@/components/status-card.tsx'
+import { ReportDialog } from '@/components/report-dialog.tsx'
 import { InfiniteScroll } from '@/components/infinite-scroll.tsx'
 import { TimelineStack } from '@/components/timeline-stack.tsx'
 import {
@@ -591,6 +593,7 @@ export default function Profile() {
   const [error, setError] = useState<string | null>(null)
   const [relationshipBusy, setRelationshipBusy] = useState(false)
   const [confirmingBlock, setConfirmingBlock] = useState(false)
+  const [reporting, setReporting] = useState(false)
   const [pinned, setPinned] = useState<mastodon.v1.Status[] | null>(null)
   const [imageBusy, setImageBusy] = useState<'avatar' | 'header' | null>(null)
   const [imageError, setImageError] = useState<string | null>(null)
@@ -989,6 +992,12 @@ export default function Profile() {
                       >
                         <Ban /> {rel.blocking ? 'Unblock' : 'Block'}
                       </DropdownMenuItem>
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onClick={() => setReporting(true)}
+                      >
+                        <Flag /> Report account
+                      </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
@@ -1124,6 +1133,14 @@ export default function Profile() {
             />
           </div>
         </>
+      )}
+      {account && token && !isSelf && (
+        <ReportDialog
+          account={account}
+          open={reporting}
+          onOpenChange={setReporting}
+          token={token}
+        />
       )}
       <AlertDialog open={confirmingBlock} onOpenChange={setConfirmingBlock}>
         <AlertDialogContent>

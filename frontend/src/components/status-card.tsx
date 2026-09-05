@@ -12,6 +12,7 @@ import {
   Pencil,
   Pin,
   PinOff,
+  Flag,
   Quote,
   Repeat2,
   Reply,
@@ -46,6 +47,7 @@ import { Poll } from '@/components/poll.tsx'
 import { QuotedPost } from '@/components/quoted-post.tsx'
 import { RelativeTime } from '@/components/relative-time.tsx'
 import { useComposeModal } from '@/components/compose-modal.tsx'
+import { ReportDialog } from '@/components/report-dialog.tsx'
 import { cn, errorMessage } from '@/lib/utils.ts'
 
 const VISIBILITY: Record<
@@ -160,6 +162,7 @@ export function StatusCard({
   const [editText, setEditText] = useState('')
   const [editSpoiler, setEditSpoiler] = useState('')
   const [saving, setSaving] = useState(false)
+  const [reporting, setReporting] = useState(false)
   const navigate = useNavigate()
   const { openCompose } = useComposeModal()
 
@@ -179,7 +182,8 @@ export function StatusCard({
   // remote accounts. `url` is then the post's page on that instance, which is
   // where its full context lives — offer it the way Mastodon's web client does.
   const remoteUrl = status.account.acct.includes('@') ? status.url : null
-  const hasMenu = isOwn || canQuote || !!remoteUrl
+  const canReport = !!token && !isOwn
+  const hasMenu = isOwn || canQuote || !!remoteUrl || canReport
 
   useEffect(() => {
     setStatus(initial)
@@ -333,6 +337,14 @@ export function StatusCard({
                       <Quote /> Quote
                     </DropdownMenuItem>
                   )}
+                  {canReport && (
+                    <DropdownMenuItem
+                      variant="destructive"
+                      onClick={() => setReporting(true)}
+                    >
+                      <Flag /> Report post
+                    </DropdownMenuItem>
+                  )}
                   {isOwn && (
                     <>
                       <DropdownMenuItem onClick={togglePin} disabled={busy}>
@@ -467,6 +479,15 @@ export function StatusCard({
           />
         </div>
       </CardContent>
+      {canReport && (
+        <ReportDialog
+          account={status.account}
+          status={status}
+          open={reporting}
+          onOpenChange={setReporting}
+          token={token}
+        />
+      )}
     </Card>
   )
 }

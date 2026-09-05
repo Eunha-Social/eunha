@@ -181,6 +181,23 @@ export async function getAccountStatuses(
 // `?pinned=true` is the form Mastodon documents and masto types, and the one
 // every other client already asks for. It returns all of them at once — pins
 // cap at five — so there is nothing to paginate.
+// Report an account, optionally naming posts of theirs for context. eunha's
+// `rule_ids` is accepted but there is nothing to put in it: every path that
+// serves instance rules returns an empty list, so there are no rules to break
+// and the category is the whole of what a reporter chooses.
+export function fileReport(
+  token: string,
+  params: {
+    accountId: string
+    statusIds?: string[]
+    comment?: string
+    forward?: boolean
+    category?: 'spam' | 'violation' | 'other'
+  },
+): Promise<mastodon.v1.Report> {
+  return restClient(token).v1.reports.create(params)
+}
+
 export async function getPinnedStatuses(
   id: string,
   token?: string,
