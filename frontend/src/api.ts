@@ -177,6 +177,24 @@ export async function getAccountStatuses(
   return restClient(token).v1.accounts.$select(id).statuses.list({ limit: 40, maxId })
 }
 
+// An account's pinned posts. eunha also serves `/api/v1/accounts/:id/pins`, but
+// `?pinned=true` is the form Mastodon documents and masto types, and the one
+// every other client already asks for. It returns all of them at once — pins
+// cap at five — so there is nothing to paginate.
+export async function getPinnedStatuses(
+  id: string,
+  token?: string,
+): Promise<mastodon.v1.Status[]> {
+  return restClient(token).v1.accounts.$select(id).statuses.list({ pinned: true })
+}
+
+// Pinning is capped at five by the server, and it refuses a boost or someone
+// else's post — the caller surfaces what it says rather than guessing here.
+export function setPin(id: string, token: string, on: boolean) {
+  const s = restClient(token).v1.statuses.$select(id)
+  return on ? s.pin() : s.unpin()
+}
+
 export function getStatus(id: string, token?: string): Promise<mastodon.v1.Status> {
   return restClient(token).v1.statuses.$select(id).fetch()
 }

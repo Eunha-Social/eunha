@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { toast } from 'sonner'
 import {
   AtSign,
   Bookmark,
@@ -9,6 +10,8 @@ import {
   LockOpen,
   MoreHorizontal,
   Pencil,
+  Pin,
+  PinOff,
   Quote,
   Repeat2,
   Reply,
@@ -22,6 +25,7 @@ import {
   getStatusSource,
   setBookmark,
   setFavourite,
+  setPin,
   setReblog,
   updateStatus,
 } from '../api.ts'
@@ -42,7 +46,7 @@ import { Poll } from '@/components/poll.tsx'
 import { QuotedPost } from '@/components/quoted-post.tsx'
 import { RelativeTime } from '@/components/relative-time.tsx'
 import { useComposeModal } from '@/components/compose-modal.tsx'
-import { cn } from '@/lib/utils.ts'
+import { cn, errorMessage } from '@/lib/utils.ts'
 
 const VISIBILITY: Record<
   string,
@@ -135,6 +139,7 @@ export function StatusCard({
   boostedBy,
   detailed,
   onReply,
+  onPinChange,
 }: {
   status: mastodon.v1.Status
   token: string
@@ -143,6 +148,9 @@ export function StatusCard({
   // post only on this detailed view, not on every card in a timeline.
   detailed?: boolean
   onReply?: (status: mastodon.v1.Status) => void
+  // Pinning changes a list this card does not own — the pinned section on the
+  // author's profile — so the page that shows both is told to refetch it.
+  onPinChange?: () => void
 }) {
   const [status, setStatus] = useState(initial)
   const [busy, setBusy] = useState(false)
@@ -215,6 +223,25 @@ export function StatusCard({
       setDeleted(true)
     } catch {
       // ignore
+    }
+  }
+
+  // Offered only on your own posts. The server also refuses to pin a boost,
+  // which cannot arise here: the card is always handed the underlying status,
+  // never the reblog wrapper. The cap of five is the server's to enforce, and
+  // its 422 names the reason better than a guess here would.
+  const togglePin = async () => {
+    if (busy || !token) return
+    const pinning = !status.pinned
+    setBusy(true)
+    try {
+      setStatus(await setPin(status.id, token, pinning))
+      toast.success(pinning ? 'Pinned to your profile.' : 'Unpinned.')
+      onPinChange?.()
+    } catch (e) {
+      toast.error(errorMessage(e))
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -308,6 +335,10 @@ export function StatusCard({
                   )}
                   {isOwn && (
                     <>
+                      <DropdownMenuItem onClick={togglePin} disabled={busy}>
+                        {status.pinned ? <PinOff /> : <Pin />}
+                        {status.pinned ? 'Unpin from profile' : 'Pin to profile'}
+                      </DropdownMenuItem>
                       <DropdownMenuItem onClick={startEdit}>
                         <Pencil /> Edit
                       </DropdownMenuItem>

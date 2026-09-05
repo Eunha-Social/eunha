@@ -11,16 +11,12 @@ import { AccountRow } from '@/components/account-row.tsx'
 import { InfiniteScroll } from '@/components/infinite-scroll.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Card, CardContent } from '@/components/ui/card.tsx'
-import { cn } from '@/lib/utils.ts'
+import { cn, errorMessage } from '@/lib/utils.ts'
 
 const tab =
   'border-b-2 border-transparent px-3 py-2 text-sm font-medium text-muted-foreground no-underline hover:text-foreground'
 const cls = ({ isActive }: { isActive: boolean }) =>
   cn(tab, isActive && 'border-primary text-foreground')
-
-function errorMessage(e: unknown): string {
-  return e instanceof Error ? e.message : String(e)
-}
 
 export default function BlockedAccounts() {
   const muted = useLocation().pathname.endsWith('/muted')

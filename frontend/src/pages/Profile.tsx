@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
@@ -7,6 +7,7 @@ import {
   ImageUp,
   MoreHorizontal,
   Pencil,
+  Pin,
   Trash2,
   UserPlus,
   VolumeX,
@@ -22,6 +23,7 @@ import {
   getCurrentAccount,
   getFeaturedTags,
   getFeaturedTagSuggestions,
+  getPinnedStatuses,
   getRelationship,
   lookupAccount,
   setBlock,
@@ -46,6 +48,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog.tsx'
+import { errorMessage } from '@/lib/utils.ts'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import {
@@ -69,10 +72,6 @@ const FIELD_CHARS = 255
 const FEATURED_TAG_MAX = 10
 
 type EditField = { name: string; value: string }
-
-function errorMessage(e: unknown) {
-  return e instanceof Error ? e.message : String(e)
-}
 
 function ProfileEditModal({
   token,
@@ -592,6 +591,7 @@ export default function Profile() {
   const [error, setError] = useState<string | null>(null)
   const [relationshipBusy, setRelationshipBusy] = useState(false)
   const [confirmingBlock, setConfirmingBlock] = useState(false)
+  const [pinned, setPinned] = useState<mastodon.v1.Status[] | null>(null)
   const [imageBusy, setImageBusy] = useState<'avatar' | 'header' | null>(null)
   const [imageError, setImageError] = useState<string | null>(null)
   const [cropDraft, setCropDraft] = useState<CropDraft | null>(null)
@@ -604,6 +604,22 @@ export default function Profile() {
     [account?.id, token],
   )
   const statuses = feed.items
+
+  // Pins come back in one response (there can be at most five) and are ordered
+  // by when they were pinned, so they are fetched apart from the timeline feed
+  // rather than paged with it. `loadPinned` is also what a card calls after
+  // pinning, so the section above it agrees with the menu that changed it.
+  const loadPinned = useCallback(() => {
+    if (!account) return
+    getPinnedStatuses(account.id, token ?? undefined)
+      .then(setPinned)
+      .catch(() => setPinned([]))
+  }, [account, token])
+
+  useEffect(() => {
+    setPinned(null)
+    loadPinned()
+  }, [loadPinned])
 
   useEffect(() => {
     setAccount(null)
@@ -1064,6 +1080,23 @@ export default function Profile() {
           </div>
 
           <div className="space-y-2">
+            {!!pinned?.length && (
+              <section className="space-y-1">
+                <h2 className="text-muted-foreground flex items-center gap-1.5 text-sm font-semibold">
+                  <Pin className="size-3.5" /> Pinned
+                </h2>
+                <TimelineStack>
+                  {pinned.map((s) => (
+                    <StatusCard
+                      key={s.id}
+                      status={s}
+                      token={token ?? ''}
+                      onPinChange={loadPinned}
+                    />
+                  ))}
+                </TimelineStack>
+              </section>
+            )}
             {statuses === null && !error && (
               <p className="text-muted-foreground text-sm">Loading…</p>
             )}
@@ -1075,6 +1108,7 @@ export default function Profile() {
                     status={s.reblog ?? s}
                     token={token ?? ''}
                     boostedBy={s.reblog ? s.account : undefined}
+                    onPinChange={loadPinned}
                   />
                 ))}
               </TimelineStack>
