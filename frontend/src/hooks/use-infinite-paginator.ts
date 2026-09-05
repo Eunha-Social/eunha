@@ -86,5 +86,11 @@ export function useInfinitePaginator<T>(
     }
   }, [done])
 
-  return { items, error, loadingMore, done, loadMore }
+  // Lets a caller drop or replace rows without refetching — undoing a block
+  // should take that account out of the list it was just acted on in.
+  const mutate = useCallback((fn: (items: T[]) => T[]) => {
+    setItems((prev) => (prev ? fn(prev) : prev))
+  }, [])
+
+  return { items, error, loadingMore, done, loadMore, mutate }
 }

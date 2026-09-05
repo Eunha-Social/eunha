@@ -75,13 +75,14 @@ const account = {
   indexable: true,
 }
 
-const relationship = (muting: boolean) => ({
+const relationship = (muting: boolean, blocking = false) => ({
   id: '2',
-  following: true,
+  // Blocking severs the follow, so a blocked account is not also followed.
+  following: !blocking,
   showing_reblogs: true,
   notifying: false,
   followed_by: false,
-  blocking: false,
+  blocking,
   blocked_by: false,
   muting,
   muting_notifications: muting,
@@ -135,4 +136,90 @@ test('a profile can be muted, and says what a mute does', async ({ page }) => {
   ).toBeVisible()
   await page.getByRole('button', { name: 'More actions for @bob' }).click()
   await expect(page.getByRole('menuitem', { name: 'Unmute' })).toBeVisible()
+})
+
+test('blocking a profile asks first, and says what the block undoes', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('eunha:token', 'test-token')
+  })
+
+  let blocked = false
+  let blockCalls = 0
+
+  await page.route('**/api/v1/accounts/lookup**', (route) =>
+    route.fulfill({ json: account }),
+  )
+  await page.route('**/api/v1/accounts/verify_credentials**', (route) =>
+    route.fulfill({ json: { ...account, id: '1', username: 'alice', acct: 'alice' } }),
+  )
+  await page.route('**/api/v1/accounts/relationships**', (route) =>
+    route.fulfill({ json: [relationship(false, blocked)] }),
+  )
+  await page.route('**/api/v1/accounts/2/statuses**', (route) =>
+    route.fulfill({ json: [] }),
+  )
+  await page.route('**/api/v1/accounts/2/block', async (route) => {
+    blockCalls += 1
+    blocked = true
+    await route.fulfill({ json: relationship(false, true) })
+  })
+
+  await page.goto('/@bob')
+  await page.getByRole('button', { name: 'More actions for @bob' }).click()
+  await page.getByRole('menuitem', { name: 'Block' }).click()
+
+  // Unlike a mute, the block is not applied on the click: it asks first, and
+  // the question says the part that cannot be undone.
+  await expect(
+    page.getByText(/Any follow between you is undone now, and unblocking later/),
+  ).toBeVisible()
+  expect(blockCalls).toBe(0)
+
+  await page.getByRole('button', { name: 'Block', exact: true }).click()
+  await expect(page.getByText(/^Blocked @bob\./)).toBeVisible()
+  expect(blockCalls).toBe(1)
+
+  await expect(
+    page.getByText(/Blocked — they cannot follow you or see your posts/),
+  ).toBeVisible()
+  await page.getByRole('button', { name: 'More actions for @bob' }).click()
+  await expect(page.getByRole('menuitem', { name: 'Unblock' })).toBeVisible()
+})
+
+test('cancelling the block confirmation leaves the account unblocked', async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('eunha:token', 'test-token')
+  })
+
+  let blockCalls = 0
+
+  await page.route('**/api/v1/accounts/lookup**', (route) =>
+    route.fulfill({ json: account }),
+  )
+  await page.route('**/api/v1/accounts/verify_credentials**', (route) =>
+    route.fulfill({ json: { ...account, id: '1', username: 'alice', acct: 'alice' } }),
+  )
+  await page.route('**/api/v1/accounts/relationships**', (route) =>
+    route.fulfill({ json: [relationship(false)] }),
+  )
+  await page.route('**/api/v1/accounts/2/statuses**', (route) =>
+    route.fulfill({ json: [] }),
+  )
+  await page.route('**/api/v1/accounts/2/block', async (route) => {
+    blockCalls += 1
+    await route.fulfill({ json: relationship(false, true) })
+  })
+
+  await page.goto('/@bob')
+  await page.getByRole('button', { name: 'More actions for @bob' }).click()
+  await page.getByRole('menuitem', { name: 'Block' }).click()
+  await page.getByRole('button', { name: 'Cancel' }).click()
+
+  expect(blockCalls).toBe(0)
+  await page.getByRole('button', { name: 'More actions for @bob' }).click()
+  await expect(page.getByRole('menuitem', { name: 'Block' })).toBeVisible()
 })

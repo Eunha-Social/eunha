@@ -235,6 +235,28 @@ export function setMute(
   return on ? a.mute(params) : a.unmute()
 }
 
+// Blocking severs follows in both directions and drops pending requests, which
+// unblocking does not put back — the confirmation before this says so.
+export function setBlock(id: string, token: string, on: boolean) {
+  const a = restClient(token).v1.accounts.$select(id)
+  return on ? a.block() : a.unblock()
+}
+
+// Blocks, mutes and bookmarks all paginate by the id of the block, mute or
+// bookmark row rather than by the account or status they return — the same
+// reason `getFavouritedBy` hands back a paginator. See `useInfinitePaginator`.
+export function getBlocks(token: string): mastodon.Paginator<mastodon.v1.Account[]> {
+  return restClient(token).v1.blocks.list()
+}
+
+export function getMutes(token: string): mastodon.Paginator<mastodon.v1.Account[]> {
+  return restClient(token).v1.mutes.list()
+}
+
+export function getBookmarks(token: string): mastodon.Paginator<mastodon.v1.Status[]> {
+  return restClient(token).v1.bookmarks.list()
+}
+
 export async function getPublicTimeline(
   local: boolean,
   token?: string,

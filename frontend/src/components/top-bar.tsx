@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import {
   Bell,
+  Bookmark,
   Home,
   Info,
   LogIn,
@@ -49,6 +50,7 @@ function useNavItems(token: string | null, account: MeAccount | null): NavItem[]
     { to: '/', end: true, icon: Home, label: 'Home' },
     { to: '/search', icon: Search, label: 'Search' },
     { to: '/notifications', icon: Bell, label: 'Notifications' },
+    { to: '/bookmarks', icon: Bookmark, label: 'Bookmarks' },
   ]
   if (account) {
     items.push({ to: `/@${account.acct}`, icon: User, label: 'Profile' })

@@ -12,6 +12,8 @@ import SearchPage from './pages/Search.tsx'
 import TagTimeline from './pages/TagTimeline.tsx'
 import AccountList from './pages/AccountList.tsx'
 import StatusReactions from './pages/StatusReactions.tsx'
+import Bookmarks from './pages/Bookmarks.tsx'
+import BlockedAccounts from './pages/BlockedAccounts.tsx'
 import About from './pages/About.tsx'
 import InviteTree from './pages/InviteTree.tsx'
 import Invites from './pages/Invites.tsx'
@@ -46,6 +48,9 @@ const router = createBrowserRouter([
   { path: '/invites', element: <Invites /> },
   { path: '/signup', element: <Signup /> },
   { path: '/settings', element: <Settings /> },
+  { path: '/bookmarks', element: <Bookmarks /> },
+  { path: '/blocked', element: <BlockedAccounts /> },
+  { path: '/muted', element: <BlockedAccounts /> },
   { path: '/tags/:name', element: <TagTimeline /> },
   { path: '/:acct', element: <Profile /> },
   // Static second segments outrank the dynamic `:id` thread route, so these

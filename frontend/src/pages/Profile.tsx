@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { toast } from 'sonner'
 import {
+  Ban,
   CheckCircle2,
   ImageUp,
   MoreHorizontal,
@@ -23,6 +24,7 @@ import {
   getFeaturedTagSuggestions,
   getRelationship,
   lookupAccount,
+  setBlock,
   setFollow,
   setMute,
   updateAccountImages,
@@ -34,6 +36,16 @@ import { TopBar } from '@/components/top-bar.tsx'
 import { StatusCard } from '@/components/status-card.tsx'
 import { InfiniteScroll } from '@/components/infinite-scroll.tsx'
 import { TimelineStack } from '@/components/timeline-stack.tsx'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog.tsx'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import {
@@ -579,6 +591,7 @@ export default function Profile() {
   const [editingProfile, setEditingProfile] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [relationshipBusy, setRelationshipBusy] = useState(false)
+  const [confirmingBlock, setConfirmingBlock] = useState(false)
   const [imageBusy, setImageBusy] = useState<'avatar' | 'header' | null>(null)
   const [imageError, setImageError] = useState<string | null>(null)
   const [cropDraft, setCropDraft] = useState<CropDraft | null>(null)
@@ -665,6 +678,28 @@ export default function Profile() {
       toast.error(errorMessage(e))
     } finally {
       setRelationshipBusy(false)
+    }
+  }
+
+  // Unlike a mute, a block is not just a view setting: the server severs any
+  // follow in either direction and drops pending requests, and unblocking does
+  // not put them back. So blocking asks first; unblocking does not need to.
+  const toggleBlock = async () => {
+    if (!account || !token || !rel || relationshipBusy) return
+    const blocking = !rel.blocking
+    setRelationshipBusy(true)
+    try {
+      setRel(await setBlock(account.id, token, blocking))
+      toast.success(
+        blocking
+          ? `Blocked @${account.acct}. They cannot follow you or see your posts, and any follow between you is undone.`
+          : `Unblocked @${account.acct}.`,
+      )
+    } catch (e) {
+      toast.error(errorMessage(e))
+    } finally {
+      setRelationshipBusy(false)
+      setConfirmingBlock(false)
     }
   }
 
@@ -929,6 +964,15 @@ export default function Profile() {
                       >
                         <VolumeX /> {rel.muting ? 'Unmute' : 'Mute'}
                       </DropdownMenuItem>
+                      <DropdownMenuItem
+                        variant={rel.blocking ? undefined : 'destructive'}
+                        onClick={() =>
+                          rel.blocking ? toggleBlock() : setConfirmingBlock(true)
+                        }
+                        disabled={relationshipBusy}
+                      >
+                        <Ban /> {rel.blocking ? 'Unblock' : 'Block'}
+                      </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
@@ -936,6 +980,17 @@ export default function Profile() {
                   <p className="text-muted-foreground max-w-64 text-right text-xs">
                     Muted — their posts are hidden from your timelines. They can
                     still mention you and react to your posts.
+                  </p>
+                )}
+                {rel.blocking && (
+                  <p className="text-muted-foreground max-w-64 text-right text-xs">
+                    Blocked — they cannot follow you or see your posts, and you
+                    will not see theirs.
+                  </p>
+                )}
+                {rel.blockedBy && !rel.blocking && (
+                  <p className="text-muted-foreground max-w-64 text-right text-xs">
+                    This account has blocked you.
                   </p>
                 )}
                 {rel.following && (
@@ -1036,6 +1091,28 @@ export default function Profile() {
           </div>
         </>
       )}
+      <AlertDialog open={confirmingBlock} onOpenChange={setConfirmingBlock}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Block @{account?.acct}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              They will not be able to follow you or see your posts, and you
+              will not see theirs. Any follow between you is undone now, and
+              unblocking later does not restore it.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={relationshipBusy}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              disabled={relationshipBusy}
+              onClick={toggleBlock}
+            >
+              {relationshipBusy ? 'Blocking…' : 'Block'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }

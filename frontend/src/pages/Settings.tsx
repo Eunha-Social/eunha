@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { KeyRound } from 'lucide-react'
+import { Link, useNavigate } from 'react-router-dom'
+import { Ban, KeyRound } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { ApiError, deleteAccount } from '../eunha-api.ts'
@@ -154,6 +154,16 @@ export default function Settings() {
             </p>
             <Button variant="secondary" size="sm" render={<a href="/account/password" />}>
               <KeyRound /> Change password
+            </Button>
+          </section>
+
+          <section className="space-y-2 rounded-lg border p-4">
+            <h2 className="font-semibold">Blocked and muted</h2>
+            <p className="text-muted-foreground text-sm">
+              Review the accounts you have blocked or muted, and undo either.
+            </p>
+            <Button variant="secondary" size="sm" render={<Link to="/blocked" />}>
+              <Ban /> Blocked and muted
             </Button>
           </section>
 
