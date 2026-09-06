@@ -6,6 +6,32 @@ export function getInstance(): Promise<mastodon.v2.Instance> {
   return restClient().v2.instance.fetch()
 }
 
+// The instance's own policy documents. masto types `extendedDescription` but
+// neither of these, and both are plain public GETs, so they are fetched
+// directly. Each is empty until an instance configures one — `privacy_policy`
+// and `terms_of_service` in its config.toml — so callers render what comes
+// back only when there is something in it.
+export async function getInstanceText(
+  kind: 'privacy_policy' | 'terms_of_service',
+): Promise<string> {
+  const res = await fetch(`${window.location.origin}/api/v1/instance/${kind}`)
+  if (!res.ok) return ''
+  const body: unknown = await res.json()
+  // `privacy_policy` is one object; `terms_of_service` is a list of versions by
+  // effective date, of which eunha only ever has the one.
+  if (Array.isArray(body)) {
+    const current = body.find(
+      (v): v is { content?: string } =>
+        typeof v === 'object' && v !== null && 'content' in v,
+    )
+    return current?.content ?? ''
+  }
+  if (typeof body === 'object' && body !== null && 'content' in body) {
+    return String((body as { content?: string }).content ?? '')
+  }
+  return ''
+}
+
 export async function getHomeTimeline(
   token: string,
   maxId?: string,
