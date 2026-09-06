@@ -8,7 +8,6 @@ import { beginLogin, getToken } from '../auth.ts'
 import { useInfiniteFeed } from '../hooks/use-infinite-feed.ts'
 import { useStreamingSubscription } from '../hooks/use-streaming-subscription.ts'
 import { TopBar } from '@/components/top-bar.tsx'
-import { TimelineTabs } from '@/components/timeline-tabs.tsx'
 import { StatusCard } from '@/components/status-card.tsx'
 import { useComposeModal } from '@/components/compose-modal.tsx'
 import { FollowRequestActions } from '@/components/follow-request-actions.tsx'
@@ -179,7 +178,6 @@ export default function Notifications() {
   return (
     <div className="page-frame">
       <TopBar />
-      <TimelineTabs />
       {!token ? (
         <div className="space-y-2">
           <p className="text-muted-foreground text-sm">Sign in to see your notifications.</p>

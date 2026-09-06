@@ -127,7 +127,7 @@ test('a message is sent as direct, not as the account default', async ({ page })
   })
 
   await page.goto('/messages')
-  await page.getByRole('button', { name: 'New' }).click()
+  await page.getByRole('button', { name: 'New', exact: true }).click()
 
   await expect(page.getByRole('heading', { name: 'New message' })).toBeVisible()
   await expect(page.getByText('To: everyone mentioned')).toBeVisible()

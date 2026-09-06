@@ -7,7 +7,6 @@ import { getToken } from '../auth.ts'
 import { useInfiniteFeed } from '../hooks/use-infinite-feed.ts'
 import { useStatusStreaming } from '../hooks/use-status-streaming.ts'
 import { TopBar } from '@/components/top-bar.tsx'
-import { TimelineTabs } from '@/components/timeline-tabs.tsx'
 import { StatusCard } from '@/components/status-card.tsx'
 import { InfiniteScroll } from '@/components/infinite-scroll.tsx'
 import { TimelineStack } from '@/components/timeline-stack.tsx'
@@ -40,7 +39,6 @@ export default function PublicTimeline({ local }: { local?: boolean } = {}) {
   return (
     <div className="page-frame">
       <TopBar />
-      <TimelineTabs />
       {feed.error && <p className="text-destructive text-sm">{feed.error}</p>}
       <div className="space-y-2">
         {statuses === null && !feed.error && (

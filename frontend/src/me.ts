@@ -10,6 +10,10 @@ export interface MeAccount {
   id: string
   acct: string
   defaultVisibility: mastodon.v1.StatusVisibility
+  // For the account card in the sidebar. Cached with the rest so the card
+  // renders on first paint instead of appearing a request later.
+  displayName: string
+  avatar: string
 }
 
 let cachedId: string | null = localStorage.getItem(ID_KEY)
@@ -28,6 +32,10 @@ function readCachedAccount(): MeAccount | null {
           defaultVisibility: isStatusVisibility(parsed.defaultVisibility)
             ? parsed.defaultVisibility
             : 'public',
+          // A record cached before these were stored still has to parse; the
+          // next `loadMe` fills them in.
+          displayName: parsed.displayName ?? parsed.acct,
+          avatar: parsed.avatar ?? '',
         }
       : null
   } catch {
@@ -66,6 +74,8 @@ export async function loadMe(token: string): Promise<MeAccount | null> {
       id: me.id,
       acct: me.acct,
       defaultVisibility: me.source.privacy ?? 'public',
+      displayName: me.displayName || me.username,
+      avatar: me.avatar,
     }
     localStorage.setItem(ID_KEY, me.id)
     localStorage.setItem(ACCOUNT_KEY, JSON.stringify(cachedAccount))
