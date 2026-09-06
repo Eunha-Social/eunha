@@ -5,10 +5,12 @@ import { toast } from 'sonner'
 
 import { ApiError, deleteAccount } from '../eunha-api.ts'
 import { beginLogin, getToken, logout } from '../auth.ts'
+import { isAdvancedLayout, setAdvancedLayout } from '../lib/panes.ts'
 import { clearMe, getMeAccount } from '../me.ts'
 import { TopBar } from '@/components/top-bar.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Input } from '@/components/ui/input.tsx'
+import { Switch } from '@/components/ui/switch.tsx'
 import { Label } from '@/components/ui/label.tsx'
 import {
   AlertDialog,
@@ -125,6 +127,7 @@ function DeleteAccount({ token }: { token: string }) {
 
 export default function Settings() {
   const token = getToken()
+  const [advanced, setAdvanced] = useState(() => isAdvancedLayout())
   const me = getMeAccount()
 
   return (
@@ -155,6 +158,24 @@ export default function Settings() {
             <Button variant="secondary" size="sm" render={<a href="/account/password" />}>
               <KeyRound /> Change password
             </Button>
+          </section>
+
+          <section className="space-y-2 rounded-lg border p-4">
+            <h2 className="font-semibold">Layout</h2>
+            <p className="text-muted-foreground text-sm">
+              Show several timelines side by side instead of one column. Stored in
+              this browser, so a phone can stay on the single column.
+            </p>
+            <Label className="text-sm font-normal">
+              <Switch
+                checked={advanced}
+                onCheckedChange={(on) => {
+                  setAdvancedLayout(on)
+                  setAdvanced(on)
+                }}
+              />
+              Advanced layout
+            </Label>
           </section>
 
           <section className="space-y-2 rounded-lg border p-4">

@@ -139,6 +139,20 @@
     @apply mx-auto min-h-screen max-w-2xl border-x px-3 py-3;
   }
 
+  /* A column that carries a `ColumnHeader` is a card: the header caps it and
+     the border wraps the whole, so it needs no padding of its own. */
+  .column-frame {
+    @apply bg-card mx-auto my-3 max-w-2xl rounded-lg border;
+    min-height: calc(100vh - 1.5rem);
+  }
+
+  @media (min-width: 768px) {
+    .column-frame {
+      margin-left: max(50% - 21rem, 15.75rem);
+      margin-right: auto;
+    }
+  }
+
   /* At `md` and up the fixed `.sidebar-frame` (14rem) floats in the left
      margin. Reserve room for it so the reading column never slides under the
      rail: stay centered on wide screens, but never let the left margin drop
@@ -149,6 +163,22 @@
       margin-left: max(50% - 21rem, 15.75rem);
       margin-right: auto;
     }
+  }
+
+  /* The advanced layout: a row of panes, each scrolling on its own, that
+     scrolls sideways rather than squeezing when they outgrow the window. */
+  .advanced-frame {
+    @apply flex h-screen items-stretch gap-3 overflow-x-auto p-3;
+  }
+
+  @media (min-width: 768px) {
+    .advanced-frame {
+      margin-left: 15.75rem;
+    }
+  }
+
+  .advanced-pane {
+    @apply bg-card flex w-[24rem] shrink-0 flex-col overflow-hidden rounded-lg border;
   }
 
   .sidebar-frame {
