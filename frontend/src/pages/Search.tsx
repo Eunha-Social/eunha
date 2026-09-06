@@ -69,7 +69,7 @@ export default function Search() {
         <div className="space-y-4">
           {results.accounts.length > 0 && (
             <section>
-              <h2 className="text-secondary mb-2 text-sm font-semibold">People</h2>
+              <h2 className="text-muted-foreground mb-2 text-sm font-semibold">People</h2>
               <div className="space-y-1">
                 {results.accounts.map((a) => (
                   <AccountRow key={a.id} account={a} />
@@ -80,7 +80,7 @@ export default function Search() {
 
           {results.hashtags.length > 0 && (
             <section>
-              <h2 className="text-secondary mb-2 text-sm font-semibold">Hashtags</h2>
+              <h2 className="text-muted-foreground mb-2 text-sm font-semibold">Hashtags</h2>
               <div className="space-y-1">
                 {results.hashtags.map((t) => (
                   <Link
@@ -97,7 +97,7 @@ export default function Search() {
 
           {results.statuses.length > 0 && (
             <section>
-              <h2 className="text-secondary mb-2 text-sm font-semibold">Posts</h2>
+              <h2 className="text-muted-foreground mb-2 text-sm font-semibold">Posts</h2>
               <TimelineStack>
                 {results.statuses.map((s) => (
                   <StatusCard

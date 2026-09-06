@@ -472,7 +472,7 @@ export function StatusCard({
           <ActionButton
             icon={<Bookmark />}
             active={status.bookmarked ?? false}
-            activeClass="text-secondary"
+            activeClass="text-brand-lilac"
             disabled={busy || !token}
             label="Bookmark"
             onClick={() => act(() => setBookmark(token, status.id, !status.bookmarked))}

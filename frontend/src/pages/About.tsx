@@ -11,7 +11,7 @@ import { AccountRow } from '@/components/account-row.tsx'
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="space-y-1">
-      <h2 className="text-secondary text-sm font-semibold">{title}</h2>
+      <h2 className="text-muted-foreground text-sm font-semibold">{title}</h2>
       {children}
     </section>
   )

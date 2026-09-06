@@ -4,72 +4,82 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  /* Straight from the logo, by way of the eunha.social landing page: navy,
+     cream, mint, lilac. The accent is mint darkened until it clears 4.5:1 on
+     cream — the same adjustment the landing page makes, for the same reason. */
+  --brand-navy: oklch(0.177 0.059 255.6);
+  --brand-cream: oklch(0.968 0.013 86.8);
+  --brand-mint: oklch(0.845 0.101 181.9);
+  --brand-lilac: oklch(0.733 0.124 297.1);
+
+  --background: var(--brand-cream);
+  --foreground: var(--brand-navy);
+  --card: oklch(0.985 0.008 86.8);
+  --card-foreground: var(--brand-navy);
+  --popover: oklch(0.985 0.008 86.8);
+  --popover-foreground: var(--brand-navy);
+  --primary: oklch(0.521 0.090 176.7);
+  --primary-foreground: var(--brand-cream);
+  --secondary: oklch(0.944 0.017 88.0);
+  --secondary-foreground: var(--brand-navy);
+  --muted: oklch(0.944 0.017 88.0);
+  --muted-foreground: oklch(0.441 0.041 263.2);
+  --accent: oklch(0.923 0.023 87.2);
+  --accent-foreground: var(--brand-navy);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
+  --border: oklch(0.887 0.023 87.2);
+  --input: oklch(0.816 0.029 86.7);
+  --ring: oklch(0.521 0.090 176.7);
+  --chart-1: oklch(0.521 0.090 176.7);
+  --chart-2: oklch(0.733 0.124 297.1);
+  --chart-3: oklch(0.441 0.041 263.2);
+  --chart-4: oklch(0.816 0.029 86.7);
+  --chart-5: oklch(0.177 0.059 255.6);
   --radius: 0.625rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar: oklch(0.944 0.017 88.0);
+  --sidebar-foreground: var(--brand-navy);
+  --sidebar-primary: oklch(0.521 0.090 176.7);
+  --sidebar-primary-foreground: var(--brand-cream);
+  --sidebar-accent: oklch(0.923 0.023 87.2);
+  --sidebar-accent-foreground: var(--brand-navy);
+  --sidebar-border: oklch(0.887 0.023 87.2);
+  --sidebar-ring: oklch(0.521 0.090 176.7);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
+  /* Navy ground, cream ink, and mint bright enough to carry links and buttons
+     without darkening — the inversion the landing page makes. */
+  --background: var(--brand-navy);
+  --foreground: var(--brand-cream);
+  --card: oklch(0.207 0.053 253.0);
+  --card-foreground: var(--brand-cream);
+  --popover: oklch(0.207 0.053 253.0);
+  --popover-foreground: var(--brand-cream);
+  --primary: var(--brand-mint);
+  --primary-foreground: var(--brand-navy);
+  --secondary: oklch(0.225 0.058 253.4);
+  --secondary-foreground: var(--brand-cream);
+  --muted: oklch(0.225 0.058 253.4);
+  --muted-foreground: oklch(0.767 0.029 260.3);
+  --accent: oklch(0.271 0.050 257.1);
+  --accent-foreground: var(--brand-cream);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.87 0 0);
-  --chart-2: oklch(0.556 0 0);
-  --chart-3: oklch(0.439 0 0);
-  --chart-4: oklch(0.371 0 0);
-  --chart-5: oklch(0.269 0 0);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --border: oklch(0.271 0.050 257.1);
+  --input: oklch(0.334 0.048 257.1);
+  --ring: var(--brand-mint);
+  --chart-1: var(--brand-mint);
+  --chart-2: var(--brand-lilac);
+  --chart-3: oklch(0.767 0.029 260.3);
+  --chart-4: oklch(0.334 0.048 257.1);
+  --chart-5: var(--brand-cream);
+  --sidebar: oklch(0.207 0.053 253.0);
+  --sidebar-foreground: var(--brand-cream);
+  --sidebar-primary: var(--brand-mint);
+  --sidebar-primary-foreground: var(--brand-navy);
+  --sidebar-accent: oklch(0.271 0.050 257.1);
+  --sidebar-accent-foreground: var(--brand-cream);
+  --sidebar-border: oklch(0.271 0.050 257.1);
+  --sidebar-ring: var(--brand-mint);
 }
 
 @theme inline {
@@ -78,6 +88,10 @@
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
 
+  --color-brand-navy: var(--brand-navy);
+  --color-brand-cream: var(--brand-cream);
+  --color-brand-mint: var(--brand-mint);
+  --color-brand-lilac: var(--brand-lilac);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
