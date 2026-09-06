@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "UPDATE account_conversations SET unread = false WHERE conversation_id = $1 AND account_id = $2 RETURNING participant_account_ids, last_status_id",
+  "query": "UPDATE account_conversations SET unread = true WHERE id = $1 AND account_id = $2 RETURNING participant_account_ids, last_status_id",
   "describe": {
     "columns": [
       {
@@ -25,5 +25,5 @@
       true
     ]
   },
-  "hash": "0caa117c840d72314c807f52175809652644da6e9e5068af0d5e617f14e554f9"
+  "hash": "1519d7382fcd39ebbc10162c512e4eb94379b1728825d4f7288075254a100133"
 }

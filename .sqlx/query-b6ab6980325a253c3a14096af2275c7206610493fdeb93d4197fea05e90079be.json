@@ -1,11 +1,11 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT ac.conversation_id, ac.unread, ac.participant_account_ids, ac.last_status_id\n               FROM account_conversations ac\n               WHERE ac.account_id = $1\n                 AND ($2::bigint IS NULL OR ac.last_status_id > $2)\n               ORDER BY ac.last_status_id ASC NULLS LAST\n               LIMIT $3",
+  "query": "SELECT ac.id, ac.unread, ac.participant_account_ids, ac.last_status_id\n               FROM account_conversations ac\n               WHERE ac.account_id = $1\n                 AND ($2::bigint IS NULL OR ac.last_status_id < $2)\n                 AND ($4::bigint IS NULL OR ac.last_status_id > $4)\n               ORDER BY ac.last_status_id DESC NULLS LAST\n               LIMIT $3",
   "describe": {
     "columns": [
       {
         "ordinal": 0,
-        "name": "conversation_id",
+        "name": "id",
         "type_info": "Int8"
       },
       {
@@ -28,6 +28,7 @@
       "Left": [
         "Int8",
         "Int8",
+        "Int8",
         "Int8"
       ]
     },
@@ -38,5 +39,5 @@
       true
     ]
   },
-  "hash": "037e745b917efa7b0560bf0c88fcfb69bc5acbac04ea64f729fc10315c313954"
+  "hash": "b6ab6980325a253c3a14096af2275c7206610493fdeb93d4197fea05e90079be"
 }

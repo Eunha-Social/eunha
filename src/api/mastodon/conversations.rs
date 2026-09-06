@@ -23,8 +23,15 @@ use crate::{
     state::AppState,
 };
 
+// Mastodon's conversation id is the `account_conversations` row's own id, not
+// the `conversation_id` it points at. The two differ whenever a thread's
+// participant set changes: the table is unique on
+// (account_id, conversation_id, participant_account_ids), so one account can
+// hold several rows for one conversation. Serving `conversation_id` handed the
+// client duplicate ids, and a client that keys rows by id — as every one does —
+// renders and deletes the wrong ones.
 struct ConvRow {
-    conversation_id: i64,
+    id: i64,
     unread: bool,
     participant_account_ids: Vec<i64>,
     last_status_id: Option<i64>,
@@ -58,7 +65,7 @@ pub async fn get_conversations(
     let rows: Vec<ConvRow> = if min_id.is_some() {
         sqlx::query_as!(
             ConvRow,
-            r#"SELECT ac.conversation_id, ac.unread, ac.participant_account_ids, ac.last_status_id
+            r#"SELECT ac.id, ac.unread, ac.participant_account_ids, ac.last_status_id
                FROM account_conversations ac
                WHERE ac.account_id = $1
                  AND ($2::bigint IS NULL OR ac.last_status_id > $2)
@@ -73,7 +80,7 @@ pub async fn get_conversations(
     } else {
         sqlx::query_as!(
             ConvRow,
-            r#"SELECT ac.conversation_id, ac.unread, ac.participant_account_ids, ac.last_status_id
+            r#"SELECT ac.id, ac.unread, ac.participant_account_ids, ac.last_status_id
                FROM account_conversations ac
                WHERE ac.account_id = $1
                  AND ($2::bigint IS NULL OR ac.last_status_id < $2)
@@ -188,9 +195,6 @@ pub async fn get_conversations(
             batch_account_roles(&state, &all_stat_accounts_for_emoji).await;
 
         for s in &last_statuses {
-            let Some(conv_id) = s.conversation_id else {
-                continue;
-            };
             let Some(account) = status_account_map.get(&s.account_id) else {
                 continue;
             };
@@ -234,7 +238,7 @@ pub async fn get_conversations(
                 rb.poll = polls_map.get(&rid).cloned();
                 rb.card = cards_map.get(&rid).cloned();
             }
-            enriched_map.insert(conv_id, api);
+            enriched_map.insert(s.id, api);
         }
         hydrate_status_stats(&state, enriched_map.values_mut()).await;
     }
@@ -252,7 +256,7 @@ pub async fn get_conversations(
     let mut result = Vec::with_capacity(rows.len());
     for row in &rows {
         result.push(Conversation {
-            id: row.conversation_id.to_string(),
+            id: row.id.to_string(),
             unread: row.unread,
             accounts: row
                 .participant_account_ids
@@ -278,7 +282,12 @@ pub async fn get_conversations(
                     api_acct
                 })
                 .collect(),
-            last_status: enriched_map.remove(&row.conversation_id),
+            // `get`, not `remove`: two rows of one conversation may name the
+            // same last status.
+            last_status: row
+                .last_status_id
+                .and_then(|sid| enriched_map.get(&sid))
+                .cloned(),
         });
     }
 
@@ -309,7 +318,7 @@ pub async fn delete_conversation(
 ) -> AppResult<Json<serde_json::Value>> {
     auth.require_scope("write:conversations")?;
     let deleted = sqlx::query!(
-        "DELETE FROM account_conversations WHERE conversation_id = $1 AND account_id = $2 RETURNING conversation_id",
+        "DELETE FROM account_conversations WHERE id = $1 AND account_id = $2 RETURNING id",
         id,
         auth.account_id,
     )
@@ -338,7 +347,7 @@ pub async fn mark_conversation_unread(
     }
     let updated = sqlx::query_as!(
         Updated,
-        "UPDATE account_conversations SET unread = true WHERE conversation_id = $1 AND account_id = $2 RETURNING participant_account_ids, last_status_id",
+        "UPDATE account_conversations SET unread = true WHERE id = $1 AND account_id = $2 RETURNING participant_account_ids, last_status_id",
         id,
         auth.account_id,
     )
@@ -376,7 +385,7 @@ pub async fn mark_conversation_read(
     }
     let updated = sqlx::query_as!(
         Updated,
-        "UPDATE account_conversations SET unread = false WHERE conversation_id = $1 AND account_id = $2 RETURNING participant_account_ids, last_status_id",
+        "UPDATE account_conversations SET unread = false WHERE id = $1 AND account_id = $2 RETURNING participant_account_ids, last_status_id",
         id,
         auth.account_id,
     )
@@ -404,7 +413,7 @@ pub async fn mark_conversation_read(
 async fn build_conversation_response(
     state: &AppState,
     viewer_account_id: i64,
-    conversation_id: i64,
+    row_id: i64,
     unread: bool,
     participant_account_ids: Vec<i64>,
     last_status_id: Option<i64>,
@@ -446,7 +455,7 @@ async fn build_conversation_response(
     let participant_emojis_map = batch_account_emojis(state, &participants).await;
     let participant_roles_map = batch_account_roles(state, &participants).await;
     Ok(Conversation {
-        id: conversation_id.to_string(),
+        id: row_id.to_string(),
         unread,
         accounts: participants
             .iter()

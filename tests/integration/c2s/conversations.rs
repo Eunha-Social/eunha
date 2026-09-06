@@ -502,3 +502,168 @@ async fn test_mark_conversation_unread() {
         "conversation should be unread after marking unread"
     );
 }
+
+/// Two threads at once: deleting one leaves the other whole.
+///
+/// Every other test here keeps a single conversation alive, deleting it before
+/// creating the next, so nothing covered what a list of several does.
+#[tokio::test]
+async fn test_delete_one_of_several_conversations() {
+    let ctx = TestContext::new("conv-del-many").await;
+
+    // Three separate top-level DMs — each one starts its own conversation.
+    for i in 0..3 {
+        ctx.api
+            .post_json(
+                "/api/v1/statuses",
+                Some(&ctx.alice_token),
+                &json!({"status": format!("@bob thread {i}"), "visibility": "direct"}),
+            )
+            .await;
+    }
+
+    let before: Vec<Value> = ctx
+        .api
+        .get("/api/v1/conversations", Some(&ctx.bob_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        before.len(),
+        3,
+        "three top-level DMs are three conversations"
+    );
+
+    let gone = before[0]["id"].as_str().unwrap().to_string();
+    let del = ctx
+        .api
+        .delete(&format!("/api/v1/conversations/{gone}"), &ctx.bob_token)
+        .await;
+    assert_eq!(del.status(), StatusCode::OK);
+
+    let after: Vec<Value> = ctx
+        .api
+        .get("/api/v1/conversations", Some(&ctx.bob_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+
+    assert_eq!(after.len(), 2, "deleting one of three leaves two");
+    for c in &after {
+        assert!(
+            c["last_status"].is_object(),
+            "surviving conversation {} lost its last_status",
+            c["id"]
+        );
+    }
+}
+
+/// One conversation, two rows: the ids stay distinct and deleting one keeps the other.
+///
+/// `account_conversations` is unique on
+/// (account_id, conversation_id, participant_account_ids), so a thread whose
+/// participant set changes gives an account a second row for the same
+/// conversation — production has several. Serving `conversation_id` as the API
+/// id made those two rows share an id, and a client keying its list by id then
+/// rendered and deleted the wrong ones.
+#[tokio::test]
+async fn test_conversation_ids_are_per_row_not_per_conversation() {
+    let ctx = TestContext::new("conv-dup-id").await;
+    let (_carol_id, _carol_token) = crate::helpers::seed_account_and_token(
+        &ctx.db,
+        &ctx.domain,
+        "carol",
+        "carol@conv-dup-id.invalid",
+    )
+    .await;
+
+    // A DM to bob alone, then a reply in the same thread that adds carol. Bob
+    // ends up with two rows for one conversation, differing in participants.
+    let first: Value = ctx
+        .api
+        .post_json(
+            "/api/v1/statuses",
+            Some(&ctx.alice_token),
+            &json!({"status": "@bob just you", "visibility": "direct"}),
+        )
+        .await
+        .json()
+        .await
+        .unwrap();
+    let first_id = first["id"].as_str().unwrap().to_string();
+
+    ctx.api
+        .post_json(
+            "/api/v1/statuses",
+            Some(&ctx.alice_token),
+            &json!({
+                "status": "@bob @carol and you too",
+                "visibility": "direct",
+                "in_reply_to_id": first_id,
+            }),
+        )
+        .await;
+
+    let rows = sqlx::query!(
+        "SELECT count(*) AS n FROM account_conversations WHERE account_id = $1",
+        ctx.bob_id.parse::<i64>().unwrap(),
+    )
+    .fetch_one(&ctx.db)
+    .await
+    .unwrap();
+    assert_eq!(
+        rows.n,
+        Some(2),
+        "adding a participant should give bob a second row for the same conversation",
+    );
+
+    let convs: Vec<Value> = ctx
+        .api
+        .get("/api/v1/conversations", Some(&ctx.bob_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(convs.len(), 2);
+
+    let ids: Vec<&str> = convs.iter().map(|c| c["id"].as_str().unwrap()).collect();
+    assert_ne!(
+        ids[0], ids[1],
+        "two rows of one conversation must not share an id",
+    );
+
+    // Each row carries its own last status, rather than one of them taking it.
+    for c in &convs {
+        assert!(
+            c["last_status"].is_object(),
+            "conversation {} has no last_status",
+            c["id"],
+        );
+    }
+
+    // Deleting one leaves the other, which is what a client acting on an id
+    // is entitled to expect.
+    let gone = ids[0].to_string();
+    let kept = ids[1].to_string();
+    let del = ctx
+        .api
+        .delete(&format!("/api/v1/conversations/{gone}"), &ctx.bob_token)
+        .await;
+    assert_eq!(del.status(), StatusCode::OK);
+
+    let after: Vec<Value> = ctx
+        .api
+        .get("/api/v1/conversations", Some(&ctx.bob_token))
+        .await
+        .json()
+        .await
+        .unwrap();
+    let after_ids: Vec<&str> = after.iter().map(|c| c["id"].as_str().unwrap()).collect();
+    assert_eq!(
+        after_ids,
+        vec![kept.as_str()],
+        "deleting one row should leave exactly the other",
+    );
+}
