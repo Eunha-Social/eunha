@@ -4,16 +4,16 @@ import { toast } from 'sonner'
 import type { mastodon } from '../masto.ts'
 import { fileReport } from '../api.ts'
 import { errorMessage } from '@/lib/utils.ts'
+import { Button } from '@/components/ui/button.tsx'
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog.tsx'
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog.tsx'
 import { Label } from '@/components/ui/label.tsx'
 import {
   Select,
@@ -94,17 +94,20 @@ export function ReportDialog({
     }
   }
 
+  // A dialog rather than an alertdialog: this is a form to fill in, not a
+  // yes/no on something already decided. The block confirmation next door is
+  // the other kind and stays an AlertDialog.
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Report @{account.acct}?</AlertDialogTitle>
-          <AlertDialogDescription>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Report @{account.acct}?</DialogTitle>
+          <DialogDescription>
             {status
               ? 'This post is sent with the report so moderators can see what prompted it.'
               : 'Moderators on this server will see the report.'}
-          </AlertDialogDescription>
-        </AlertDialogHeader>
+          </DialogDescription>
+        </DialogHeader>
 
         <div className="space-y-3">
           <div className="space-y-1">
@@ -153,13 +156,17 @@ export function ReportDialog({
           )}
         </div>
 
-        <AlertDialogFooter>
-          <AlertDialogCancel disabled={sending}>Cancel</AlertDialogCancel>
-          <AlertDialogAction variant="destructive" disabled={sending} onClick={submit}>
+        <DialogFooter>
+          <DialogClose
+            render={<Button variant="outline" disabled={sending} />}
+          >
+            Cancel
+          </DialogClose>
+          <Button variant="destructive" disabled={sending} onClick={submit}>
             {sending ? 'Reporting…' : 'Report'}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
