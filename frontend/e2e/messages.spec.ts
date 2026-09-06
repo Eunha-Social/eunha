@@ -130,7 +130,11 @@ test('a message is sent as direct, not as the account default', async ({ page })
   await page.getByRole('button', { name: 'New', exact: true }).click()
 
   await expect(page.getByRole('heading', { name: 'New message' })).toBeVisible()
-  await expect(page.getByText('To: everyone mentioned')).toBeVisible()
+  // An unaddressed message has nobody in it yet; "Everyone mentioned" is what
+  // the audience menu says once opened.
+  await expect(page.getByRole('button', { name: 'Who can see this' })).toContainText(
+    'Nobody yet',
+  )
 
   await page.getByRole('textbox').fill('@bob hello')
   await page.getByRole('button', { name: 'Send', exact: true }).click()

@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { LockOpen, X } from 'lucide-react'
+import { Maximize2, Minus, X } from 'lucide-react'
 
 import type { mastodon } from '../masto.ts'
 import { getToken } from '../auth.ts'
@@ -38,22 +38,46 @@ export function ComposeModalProvider({ children }: { children: ReactNode }) {
   const [messageTo, setMessageTo] = useState<mastodon.v1.Account | null | undefined>(
     undefined,
   )
+  // The composer decides its own mode now — picking Direct in the audience menu
+  // turns a post into a message without the modal being told twice.
+  const [type, setType] = useState<'post' | 'reply' | 'message'>('post')
+  // 5.0's composer can be set aside without being thrown away: minimised it is
+  // a bar in the corner, and the page behind it becomes usable again.
+  const [minimized, setMinimized] = useState(false)
+  // Closing is a state rather than an unmount so the panel can animate out.
+  // Without it the composer would vanish on the frame the button is pressed,
+  // which is the one moment the motion is actually worth having.
+  const [closing, setClosing] = useState(false)
   const [onPosted, setOnPosted] =
     useState<((status: mastodon.v1.Status) => void) | null>(null)
 
-  const close = useCallback(() => {
+  const finishClose = useCallback(() => {
     setOpen(false)
+    setClosing(false)
     setReplyTo(null)
     setQuoteOf(null)
     setMessageTo(undefined)
+    setType('post')
+    setMinimized(false)
     setOnPosted(null)
   }, [])
+
+  const close = useCallback(() => {
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      finishClose()
+      return
+    }
+    setClosing(true)
+    window.setTimeout(finishClose, 140)
+  }, [finishClose])
 
   const openCompose = useCallback((options?: ComposeOptions) => {
     setReplyTo(options?.replyTo ?? null)
     setQuoteOf(options?.quoteOf ?? null)
     setMessageTo('messageTo' in (options ?? {}) ? (options?.messageTo ?? null) : undefined)
     setOnPosted(() => options?.onPosted ?? null)
+    setMinimized(false)
+    setClosing(false)
     setOpen(true)
   }, [])
 
@@ -61,62 +85,100 @@ export function ComposeModalProvider({ children }: { children: ReactNode }) {
   const token = getToken()
   // A reply is a reply even when it is private, matching upstream's
   // `selectComposeType` — reply wins over message.
-  const isMessage = messageTo !== undefined && !replyTo
+  const isMessage = type === 'message'
 
   return (
     <ComposeModalContext.Provider value={value}>
       {children}
       {open && token
         ? createPortal(
-            <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/45 px-3 py-10 sm:py-16">
+            <>
+              {/* The composer opens over the page rather than in the middle of
+                  it, so the backdrop only softens what is behind — and goes
+                  away entirely when the composer is set aside. */}
+              {!minimized && (
+                <div
+                  className={cn(
+                    'bg-background/50 fixed inset-0 z-40 backdrop-blur-[2px]',
+                    closing
+                      ? 'motion-safe:animate-out motion-safe:fade-out motion-safe:duration-150'
+                      : 'motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200',
+                  )}
+                  onClick={close}
+                />
+              )}
               <div
                 className={cn(
-                  'text-card-foreground w-full max-w-xl rounded-md border shadow-lg',
+                  'text-card-foreground fixed z-50 border shadow-xl',
+                  // Full-screen on a phone, a corner panel above the
+                  // breakpoint — the shape upstream's stylesheet describes.
+                  minimized
+                    ? 'right-3 bottom-3 w-[min(20rem,calc(100vw-1.5rem))] rounded-xl sm:right-6 sm:bottom-6'
+                    : 'inset-0 rounded-none sm:inset-auto sm:right-6 sm:bottom-6 sm:min-h-[520px] sm:w-[min(31.25rem,calc(100vw-3rem))] sm:rounded-xl',
+                  // Motion eunha adds: upstream swaps the panel in with none.
+                  closing
+                    ? 'motion-safe:animate-out motion-safe:fade-out motion-safe:zoom-out-95 motion-safe:slide-out-to-bottom-2 motion-safe:duration-150'
+                    : 'motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95 motion-safe:slide-in-from-bottom-4 motion-safe:duration-200',
                   // The ground changes in message mode, which is the whole
                   // point of it being a mode: you can see what you are writing
                   // into without reading a label.
                   isMessage ? 'bg-secondary' : 'bg-card',
+                  !minimized && 'flex flex-col',
                 )}
               >
-                <div className="flex items-center justify-between border-b px-4 py-2">
+                <div
+                  className={cn(
+                    'flex shrink-0 items-center justify-between px-4 py-2',
+                    !minimized && 'border-b',
+                  )}
+                >
                   <h2 className="text-sm font-semibold">
-                    {replyTo
+                    {type === 'reply'
                       ? 'Reply'
                       : isMessage
                         ? 'New message'
                         : quoteOf
                           ? 'Quote post'
-                          : 'Post'}
+                          : 'New post'}
                   </h2>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    aria-label="Close"
-                    onClick={close}
-                  >
-                    <X />
-                  </Button>
+                  <div className="flex items-center">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={minimized ? 'Expand composer' : 'Minimise composer'}
+                      onClick={() => setMinimized((m) => !m)}
+                    >
+                      {minimized ? <Maximize2 /> : <Minus />}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label="Close"
+                      onClick={close}
+                    >
+                      <X />
+                    </Button>
+                  </div>
                 </div>
-                {isMessage && (
-                  <p className="text-muted-foreground flex items-center gap-1.5 border-b px-4 py-2 text-xs">
-                    <LockOpen className="size-3.5 shrink-0" />
-                    Messages are not end-to-end encrypted.
-                  </p>
-                )}
-                <Compose
-                  token={token}
-                  replyTo={replyTo}
-                  quoteOf={quoteOf}
-                  messageTo={messageTo}
-                  onCancelReply={replyTo || quoteOf ? close : undefined}
-                  onPosted={(status) => {
-                    onPosted?.(status)
-                    close()
-                  }}
-                  framed={false}
-                />
+                {/* Kept mounted while minimised so a draft survives being set
+                    aside — that is the whole point of minimising. */}
+                <div className={cn('flex-1 overflow-y-auto', minimized && 'hidden')}>
+                  <Compose
+                    token={token}
+                    replyTo={replyTo}
+                    quoteOf={quoteOf}
+                    messageTo={messageTo}
+                    onTypeChange={setType}
+                    onCancelReply={replyTo || quoteOf ? close : undefined}
+                    onPosted={(status) => {
+                      onPosted?.(status)
+                      close()
+                    }}
+                    framed={false}
+                  />
+                </div>
               </div>
-            </div>,
+            </>,
             document.body,
           )
         : null}

@@ -6,35 +6,23 @@ import {
   type KeyboardEvent,
   type SyntheticEvent,
 } from 'react'
-import { Paperclip, X } from 'lucide-react'
+import { LockOpen, Paperclip, X } from 'lucide-react'
 
 import type { mastodon } from '../masto.ts'
 import { postStatus, updateMediaDescription, uploadMedia } from '../api.ts'
-import { getDefaultVisibility, getMeId, loadMe } from '../me.ts'
+import { getDefaultVisibility, getMeAccount, getMeId, loadMe } from '../me.ts'
 import { useMentionAutocomplete } from '../hooks/use-mention-autocomplete.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Card, CardContent } from '@/components/ui/card.tsx'
 import { Input } from '@/components/ui/input.tsx'
 import { Textarea } from '@/components/ui/textarea.tsx'
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select.tsx'
+import type { QuotePolicy } from '../api.ts'
 import { QuotedPost } from '@/components/quoted-post.tsx'
+import { ComposeAudience } from '@/components/compose-audience.tsx'
+import { ComposeHints } from '@/components/compose-hints.tsx'
 import { cn } from '@/lib/utils.ts'
 
 const MAX_ATTACHMENTS = 4
-
-const VISIBILITY_LABELS: Record<mastodon.v1.StatusVisibility, string> = {
-  public: 'Public',
-  unlisted: 'Unlisted',
-  private: 'Followers',
-  direct: 'Direct',
-}
 
 // Seed a reply's text with the handles of everyone in the conversation, the way
 // Mastodon's web client does (reducers/compose.js `statusToTextMentions`): the
@@ -60,6 +48,25 @@ function statusToTextMentions(
   return handles.length > 0 ? `${handles.join(' ')} ` : ''
 }
 
+// Mastodon's `privacyPreference`: a reply starts at whichever of the parent's
+// visibility and your own default is the more private. Replying to a
+// followers-only post with a public post by default is how a private thread
+// leaks, and it is not what upstream does.
+const PRIVACY_ORDER: mastodon.v1.StatusVisibility[] = [
+  'public',
+  'unlisted',
+  'private',
+  'direct',
+]
+
+function morePrivate(
+  a: mastodon.v1.StatusVisibility | undefined,
+  b: mastodon.v1.StatusVisibility,
+): mastodon.v1.StatusVisibility {
+  if (!a) return b
+  return PRIVACY_ORDER.indexOf(a) > PRIVACY_ORDER.indexOf(b) ? a : b
+}
+
 export function Compose({
   token,
   replyTo,
@@ -67,6 +74,7 @@ export function Compose({
   messageTo,
   onCancelReply,
   onPosted,
+  onTypeChange,
   framed = true,
 }: {
   token: string
@@ -78,15 +86,23 @@ export function Compose({
   messageTo?: mastodon.v1.Account | null
   onCancelReply?: () => void
   onPosted: (status: mastodon.v1.Status) => void
+  // The frame draws the title and the tint, but the mode is decided in here
+  // now that the audience menu can switch it.
+  onTypeChange?: (type: 'post' | 'reply' | 'message') => void
   framed?: boolean
 }) {
   const [text, setText] = useState('')
   const [caret, setCaret] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const isMessage = messageTo !== undefined
   const [visibility, setVisibility] = useState<mastodon.v1.StatusVisibility>(() =>
-    isMessage ? 'direct' : getDefaultVisibility(),
+    messageTo !== undefined
+      ? 'direct'
+      : morePrivate(replyTo?.visibility, getDefaultVisibility()),
   )
+  const [quotePolicy, setQuotePolicy] = useState<QuotePolicy>('public')
+  // Derived, not stored — picking Direct in the audience menu *is* switching to
+  // a message, and a reply stays a reply either way.
+  const isMessage = !replyTo && visibility === 'direct'
   const [attachments, setAttachments] = useState<mastodon.v1.MediaAttachment[]>([])
   const [busy, setBusy] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -98,18 +114,22 @@ export function Compose({
   // guard the default arrives a moment after mount and quietly turns a direct
   // message into whatever the account posts by default.
   useEffect(() => {
-    if (isMessage) return
+    if (messageTo !== undefined) return
     let cancelled = false
     loadMe(token)
       .then((me) => {
-        if (!cancelled && me) setVisibility(me.defaultVisibility)
+        // Same trap as message mode: this lands after mount, so it has to
+        // respect the parent's visibility rather than overwrite it.
+        if (!cancelled && me) {
+          setVisibility(morePrivate(replyTo?.visibility, me.defaultVisibility))
+        }
       })
       .catch(() => {})
 
     return () => {
       cancelled = true
     }
-  }, [token, isMessage])
+  }, [token, messageTo, replyTo?.visibility])
 
   // When a reply is opened, prefill the composer with the conversation's
   // handles (like Mastodon's COMPOSE_REPLY) and park the caret after them so
@@ -145,7 +165,11 @@ export function Compose({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messageTo?.id])
 
-  const label = replyTo ? 'Reply' : isMessage ? 'Send' : quoteOf ? 'Quote' : 'Post'
+  const label = replyTo ? 'Reply' : isMessage ? 'Send' : quoteOf ? 'Quote' : 'Publish'
+
+  useEffect(() => {
+    onTypeChange?.(replyTo ? 'reply' : isMessage ? 'message' : 'post')
+  }, [replyTo, isMessage, onTypeChange])
 
   const onFiles = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? [])
@@ -191,6 +215,10 @@ export function Compose({
         visibility,
         inReplyToId: replyTo?.id,
         quotedStatusId: quoteOf?.id,
+        // A post only its followers can see is one only its author can quote,
+        // which is what the menu shows by disabling the toggle.
+        quoteApprovalPolicy:
+          visibility === 'private' || visibility === 'direct' ? 'nobody' : quotePolicy,
         mediaIds: attachments.map((a) => a.id),
       })
       setText('')
@@ -257,10 +285,31 @@ export function Compose({
             <QuotedPost status={quoteOf} linked={false} />
           </div>
         )}
+        <div className="flex flex-wrap items-center gap-2">
+          <ComposeAudience
+            visibility={visibility}
+            onVisibilityChange={setVisibility}
+            quotePolicy={quotePolicy}
+            onQuotePolicyChange={setQuotePolicy}
+            text={text}
+            replyTo={replyTo}
+            meAcct={getMeAccount()?.acct ?? null}
+            defaultVisibility={getDefaultVisibility()}
+            disabled={busy}
+          />
+        </div>
+
+        {isMessage && (
+          <p className="text-muted-foreground flex items-center gap-1.5 text-xs">
+            <LockOpen className="size-3.5 shrink-0" />
+            Messages are not end-to-end encrypted.
+          </p>
+        )}
+
         <div className="relative">
           <Textarea
             ref={textareaRef}
-            className="resize-y"
+            className="resize-y transition-[border-color,box-shadow] duration-200 motion-reduce:transition-none"
             rows={3}
             placeholder="What's on your mind?"
             value={text}
@@ -359,6 +408,8 @@ export function Compose({
           onChange={onFiles}
         />
 
+        <ComposeHints replyTo={replyTo} attachments={attachments} />
+
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Button
@@ -371,33 +422,10 @@ export function Compose({
             >
               <Paperclip />
             </Button>
-            {isMessage ? (
-              <span className="text-muted-foreground text-xs">
-                To: everyone mentioned
-              </span>
-            ) : (
-              <Select
-                items={VISIBILITY_LABELS}
-                value={visibility}
-                onValueChange={(value) =>
-                  setVisibility(value as mastodon.v1.StatusVisibility)
-                }
-              >
-                <SelectTrigger size="sm" aria-label="Post visibility">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectGroup>
-                    <SelectItem value="public">Public</SelectItem>
-                    <SelectItem value="unlisted">Unlisted</SelectItem>
-                    <SelectItem value="private">Followers</SelectItem>
-                    <SelectItem value="direct">Direct</SelectItem>
-                  </SelectGroup>
-                </SelectContent>
-              </Select>
-            )}
             {uploading && (
-              <span className="text-muted-foreground text-xs">Uploading…</span>
+              <span className="text-muted-foreground motion-safe:animate-pulse text-xs">
+                Uploading…
+              </span>
             )}
           </div>
           <Button

@@ -40,6 +40,13 @@ export async function getHomeTimeline(
   return restClient(token).v1.timelines.home.list({ limit: 40, maxId })
 }
 
+// masto declares `QuoteApprovalPolicy` twice: the entity's — public,
+// followers, following, unsupported_policy — and the create parameter's, which
+// drops the last two and adds `nobody`. `mastodon.v1.QuoteApprovalPolicy`
+// resolves to the entity one, so naming it here would be the wrong union by a
+// value that matters. This is the create parameter's set, spelled out.
+export type QuotePolicy = 'public' | 'followers' | 'nobody'
+
 export function postStatus(
   token: string,
   params: {
@@ -48,9 +55,11 @@ export function postStatus(
     inReplyToId?: string
     quotedStatusId?: string
     mediaIds?: string[]
+    quoteApprovalPolicy?: QuotePolicy
   },
 ): Promise<mastodon.v1.Status> {
-  const { status, visibility, inReplyToId, quotedStatusId, mediaIds } = params
+  const { status, visibility, inReplyToId, quotedStatusId, mediaIds, quoteApprovalPolicy } =
+    params
   // With media, masto requires the media-ids variant (status optional).
   if (mediaIds && mediaIds.length > 0) {
     return restClient(token).v1.statuses.create({
@@ -59,9 +68,11 @@ export function postStatus(
       inReplyToId,
       quotedStatusId,
       mediaIds,
+      quoteApprovalPolicy,
     })
   }
   return restClient(token).v1.statuses.create({
+    quoteApprovalPolicy,
     status,
     visibility,
     inReplyToId,
