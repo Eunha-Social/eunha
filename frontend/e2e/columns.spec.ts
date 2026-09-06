@@ -111,3 +111,53 @@ test('the rail does not overlap the first pane on a wide screen', async ({ page 
     expect(rail!.x + rail!.width, `overlap at ${width}px`).toBeLessThanOrEqual(panes!.x)
   }
 })
+
+// The rail is fixed, so it cannot be centred by a flow it is not in. Rail and
+// panes are placed together from one measured number: centred while the group
+// fits, pinned once it does not.
+test('the rail and panes are centred together while they fit', async ({ page }) => {
+  await signedIn(page)
+  await page.goto('/settings')
+  await page.getByRole('switch').first().click()
+
+  const edges = async () => {
+    const rail = await page.locator('aside.sidebar-frame').boundingBox()
+    const gap = await page.evaluate(() => {
+      const row = document.querySelector('.advanced-frame')
+      if (!row) return null
+      const style = getComputedStyle(row)
+      const pad =
+        (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0)
+      const kids = Array.from(row.children) as HTMLElement[]
+      const content =
+        kids.reduce((sum, k) => sum + k.offsetWidth, 0) +
+        (parseFloat(style.columnGap) || 0) * (kids.length - 1) +
+        pad
+      const left = row.getBoundingClientRect().left
+      return window.innerWidth - (left + content)
+    })
+    return { left: rail!.x, right: gap! }
+  }
+
+  // Wide enough for rail plus three panes: even margins either side.
+  await page.setViewportSize({ width: 2000, height: 900 })
+  await page.goto('/')
+  let e = await edges()
+  expect(Math.abs(e.left - e.right), 'not centred at 2000px').toBeLessThan(4)
+  expect(e.left, 'centred group should not be pinned').toBeGreaterThan(20)
+
+  // Too narrow for the group: pinned left, and the panes scroll instead.
+  await page.setViewportSize({ width: 1300, height: 900 })
+  await page.goto('/')
+  e = await edges()
+  expect(Math.round(e.left), 'should pin once it stops fitting').toBe(16)
+
+  // And it follows a resize, not just a fresh load.
+  await page.setViewportSize({ width: 2000, height: 900 })
+  await expect
+    .poll(async () => {
+      const after = await edges()
+      return Math.abs(after.left - after.right) < 4
+    })
+    .toBe(true)
+})

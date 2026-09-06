@@ -173,7 +173,9 @@
 
   @media (min-width: 768px) {
     .advanced-frame {
-      margin-left: 15.75rem;
+      /* The rail's own width and the gap after it: the panes begin where the
+         rail ends. 1rem + 14.75rem is the pinned case's 15.75rem. */
+      margin-left: calc(var(--adv-left, 1rem) + 14.75rem);
     }
   }
 
@@ -187,10 +189,12 @@
   }
 
   /* That `left` keeps the rail beside a *centred* reading column, so on a wide
-     screen it drifts inward. The advanced layout has no centred column — the
-     panes fill the width from a fixed offset — so the rail is pinned instead,
-     or it lands on top of the first pane. */
+     screen it drifts inward and lands on the first pane. Here the rail and the
+     panes are placed as one group from `--adv-left`, which the layout measures:
+     the middle of the window while the group fits in it, and a pinned 1rem once
+     it does not. The fallback matches the pinned case, so the layout renders
+     correctly for the frame before the measurement lands. */
   html[data-layout='advanced'] .sidebar-frame {
-    left: 1rem;
+    left: var(--adv-left, 1rem);
   }
 }
