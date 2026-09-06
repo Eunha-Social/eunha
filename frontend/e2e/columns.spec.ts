@@ -16,6 +16,8 @@ async function signedIn(page: import('@playwright/test').Page) {
     r.fulfill({ json: { count: 0 } }),
   )
   await page.route('**/api/v1/timelines/**', (r) => r.fulfill({ json: [] }))
+  await page.route('**/api/v1/notifications**', (r) => r.fulfill({ json: [] }))
+  await page.route('**/api/v1/conversations**', (r) => r.fulfill({ json: [] }))
 }
 
 // The nav says Home; the column says what the feed is. Both are deliberate,
@@ -64,7 +66,48 @@ test('the advanced layout is opt-in and remembers its panes', async ({ page }) =
   await page.reload()
   await expect(page.locator('.advanced-pane')).toHaveCount(2)
 
-  // Only the missing one is offered back.
+  // Only what is missing is offered back.
   await page.getByRole('button', { name: 'Add a timeline' }).click()
-  await expect(page.getByRole('menuitem')).toHaveText(['Local'])
+  await expect(page.getByRole('menuitem')).toContainText(['Local'])
+})
+
+// It opens on the two panes a second column is *for* — the feed and what is
+// addressed to you — plus one more to choose.
+test('the advanced layout opens on timeline, notifications and one more', async ({
+  page,
+}) => {
+  await signedIn(page)
+  await page.goto('/settings')
+  await page.getByRole('switch').first().click()
+  await page.goto('/')
+
+  const titles = page.locator('.advanced-pane > header button').first()
+  await expect(titles).toHaveText('Following')
+  await expect(page.locator('.advanced-pane')).toHaveCount(3)
+  await expect(
+    page
+      .locator('.advanced-pane')
+      .nth(1)
+      .getByRole('button', { name: 'Notifications', exact: true }),
+  ).toBeVisible()
+})
+
+// The rail's default `left` follows a centred reading column, which this
+// layout does not have — unpinned, it lands on top of the first pane on any
+// wide screen. Checked at a width where the old positioning overlapped by
+// 200px.
+test('the rail does not overlap the first pane on a wide screen', async ({ page }) => {
+  await signedIn(page)
+  await page.goto('/settings')
+  await page.getByRole('switch').first().click()
+
+  for (const width of [1280, 1600, 2200]) {
+    await page.setViewportSize({ width, height: 900 })
+    await page.goto('/')
+    const rail = await page.locator('aside.sidebar-frame').boundingBox()
+    const panes = await page.locator('.advanced-frame').boundingBox()
+    expect(rail, `rail missing at ${width}`).not.toBeNull()
+    expect(panes, `panes missing at ${width}`).not.toBeNull()
+    expect(rail!.x + rail!.width, `overlap at ${width}px`).toBeLessThanOrEqual(panes!.x)
+  }
 })

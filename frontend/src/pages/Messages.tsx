@@ -8,6 +8,7 @@ import { deleteConversation, getConversations, markConversationRead } from '../a
 import { beginLogin, getToken } from '../auth.ts'
 import { useInfinitePaginator } from '../hooks/use-infinite-paginator.ts'
 import { TopBar } from '@/components/top-bar.tsx'
+import { ColumnHeader } from '@/components/column-header.tsx'
 import { RelativeTime } from '@/components/relative-time.tsx'
 import { InfiniteScroll } from '@/components/infinite-scroll.tsx'
 import { useComposeModal } from '@/components/compose-modal.tsx'
@@ -131,7 +132,7 @@ function ConversationRow({
   )
 }
 
-export default function Messages() {
+export function MessagesFeed() {
   const token = getToken()
   const { openCompose } = useComposeModal()
 
@@ -143,25 +144,20 @@ export default function Messages() {
 
   if (!token) {
     return (
-      <div className="page-frame">
-        <TopBar />
-        <Card>
+      <Card>
           <CardContent className="space-y-3 py-6 text-center">
             <p className="text-muted-foreground text-sm">
               Sign in to read your messages.
             </p>
-            <Button onClick={() => void beginLogin()}>Sign in</Button>
-          </CardContent>
-        </Card>
-      </div>
+          <Button onClick={() => void beginLogin()}>Sign in</Button>
+        </CardContent>
+      </Card>
     )
   }
 
   return (
-    <div className="page-frame">
-      <TopBar />
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <h1 className="text-lg font-bold">Messages</h1>
+    <>
+      <div className="mb-2 flex justify-end">
         {/* Opening with `messageTo: null` starts an unaddressed message — the
             recipient is typed into the text, as upstream does from this page. */}
         <Button size="sm" onClick={() => openCompose({ messageTo: null })}>
@@ -204,6 +200,20 @@ export default function Messages() {
           hasItems={!!conversations?.length}
         />
       </div>
-    </div>
+    </>
+  )
+}
+
+export default function Messages() {
+  return (
+    <>
+      <TopBar />
+      <div className="column-frame">
+        <ColumnHeader title="Messages" />
+        <div className="p-3">
+          <MessagesFeed />
+        </div>
+      </div>
+    </>
   )
 }

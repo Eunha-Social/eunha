@@ -12,17 +12,20 @@
 const ENABLED_KEY = 'eunha:panes'
 const LIST_KEY = 'eunha:panes:list'
 
-// The status timelines only. Notifications and Messages are columns upstream
-// can pin too, but they are lists of a different shape and reading them side
-// by side is not what the layout is for — that is left undone rather than
-// half-built.
-export type PaneId = 'home' | 'local' | 'public'
+export type PaneId = 'home' | 'notifications' | 'local' | 'public' | 'messages'
 
 export const PANES: { id: PaneId; title: string }[] = [
   { id: 'home', title: 'Following' },
+  { id: 'notifications', title: 'Notifications' },
   { id: 'local', title: 'Local' },
   { id: 'public', title: 'Federated' },
+  { id: 'messages', title: 'Messages' },
 ]
+
+// What the layout opens as: your timeline, what is addressed to you, and one
+// more you pick. Those first two are what a second column is *for* — watching
+// the feed without losing sight of replies — and the third is the choice.
+export const DEFAULT_PANES: PaneId[] = ['home', 'notifications', 'local']
 
 export function paneTitle(id: PaneId): string {
   return PANES.find((p) => p.id === id)?.title ?? id
@@ -49,15 +52,15 @@ export function setAdvancedLayout(on: boolean) {
 export function readPanes(): PaneId[] {
   try {
     const raw = localStorage.getItem(LIST_KEY)
-    if (!raw) return ['home', 'local', 'public']
+    if (!raw) return [...DEFAULT_PANES]
     const parsed: unknown = JSON.parse(raw)
-    if (!Array.isArray(parsed)) return ['home', 'local', 'public']
+    if (!Array.isArray(parsed)) return [...DEFAULT_PANES]
     const known = parsed.filter((id): id is PaneId =>
       PANES.some((p) => p.id === id),
     )
     return known.length > 0 ? known : ['home']
   } catch {
-    return ['home', 'local', 'public']
+    return [...DEFAULT_PANES]
   }
 }
 

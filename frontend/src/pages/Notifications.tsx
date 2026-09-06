@@ -8,6 +8,7 @@ import { beginLogin, getToken } from '../auth.ts'
 import { useInfiniteFeed } from '../hooks/use-infinite-feed.ts'
 import { useStreamingSubscription } from '../hooks/use-streaming-subscription.ts'
 import { TopBar } from '@/components/top-bar.tsx'
+import { ColumnHeader } from '@/components/column-header.tsx'
 import { StatusCard } from '@/components/status-card.tsx'
 import { useComposeModal } from '@/components/compose-modal.tsx'
 import { FollowRequestActions } from '@/components/follow-request-actions.tsx'
@@ -98,7 +99,7 @@ function NotificationItem({
   )
 }
 
-export default function Notifications() {
+export function NotificationsFeed() {
   const token = getToken()
   const { openCompose } = useComposeModal()
   const feed = useInfiniteFeed<mastodon.v1.Notification>(
@@ -175,18 +176,21 @@ export default function Notifications() {
   })
   const items = feed.items
 
+  if (!token) {
+    return (
+      <div className="space-y-2">
+        <p className="text-muted-foreground text-sm">
+          Sign in to see your notifications.
+        </p>
+        <Button size="sm" onClick={() => beginLogin()}>
+          Sign in
+        </Button>
+      </div>
+    )
+  }
+
   return (
-    <div className="page-frame">
-      <TopBar />
-      {!token ? (
-        <div className="space-y-2">
-          <p className="text-muted-foreground text-sm">Sign in to see your notifications.</p>
-          <Button size="sm" onClick={() => beginLogin()}>
-            Sign in
-          </Button>
-        </div>
-      ) : (
-        <div className="space-y-2">
+    <>
           {feed.error && <p className="text-destructive text-sm">{feed.error}</p>}
           {items === null && !feed.error && (
             <p className="text-muted-foreground text-sm">Loading…</p>
@@ -213,8 +217,20 @@ export default function Notifications() {
             done={feed.done}
             hasItems={!!items?.length}
           />
+    </>
+  )
+}
+
+export default function Notifications() {
+  return (
+    <>
+      <TopBar />
+      <div className="column-frame">
+        <ColumnHeader title="Notifications" />
+        <div className="space-y-2 p-3">
+          <NotificationsFeed />
         </div>
-      )}
-    </div>
+      </div>
+    </>
   )
 }

@@ -185,4 +185,12 @@
     @apply text-sidebar-foreground fixed top-0 hidden h-screen w-56 flex-col px-3 py-4 md:flex;
     left: max(1rem, calc(50% - 35.75rem));
   }
+
+  /* That `left` keeps the rail beside a *centred* reading column, so on a wide
+     screen it drifts inward. The advanced layout has no centred column — the
+     panes fill the width from a fixed offset — so the rail is pinned instead,
+     or it lands on top of the first pane. */
+  html[data-layout='advanced'] .sidebar-frame {
+    left: 1rem;
+  }
 }

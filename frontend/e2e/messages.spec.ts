@@ -105,7 +105,9 @@ test('the messages page lists conversations and marks the unread ones', async ({
   )
 
   await page.goto('/messages')
-  await expect(page.getByRole('heading', { name: 'Messages' })).toBeVisible()
+  await expect(
+    page.locator('.column-frame').getByRole('button', { name: 'Messages' }),
+  ).toBeVisible()
   await expect(page.getByText('are you there')).toBeVisible()
   await expect(page.getByText('older thread')).toBeVisible()
   // Exactly one of the two is unread.
