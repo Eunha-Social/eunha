@@ -309,9 +309,30 @@ export function Compose({
         <div className="relative">
           <Textarea
             ref={textareaRef}
-            className="resize-y transition-[border-color,box-shadow] duration-200 motion-reduce:transition-none"
+            // Borderless, like 5.0's: the panel is the frame, so the field
+            // inside it does not need one. `outline` rather than a ring
+            // because that is what upstream draws on focus — 2px in the brand
+            // colour, inset — and the placeholder gets out of the way once
+            // there is a cursor to see. `dark:bg-transparent` is needed too:
+            // the shadcn base tints textareas in dark mode.
+            className={cn(
+              'min-h-40 resize-none border-0 bg-transparent px-1 shadow-none dark:bg-transparent',
+              'focus-visible:border-0 focus-visible:ring-0',
+              // `focus`, not `focus-visible`: upstream draws this on click as
+              // well as on tab, and for a writing surface knowing it is live
+              // is worth the outline either way.
+              'focus:[outline:2px_solid_var(--color-primary)] focus:[outline-offset:-2px]',
+              'focus:placeholder:text-transparent',
+            )}
             rows={3}
-            placeholder="What's on your mind?"
+            // A message has no To: field — recipients are @-mentioned in the
+            // text itself, which is the one thing about a DM here nobody
+            // would guess. Upstream's placeholder says so; ours now does too.
+            placeholder={
+              isMessage
+                ? 'Add your recipients and your message.'
+                : 'What would you like to say?'
+            }
             value={text}
             onChange={(e) => {
               setText(e.target.value)

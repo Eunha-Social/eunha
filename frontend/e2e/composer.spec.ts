@@ -184,3 +184,26 @@ test('the corner button offers a post or a message', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'New message' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeVisible()
 })
+
+// The placeholder changes with the mode, because a message needs to say the
+// thing a Mastodon DM cannot show: there is no To: field, so the recipients
+// are typed into the text like any other mention.
+test('the placeholder tells a message writer where the recipients go', async ({
+  page,
+}) => {
+  await signedIn(page)
+  await page.goto('/')
+
+  await page.getByRole('button', { name: 'New post', exact: true }).click()
+  await expect(page.getByRole('textbox')).toHaveAttribute(
+    'placeholder',
+    'What would you like to say?',
+  )
+
+  await audience(page).click()
+  await page.getByRole('menuitem', { name: 'Compose a message instead' }).click()
+  await expect(page.getByRole('textbox')).toHaveAttribute(
+    'placeholder',
+    'Add your recipients and your message.',
+  )
+})
