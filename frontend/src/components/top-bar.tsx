@@ -4,6 +4,7 @@ import {
   Bell,
   Bookmark,
   Compass,
+  MessageCircle,
   Home,
   Info,
   LogIn,
@@ -82,6 +83,7 @@ function useNavItems(
     { to: '/search', icon: Search, label: 'Search' },
     { to: '/explore', icon: Compass, label: 'Explore' },
     { to: '/notifications', icon: Bell, label: 'Notifications', badge: unread },
+    { to: '/messages', icon: MessageCircle, label: 'Messages' },
     { to: '/bookmarks', icon: Bookmark, label: 'Bookmarks' },
   ]
   if (account) {

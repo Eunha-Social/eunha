@@ -32,6 +32,13 @@ export function useStatusStreaming({
   const onEvent = useCallback(
     (event: mastodon.streaming.Event) => {
       if (event.event === 'update') {
+        // A message arriving live would otherwise appear at the top of the
+        // home timeline, which is the one place Messages exists to keep it
+        // out of. Dropping it here rather than in the reducer keeps the feed's
+        // pagination cursor on what the server sent.
+        if ((event.payload.reblog ?? event.payload).visibility === 'direct') {
+          return
+        }
         mutate((items) =>
           items.some((item) => hasStatusId(item, event.payload.id))
             ? items.map((item) => mergeStatus(item, event.payload))

@@ -5,6 +5,7 @@ import {
   Ban,
   CheckCircle2,
   Flag,
+  MessageCircle,
   ImageUp,
   MoreHorizontal,
   Pencil,
@@ -34,10 +35,12 @@ import {
   updateAccountProfile,
 } from '../api.ts'
 import { getToken } from '../auth.ts'
+import { withoutMessages } from '../lib/statuses.ts'
 import { useInfiniteFeed } from '../hooks/use-infinite-feed.ts'
 import { TopBar } from '@/components/top-bar.tsx'
 import { StatusCard } from '@/components/status-card.tsx'
 import { ReportDialog } from '@/components/report-dialog.tsx'
+import { useComposeModal } from '@/components/compose-modal.tsx'
 import { InfiniteScroll } from '@/components/infinite-scroll.tsx'
 import { TimelineStack } from '@/components/timeline-stack.tsx'
 import {
@@ -594,6 +597,7 @@ export default function Profile() {
   const [relationshipBusy, setRelationshipBusy] = useState(false)
   const [confirmingBlock, setConfirmingBlock] = useState(false)
   const [reporting, setReporting] = useState(false)
+  const { openCompose } = useComposeModal()
   const [pinned, setPinned] = useState<mastodon.v1.Status[] | null>(null)
   const [imageBusy, setImageBusy] = useState<'avatar' | 'header' | null>(null)
   const [imageError, setImageError] = useState<string | null>(null)
@@ -606,7 +610,7 @@ export default function Profile() {
       account ? getAccountStatuses(account.id, token ?? undefined, maxId) : Promise.resolve([]),
     [account?.id, token],
   )
-  const statuses = feed.items
+  const statuses = withoutMessages(feed.items)
 
   // Pins come back in one response (there can be at most five) and are ordered
   // by when they were pinned, so they are fetched apart from the timeline feed
@@ -977,6 +981,11 @@ export default function Profile() {
                       }
                     />
                     <DropdownMenuContent align="end" className="w-auto">
+                      <DropdownMenuItem
+                        onClick={() => openCompose({ messageTo: account })}
+                      >
+                        <MessageCircle /> Message
+                      </DropdownMenuItem>
                       <DropdownMenuItem
                         onClick={toggleMute}
                         disabled={relationshipBusy}

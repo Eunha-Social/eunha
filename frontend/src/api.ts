@@ -356,6 +356,23 @@ export async function getPublicTimeline(
   return restClient(token).v1.timelines.public.list({ local, limit: 40, maxId })
 }
 
+// Direct-message threads. Paginated by the id of each conversation's last
+// status rather than by the conversation's own id, so this hands back the
+// paginator like the other `Link`-header lists.
+export function getConversations(
+  token: string,
+): mastodon.Paginator<mastodon.v1.Conversation[]> {
+  return restClient(token).v1.conversations.list()
+}
+
+export function markConversationRead(token: string, id: string) {
+  return restClient(token).v1.conversations.$select(id).read()
+}
+
+export function deleteConversation(token: string, id: string) {
+  return restClient(token).v1.conversations.$select(id).remove()
+}
+
 export async function getNotifications(
   token: string,
   maxId?: string,

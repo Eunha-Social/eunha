@@ -1,6 +1,7 @@
 import { useCallback } from 'react'
 
 import { getHomeTimeline } from '../api.ts'
+import { withoutMessages } from '../lib/statuses.ts'
 import type { mastodon } from '../masto.ts'
 import { getToken } from '../auth.ts'
 import { useInfiniteFeed } from '../hooks/use-infinite-feed.ts'
@@ -52,7 +53,7 @@ function HomeTimeline() {
     })
   }
 
-  const statuses = feed.items
+  const statuses = withoutMessages(feed.items)
 
   return (
     <div className="page-frame">

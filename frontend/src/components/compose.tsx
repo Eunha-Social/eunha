@@ -64,6 +64,7 @@ export function Compose({
   token,
   replyTo,
   quoteOf,
+  messageTo,
   onCancelReply,
   onPosted,
   framed = true,
@@ -71,6 +72,10 @@ export function Compose({
   token: string
   replyTo: mastodon.v1.Status | null
   quoteOf?: mastodon.v1.Status | null
+  // Opens the composer as a message: direct visibility, and the recipient's
+  // handle already typed if one was named. `undefined` means "not a message";
+  // `null` means "a message to nobody in particular yet".
+  messageTo?: mastodon.v1.Account | null
   onCancelReply?: () => void
   onPosted: (status: mastodon.v1.Status) => void
   framed?: boolean
@@ -78,15 +83,22 @@ export function Compose({
   const [text, setText] = useState('')
   const [caret, setCaret] = useState(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const [visibility, setVisibility] =
-    useState<mastodon.v1.StatusVisibility>(() => getDefaultVisibility())
+  const isMessage = messageTo !== undefined
+  const [visibility, setVisibility] = useState<mastodon.v1.StatusVisibility>(() =>
+    isMessage ? 'direct' : getDefaultVisibility(),
+  )
   const [attachments, setAttachments] = useState<mastodon.v1.MediaAttachment[]>([])
   const [busy, setBusy] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
+  // The account's default visibility seeds a post once it loads — but never a
+  // message, whose audience is fixed by being a message at all. Without this
+  // guard the default arrives a moment after mount and quietly turns a direct
+  // message into whatever the account posts by default.
   useEffect(() => {
+    if (isMessage) return
     let cancelled = false
     loadMe(token)
       .then((me) => {
@@ -97,7 +109,7 @@ export function Compose({
     return () => {
       cancelled = true
     }
-  }, [token])
+  }, [token, isMessage])
 
   // When a reply is opened, prefill the composer with the conversation's
   // handles (like Mastodon's COMPOSE_REPLY) and park the caret after them so
@@ -116,6 +128,24 @@ export function Compose({
     // Reseed only when the reply target changes, never on each keystroke.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [replyTo?.id])
+
+  // A message opened against a person starts with their handle, the same way a
+  // reply starts with the thread's. Upstream calls this `directCompose`.
+  useEffect(() => {
+    if (!messageTo) return
+    const seed = `@${messageTo.acct} `
+    setText(seed)
+    setCaret(seed.length)
+    requestAnimationFrame(() => {
+      const el = textareaRef.current
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(seed.length, seed.length)
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messageTo?.id])
+
+  const label = replyTo ? 'Reply' : isMessage ? 'Send' : quoteOf ? 'Quote' : 'Post'
 
   const onFiles = async (e: ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? [])
@@ -341,25 +371,31 @@ export function Compose({
             >
               <Paperclip />
             </Button>
-            <Select
-              items={VISIBILITY_LABELS}
-              value={visibility}
-              onValueChange={(value) =>
-                setVisibility(value as mastodon.v1.StatusVisibility)
-              }
-            >
-              <SelectTrigger size="sm" aria-label="Post visibility">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectGroup>
-                  <SelectItem value="public">Public</SelectItem>
-                  <SelectItem value="unlisted">Unlisted</SelectItem>
-                  <SelectItem value="private">Followers</SelectItem>
-                  <SelectItem value="direct">Direct</SelectItem>
-                </SelectGroup>
-              </SelectContent>
-            </Select>
+            {isMessage ? (
+              <span className="text-muted-foreground text-xs">
+                To: everyone mentioned
+              </span>
+            ) : (
+              <Select
+                items={VISIBILITY_LABELS}
+                value={visibility}
+                onValueChange={(value) =>
+                  setVisibility(value as mastodon.v1.StatusVisibility)
+                }
+              >
+                <SelectTrigger size="sm" aria-label="Post visibility">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="public">Public</SelectItem>
+                    <SelectItem value="unlisted">Unlisted</SelectItem>
+                    <SelectItem value="private">Followers</SelectItem>
+                    <SelectItem value="direct">Direct</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            )}
             {uploading && (
               <span className="text-muted-foreground text-xs">Uploading…</span>
             )}
@@ -368,9 +404,9 @@ export function Compose({
             size="sm"
             disabled={busy || !canPost}
             onClick={submit}
-            title={`${replyTo ? 'Reply' : quoteOf ? 'Quote' : 'Post'} (⌘/Ctrl + Enter)`}
+            title={`${label} (⌘/Ctrl + Enter)`}
           >
-            {replyTo ? 'Reply' : quoteOf ? 'Quote' : 'Post'}
+            {label}
           </Button>
         </div>
     </CardContent>
