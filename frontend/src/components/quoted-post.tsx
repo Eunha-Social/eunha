@@ -17,13 +17,15 @@ export function QuotedPost({
   const name = status.account.displayName || status.account.username
   const inner = (
     <>
-      <div className="flex items-center gap-1.5 text-xs">
+      <div className="flex min-w-0 items-center gap-1.5 text-xs">
         <Avatar className="size-4">
           <AvatarImage src={status.account.avatar} alt="" />
           <AvatarFallback>{name.slice(0, 1).toUpperCase()}</AvatarFallback>
         </Avatar>
-        <span className="text-foreground font-semibold">{name}</span>
-        <span className="text-muted-foreground">@{status.account.acct}</span>
+        <span className="text-foreground truncate font-semibold">{name}</span>
+        <span className="text-muted-foreground truncate">
+          @{status.account.acct}
+        </span>
       </div>
       <div
         className="text-foreground/90 mt-1 line-clamp-6 text-sm [&_a]:underline"

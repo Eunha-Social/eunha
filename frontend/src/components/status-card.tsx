@@ -280,18 +280,31 @@ export function StatusCard({
             {boostedBy.displayName || boostedBy.username} boosted
           </p>
         )}
-        <div className="flex items-center gap-2 text-sm">
-          <Link to={profilePath}>
+        <div className="@container flex items-center gap-2 text-sm">
+          <Link to={profilePath} className="shrink-0">
             <Avatar className="size-8">
               <AvatarImage src={status.account.avatar} alt="" />
               <AvatarFallback>{name.slice(0, 1).toUpperCase()}</AvatarFallback>
             </Avatar>
           </Link>
-          <Link to={profilePath} className="font-semibold no-underline hover:underline">
-            {name}
-          </Link>
-          <span className="text-muted-foreground">@{status.account.acct}</span>
-          <div className="text-muted-foreground ml-auto flex items-center gap-1 text-xs">
+          {/* Name and handle sit on one line where there is room for one, and
+              stack where there is not. A pane in the advanced layout is 24rem
+              wide, which is narrow enough that a long name and a remote handle
+              between them leave the time and the menu nothing to sit in; the
+              same is true of a phone held upright. Both names truncate either
+              way, so neither can push the meta off the end of the row. */}
+          <div className="@[22rem]:flex-row @[22rem]:items-center @[22rem]:gap-2 @[22rem]:leading-normal flex min-w-0 flex-col leading-tight">
+            <Link
+              to={profilePath}
+              className="truncate font-semibold no-underline hover:underline"
+            >
+              {name}
+            </Link>
+            <span className="text-muted-foreground truncate">
+              @{status.account.acct}
+            </span>
+          </div>
+          <div className="text-muted-foreground ml-auto flex shrink-0 items-center gap-1 text-xs">
             <VisibilityIcon v={status.visibility} />
             <Link to={threadPath} className="no-underline hover:underline">
               <RelativeTime value={status.createdAt} />
