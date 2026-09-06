@@ -126,7 +126,15 @@ export function AdvancedLayout() {
     setPanes(next)
     writePanes(next)
   }
-  const remove = (id: PaneId) => update(panes.filter((p) => p !== id))
+  // The last pane stays. Closing it would leave the layout with nothing in it
+  // and no way back except the Add menu, which is a dead end rather than a
+  // choice — and "advanced layout, showing nothing" is not a state worth being
+  // able to reach.
+  const canClose = panes.length > 1
+  const remove = (id: PaneId) => {
+    if (!canClose) return
+    update(panes.filter((p) => p !== id))
+  }
   const add = (id: PaneId) => update([...panes, id])
   const available = PANES.filter((p) => !panes.includes(p.id))
 
@@ -141,6 +149,12 @@ export function AdvancedLayout() {
                 variant="ghost"
                 size="icon"
                 aria-label={`Close ${paneTitle(id)}`}
+                title={
+                  canClose
+                    ? `Close ${paneTitle(id)}`
+                    : 'The last column cannot be closed'
+                }
+                disabled={!canClose}
                 onClick={() => remove(id)}
               >
                 <X />

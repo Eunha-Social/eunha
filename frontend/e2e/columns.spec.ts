@@ -161,3 +161,21 @@ test('the rail and panes are centred together while they fit', async ({ page }) 
     })
     .toBe(true)
 })
+
+// A layout showing nothing is not a state worth being able to reach, so the
+// last pane's close button goes dead rather than emptying the frame.
+test('the last pane cannot be closed', async ({ page }) => {
+  await signedIn(page)
+  await page.goto('/settings')
+  await page.getByRole('switch').first().click()
+  await page.goto('/')
+
+  await page.getByRole('button', { name: 'Close Local' }).click()
+  await page.getByRole('button', { name: 'Close Notifications' }).click()
+  await expect(page.locator('.advanced-pane')).toHaveCount(1)
+
+  const close = page.getByRole('button', { name: 'Close Following' })
+  await expect(close).toBeDisabled()
+  await close.click({ force: true })
+  await expect(page.locator('.advanced-pane')).toHaveCount(1)
+})
